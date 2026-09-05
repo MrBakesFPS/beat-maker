@@ -100,7 +100,7 @@ struct Send
     bool isActive() const noexcept { return bus >= 0; }
 };
 
-enum class AutomationMode { off, read, touch, latch, write };
+enum class AutomationMode { off, read, touch, latch, write, trim };
 
 // Pro Tools-style meter types. K-System meters show RMS with 0 at -12/-14/-20 dBFS.
 enum class MeterType { samplePeak, rms, peakAndRms, vu, k12, k14, k20 };
@@ -123,7 +123,7 @@ inline const char* meterTypeName (MeterType m)
 inline const char* automationModeName (AutomationMode m)
 {
     switch (m) { case AutomationMode::off: return "Off"; case AutomationMode::read: return "Read"; case AutomationMode::touch: return "Touch";
-                 case AutomationMode::latch: return "Latch"; case AutomationMode::write: return "Write"; }
+                 case AutomationMode::latch: return "Latch"; case AutomationMode::write: return "Write"; case AutomationMode::trim: return "Trim"; }
     return "";
 }
 
@@ -197,6 +197,7 @@ struct Track
     AutomationMode automationMode = AutomationMode::read;
     std::vector<std::shared_ptr<const engine::AutomationLane>> automation;   // one lane per parameter
     std::vector<engine::ParamId> writing;   // parameters in an active write pass (transient)
+    float volumeTrim = 1.0f;                // live Trim-mode offset (linear), transient
 
     const engine::AutomationLane* laneFor (const engine::ParamId& p) const noexcept
     {
@@ -248,6 +249,7 @@ public:
     }
     int indexOfTrackId (int id) const noexcept;
     const Track& getMaster() const noexcept { return master; }
+    const Track* getTrackOrMaster (int index) const noexcept { return index == -1 ? &master : getTrack (index); }
     const IOSetup& getIO() const noexcept { return io; }
     const std::vector<Group>& getGroups() const noexcept { return groups; }
     const Group* getGroup (int groupId) const noexcept
@@ -299,6 +301,7 @@ private:
     friend class ReplaceAutomationLaneCommand;
     friend class SetAutomationModeCommand;
     friend class SetAutomationWritingCommand;
+    friend class SetVolumeTrimCommand;
     friend class SetIOSetupCommand;
     friend class SetDelayCompensationCommand;
     friend class CreateGroupCommand;
@@ -931,6 +934,20 @@ public:
     void undo (Session&) override {}
 private:
     int index, in, out;
+};
+
+// Live Trim offset (transient, like the writing flags).
+class SetVolumeTrimCommand final : public Command
+{
+public:
+    SetVolumeTrimCommand (int trackIndex, float linearTrim) : index (trackIndex), trim (juce::jlimit (0.0f, 8.0f, linearTrim)) {}
+    juce::String getName() const override { return "Trim"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->volumeTrim = trim; }
+    void undo (Session&) override {}
+private:
+    int index;
+    float trim;
 };
 
 class AddMidiClipCommand final : public Command

@@ -269,7 +269,8 @@ void TrackArea::rebuildTrackControls()
         c.autoMode = std::make_unique<juce::ComboBox>();
         c.autoMode->setTooltip ("Automation mode");
         int id = 1;
-        for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch, model::AutomationMode::write })
+        for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch,
+                        model::AutomationMode::write, model::AutomationMode::trim })
             c.autoMode->addItem (model::automationModeName (m), id++);
         c.autoMode->setSelectedId ((int) track.automationMode + 1, juce::dontSendNotification);
         c.autoMode->onChange = [this, i, box = c.autoMode.get()]

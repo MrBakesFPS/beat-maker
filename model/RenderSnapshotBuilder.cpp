@@ -70,6 +70,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
         if (track.outputBus < 0 && track.outputPath > 0)
             if (auto* path = io.output (track.outputPath)) strip.outputChannel = path->firstChannel;
         strip.automationRead = track.automationMode != AutomationMode::off;
+        strip.trimGain = track.volumeTrim;
         for (const auto& lane : track.automation)
             if (lane != nullptr && ! lane->isEmpty())
                 strip.automation.push_back ({ lane, track.isWriting (lane->param) });
@@ -139,8 +140,14 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
     }
 
     // ---- Master ----
-    snapshot->master.gain = session.getMaster().gain;
-    snapshot->master.inserts = renderInserts (session.getMaster());
+    const auto& master = session.getMaster();
+    snapshot->master.gain = master.gain;
+    snapshot->master.inserts = renderInserts (master);
+    snapshot->master.automationRead = master.automationMode != AutomationMode::off;
+    snapshot->master.trimGain = master.volumeTrim;
+    for (const auto& lane : master.automation)
+        if (lane != nullptr && ! lane->isEmpty())
+            snapshot->master.automation.push_back ({ lane, master.isWriting (lane->param) });
 
     return snapshot;
 }

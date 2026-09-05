@@ -529,6 +529,9 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
         gainEnd   = lane->valueAt (blockStart + numSamples, strip.gain);
     }
 
+    // Trim mode: a live relative offset on top of whatever the lane says.
+    if (strip.automationRead) { gainStart *= strip.trimGain; gainEnd *= strip.trimGain; }
+
     // VCA master: its fader (and volume automation) scales ours.
     if (current != nullptr && juce::isPositiveAndBelow (strip.vcaStrip, (int) current->strips.size()))
     {
@@ -646,9 +649,25 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
                 processStrip (strip, i, pos, numSamples, outputs, numOutputs);
             }
 
-        // Master
+        // Master (fader with its own volume automation and trim)
         processInserts (current->master.inserts, mainBuffer, numSamples);
-        mainBuffer.applyGain (0, numSamples, current->master.gain);
+        {
+            const auto& m = current->master;
+            float g0 = m.gain, g1 = m.gain;
+            if (m.automationRead)
+            {
+                for (const auto& a : m.automation)
+                    if (! a.bypass && a.lane != nullptr && a.lane->param == ParamId::volume() && ! a.lane->isEmpty())
+                    {
+                        g0 = a.lane->valueAt (pos, m.gain);
+                        g1 = a.lane->valueAt (pos + numSamples, m.gain);
+                        break;
+                    }
+                g0 *= m.trimGain; g1 *= m.trimGain;
+            }
+            for (int ch = 0; ch < 2; ++ch)
+                mainBuffer.applyGainRamp (ch, 0, numSamples, g0, g1);
+        }
         masterMeter.update (mainBuffer, numSamples, transport.getSampleRate());
         loudness.process (mainBuffer, numSamples);
 

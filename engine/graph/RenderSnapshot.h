@@ -126,6 +126,7 @@ struct RenderStrip
     std::vector<RenderSend> sends;
     std::vector<RenderAutomation> automation;   // read when automationRead is true
     bool automationRead = false;
+    float trimGain = 1.0f;                       // live Trim-mode offset on top of the volume lane
 
     int delaySamples = 0;      // delay compensation + user offset, applied after the inserts
     int outputChannel = -1;    // >= 0: direct to this device channel pair, bypassing the master
@@ -137,6 +138,9 @@ struct RenderMaster
 {
     float gain = 1.0f;
     std::vector<RenderInsert> inserts;
+    std::vector<RenderAutomation> automation;
+    bool automationRead = false;
+    float trimGain = 1.0f;
 };
 
 struct RenderSnapshot

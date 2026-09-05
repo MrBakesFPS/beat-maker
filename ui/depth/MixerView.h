@@ -31,6 +31,7 @@ public:
     // Automation hooks (track index, parameter, value, gestureActive)
     std::function<void (int, const engine::ParamId&, float, bool)> onParameterChanged;
     std::function<void (int, const engine::ParamId&)> onGestureEnded;
+    std::function<void (int, float trimDb, bool gestureActive)> onTrimChanged;   // Trim mode fader moves
     std::function<std::optional<float> (int, const engine::ParamId&)> automatedValue;   // value to display when reading
 
     void paint (juce::Graphics&) override;

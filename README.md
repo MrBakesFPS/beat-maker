@@ -87,7 +87,12 @@ Run the tests with `ctest --test-dir build`.
   Latch afterwards, as in Pro Tools). In Read the mixer controls follow the
   lane. Switch a track's view from Clips to a lane to draw breakpoints: click
   to add, drag to move, right-click or Alt-click to delete. Volume ramps
-  sample-accurately across each block.
+  sample-accurately across each block. The Master strip has the same modes
+  and a volume lane. Trim mode adjusts existing volume automation relatively:
+  while playing, fader moves are recorded as a trim pass and baked into the
+  lane on stop (existing breakpoints scaled, the trim curve added, untrimmed
+  data resumed after the pass); while stopped, a fader move scales the whole
+  lane. Trim faders spring back and show the offset while you hold them.
 - Mixer (X): a Pro Tools-style Mix window with one channel strip per track
   plus a Master strip. Each strip has 10 insert slots (5 shown) hosting the
   built-in EQ, Compressor, Delay and Reverb (click to edit the knobs in a
@@ -147,8 +152,8 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 2: Trim automation and master automation, clip gain
-breakpoints, Scrubber and Pencil tools. See PLAN.md §5.
+Still to come in Phase 2: clip gain breakpoints, Scrubber and Pencil tools.
+See PLAN.md §5.
 
 ## Architecture in one paragraph
 

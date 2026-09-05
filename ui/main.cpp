@@ -89,6 +89,7 @@ public:
         mixerView.onParameterChanged = [this] (int t, const engine::ParamId& p, float v, bool g) { automation.parameterChanged (t, p, v, g); };
         mixerView.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
         mixerView.automatedValue = [this] (int t, const engine::ParamId& p) { return automation.displayedValue (t, p); };
+        mixerView.onTrimChanged = [this] (int t, float db, bool g) { automation.trimChanged (t, db, g); };
         smartControls.onParameterChanged = [this] (int t, const engine::ParamId& p, float v, bool g) { automation.parameterChanged (t, p, v, g); };
         smartControls.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
         trackArea.onAutomationModeChanged = [this] (int t, model::AutomationMode m)

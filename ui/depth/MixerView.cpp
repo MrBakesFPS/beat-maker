@@ -148,6 +148,18 @@ public:
             };
         }
 
+        addAndMakeVisible (autoMode);
+        int am = 1;
+        for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch,
+                        model::AutomationMode::write, model::AutomationMode::trim })
+            autoMode.addItem (model::automationModeName (m), am++);
+        autoMode.setTooltip ("Automation mode (Trim adjusts existing volume automation relatively)");
+        autoMode.onChange = [this]
+        {
+            if (! syncing && autoMode.getSelectedId() > 0)
+                issue (std::make_unique<model::SetAutomationModeCommand> (index, (model::AutomationMode) (autoMode.getSelectedId() - 1)));
+        };
+
         addAndMakeVisible (fader);
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -157,17 +169,42 @@ public:
         fader.setColour (juce::Slider::trackColourId, theme::gridStrong);
         fader.setColour (juce::Slider::backgroundColourId, theme::background);
         fader.setColour (juce::Slider::thumbColourId, theme::text);
-        fader.onDragStart = [this] { gesture = true; changed = false; };
-        fader.onDragEnd = [this] { endGesture (engine::ParamId::volume()); };
+        fader.onDragStart = [this]
+        {
+            gesture = true; changed = false;
+            trimGestureStart = (float) fader.getValue();
+            trimming = inTrimMode();
+        };
+        fader.onDragEnd = [this]
+        {
+            endGesture (engine::ParamId::volume());
+            if (trimming)
+            {
+                // Trim faders spring back: the level itself never changed.
+                trimming = false; currentTrimDb = 0.0f;
+                syncing = true; fader.setValue (trimGestureStart, juce::dontSendNotification); syncing = false;
+                repaint();
+            }
+        };
         fader.onValueChange = [this]
         {
             if (syncing) return;
-            if (auto* t = track())
+            auto* t = track();
+            if (t == nullptr) return;
+
+            if (inTrimMode())
             {
-                if (isMaster()) issue (std::make_unique<model::SetTrackMixCommand> (index, (float) fader.getValue(), t->pan));
-                else            issue (model::GroupLogic::mixCommand (mixer.session, index, (float) fader.getValue(), t->pan));
-                report (engine::ParamId::volume(), (float) fader.getValue());
+                if (! gesture) { trimGestureStart = t->gain; }   // keyboard / double-click: instant trim
+                trimming = true;
+                currentTrimDb = juce::Decibels::gainToDecibels ((float) fader.getValue(), -60.0f) - juce::Decibels::gainToDecibels (trimGestureStart, -60.0f);
+                if (mixer.onTrimChanged) mixer.onTrimChanged (index, currentTrimDb, gesture);
+                if (! gesture) { trimming = false; syncing = true; fader.setValue (t->gain, juce::dontSendNotification); syncing = false; }
+                return;
             }
+
+            if (isMaster()) issue (std::make_unique<model::SetTrackMixCommand> (index, (float) fader.getValue(), t->pan));
+            else            issue (model::GroupLogic::mixCommand (mixer.session, index, (float) fader.getValue(), t->pan));
+            report (engine::ParamId::volume(), (float) fader.getValue());
         };
 
         if (! isMaster())
@@ -192,17 +229,6 @@ public:
             {
                 if (syncing || vcaBox.getSelectedId() == 0) return;
                 issue (std::make_unique<model::SetTrackVcaCommand> (index, vcaBox.getSelectedId() == 1 ? -1 : vcaBox.getSelectedId() - 1000));
-            };
-
-            addAndMakeVisible (autoMode);
-            int am = 1;
-            for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch, model::AutomationMode::write })
-                autoMode.addItem (model::automationModeName (m), am++);
-            autoMode.setTooltip ("Automation mode");
-            autoMode.onChange = [this]
-            {
-                if (! syncing && autoMode.getSelectedId() > 0)
-                    issue (std::make_unique<model::SetAutomationModeCommand> (index, (model::AutomationMode) (autoMode.getSelectedId() - 1)));
             };
 
             addAndMakeVisible (output);
@@ -256,23 +282,28 @@ public:
 
     void report (const engine::ParamId& p, float value)
     {
-        if (! isMaster() && mixer.onParameterChanged) mixer.onParameterChanged (index, p, value, gesture);
+        if (mixer.onParameterChanged) mixer.onParameterChanged (index, p, value, gesture);
     }
     void endGesture (const engine::ParamId& p)
     {
         gesture = false; changed = false;
-        if (! isMaster() && mixer.onGestureEnded) mixer.onGestureEnded (index, p);
+        if (mixer.onGestureEnded) mixer.onGestureEnded (index, p);
     }
+
+    bool inTrimMode() const { auto* t = track(); return t != nullptr && t->automationMode == model::AutomationMode::trim; }
 
     // In Read mode the fader/pan/sends follow the automation lane.
     void followAutomation()
     {
-        if (isMaster() || gesture || ! mixer.automatedValue) return;
+        if (gesture || ! mixer.automatedValue) return;
         syncing = true;
         if (auto v = mixer.automatedValue (index, engine::ParamId::volume())) fader.setValue (*v, juce::dontSendNotification);
-        if (auto v = mixer.automatedValue (index, engine::ParamId::pan()))    pan.setValue (*v, juce::dontSendNotification);
-        for (int i = 0; i < sendLevels.size(); ++i)
-            if (auto v = mixer.automatedValue (index, engine::ParamId::send (i))) sendLevels[i]->setValue (*v, juce::dontSendNotification);
+        if (! isMaster())
+        {
+            if (auto v = mixer.automatedValue (index, engine::ParamId::pan()))    pan.setValue (*v, juce::dontSendNotification);
+            for (int i = 0; i < sendLevels.size(); ++i)
+                if (auto v = mixer.automatedValue (index, engine::ParamId::send (i))) sendLevels[i]->setValue (*v, juce::dontSendNotification);
+        }
         syncing = false;
     }
 
@@ -316,9 +347,12 @@ public:
             pan.setVisible (! vca);
             output.setVisible (! vca);
             vcaBox.setVisible (! vca);
+        }
+        {
             autoMode.setSelectedId ((int) t->automationMode + 1, juce::dontSendNotification);
-            const bool writing = ! t->writing.empty();
+            const bool writing = ! t->writing.empty() || std::abs (t->volumeTrim - 1.0f) > 1.0e-6f;
             autoMode.setColour (juce::ComboBox::backgroundColourId, writing ? theme::record.darker (0.3f)
+                                : t->automationMode == model::AutomationMode::trim ? juce::Colour (0xff8e6bbf)
                                 : t->automationMode == model::AutomationMode::off ? theme::background : theme::accent.darker (0.65f));
         }
         fader.setValue (t->gain, juce::dontSendNotification);
@@ -601,10 +635,11 @@ public:
             line ("TP",  fmt (r.truePeakDb) + " dBTP");
         }
 
-        // Fader dB readout
-        g.setColour (theme::accent);
+        // Fader dB readout (trim offset while trimming)
+        g.setColour (trimming ? juce::Colour (0xffc39bd3) : theme::accent);
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        g.drawText (dbText (t->gain), dbBounds, juce::Justification::centred);
+        g.drawText (trimming ? (currentTrimDb >= 0.0f ? "+" : "") + juce::String (currentTrimDb, 1) + " trim" : dbText (t->gain),
+                    dbBounds, juce::Justification::centred);
         if (! isMaster() && ! isVca())
         {
             g.setColour (theme::textDim);
@@ -638,7 +673,9 @@ public:
         }
 
         auto bottom = area.removeFromBottom (isMaster() ? 22 : 88);
-        if (! isMaster())
+        if (isMaster())
+            autoMode.setBounds (bottom.removeFromBottom (20));
+        else
         {
             output.setBounds (bottom.removeFromBottom (20));
             bottom.removeFromBottom (2);
@@ -679,6 +716,8 @@ private:
     int sendsY = 0;
     float heldL = 0.0f, heldR = 0.0f;
     bool clipHeld = false;
+    bool trimming = false;
+    float trimGestureStart = 1.0f, currentTrimDb = 0.0f;
     bool gesture = false, changed = false, syncing = false;
 };
 

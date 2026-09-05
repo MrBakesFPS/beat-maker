@@ -23,6 +23,12 @@ public:
     void parameterChanged (int trackIndex, const engine::ParamId&, float value, bool gestureActive);
     // Call when the user releases a control.
     void gestureEnded (int trackIndex, const engine::ParamId&);
+
+    // Trim mode: the fader reports an offset in dB relative to where the
+    // gesture started. Playing: recorded as a trim pass and baked into the
+    // volume lane on stop. Stopped: the whole lane is scaled (one undo step).
+    void trimChanged (int trackIndex, float trimDb, bool gestureActive);
+    bool isTrimming (int trackIndex) const;
     // Call from a timer: detects play start (Write mode) and stop (ends passes).
     void tick();
 
@@ -39,20 +45,27 @@ private:
     {
         AutomationMode mode;
         juce::int64 start = 0;
-        std::vector<engine::AutomationPoint> points;
+        std::vector<engine::AutomationPoint> points;   // Trim passes store the trim in dB
         float lastValue = 0.0f;
         bool gestureActive = false;
+    };
+    struct StaticTrim
+    {
+        std::shared_ptr<const engine::AutomationLane> base;
+        bool issued = false;
     };
 
     juce::int64 now() const noexcept;
     void beginPass (const Key&, AutomationMode, float value, bool gestureActive);
     void finishPass (const Key&, Pass&, juce::int64 end);
+    void finishTrimPass (const Key&, Pass&, juce::int64 end);
     void finishAll (juce::int64 end);
     static float currentValue (const Track&, const engine::ParamId&);
 
     Session& session;
     engine::Transport& transport;
     std::map<Key, Pass> passes;
+    std::map<int, StaticTrim> staticTrims;   // by track index, while stopped
     bool wasPlaying = false;
     juce::int64 lastKnownPosition = 0;
 };
