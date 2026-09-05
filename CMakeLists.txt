@@ -14,6 +14,19 @@ FetchContent_Declare(JUCE
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(JUCE)
 
+# Rubber Band Library (GPL) for Elastic-style time stretching and pitch
+# shifting. Built from its single-file amalgamation: no Meson, no external
+# FFT or resampler.
+FetchContent_Declare(rubberband
+    GIT_REPOSITORY https://github.com/breakfastquay/rubberband.git
+    GIT_TAG        v4.0.0
+    GIT_SHALLOW    TRUE)
+FetchContent_MakeAvailable(rubberband)
+add_library(rubberband STATIC ${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp)
+target_include_directories(rubberband PUBLIC ${rubberband_SOURCE_DIR})
+target_compile_options(rubberband PRIVATE -w)   # third-party: warnings are theirs
+set_target_properties(rubberband PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_subdirectory(engine)
 add_subdirectory(model)
 add_subdirectory(persistence)

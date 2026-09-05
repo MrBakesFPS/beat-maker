@@ -9,6 +9,8 @@ target_sources(beatmaker_engine INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/DrumMachine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Effects.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Resampler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/dsp/TimeStretch.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Transients.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Instruments.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/graph/AudioGraph.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/AudioEngine.cpp
@@ -18,6 +20,7 @@ target_sources(beatmaker_engine INTERFACE
 target_include_directories(beatmaker_engine INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(beatmaker_engine INTERFACE
+    rubberband
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats

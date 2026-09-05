@@ -17,6 +17,7 @@ struct EditSettings
     Tool tool = Tool::smart;
     double gridBeats = 1.0;        // 4 = bar, 1 = beat, 0.5 = 1/8, 0.25 = 1/16
     bool relativeGrid = false;     // Grid mode: snap the *movement* rather than the start
+    bool tceTrim = false;          // Trimmer: Time Compression/Expansion (stretch instead of reveal/hide)
 
     std::function<void()> onChanged;
     void notify() { if (onChanged) onChanged(); }

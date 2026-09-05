@@ -168,7 +168,7 @@ beat-maker/
 - Block sizes 32–2048 samples; sample rates 44.1k–192k.
 - 64-bit float internal mixing, 32-bit float plugin I/O.
 - Tempo map with ramps; bars/beats ↔ samples conversion cached per block.
-- Time-stretch via Rubber Band Library (or SoundTouch as fallback) for Elastic-style modes.
+- Time-stretch via Rubber Band Library 4.0.0 (GPL, single-file build fetched by CMake) for Elastic-style modes.
 - Transient detection for Beat Detective-style features and tab-to-transient.
 - Offline render path shares graph code with real-time path (guarantees bounce == playback).
 
@@ -183,7 +183,7 @@ beat-maker/
 ## 5. Roadmap
 
 ### Phase 0 — Foundation (Weeks 1–4)
-- [x] Repo, CMake, coding standards. (CI and license decision still open.)
+- [x] Repo, CMake, coding standards. (CI still open; license decided 2026-09-05: GPL-3.0-or-later.)
 - [x] JUCE integration; audio device enumeration and a test tone.
 - [x] Session model skeleton with undo/redo command system.
 - [x] Basic window with transport bar and track area.
@@ -211,7 +211,7 @@ beat-maker/
 - [~] VST3 + CLAP hosting with scanner and sandbox; LV2 (Linux) and AU (macOS). *(2026-09-05: VST3/LV2/AU via JUCE with out-of-process scan validation and blacklist, latency to ADC, parameter automation, editor windows. CLAP pending (no JUCE host); out-of-process *hosting* pending.)*
 - [~] Bundled effects suite complete; sidechain routing. *(2026-09-05: 7-band EQ with response display, Compressor, Limiter, Gate/Expander, De-esser, Delay (digital/tape/ping-pong), Reverb, Chorus, Flanger, Phaser, Saturation, Amp Sim, Utility. Pending: convolution reverb, pitch correction, sidechain routing.)*
 - [x] Sampler, subtractive and wavetable synths. *(Done 2026-09-05: generic `Instrument` framework (per-type parameter metadata + presets, Smart Controls and preset menus build themselves from it); Synth (subtractive), FM Synth, Wavetable, Sampler (drop a file on the track), Electric Piano, mono Bass. `--instrument=<name>` and `--sample=<file>` flags.)*
-- [ ] Elastic-style time stretch with warp markers; Beat Detective-style tools.
+- [x] Elastic-style time stretch with warp markers; Beat Detective-style tools. *(Done 2026-09-05 with Rubber Band 4.0.0 (GPL): Polyphonic/Rhythmic/Monophonic/Varispeed, pitch shift, TCE trimmer, conform to tempo, warp markers, quantize to grid, tab-to-transient, separate at transients; `--elastic-demo`. Pending: Beat Detective clip conform + edit smoothing, background rendering for long clips.)*
 - **Milestone:** Third-party plugins run reliably; time-stretched vocals sound clean.
 
 ### Phase 4 — Pro Workflows (Weeks 31–38)
@@ -293,7 +293,7 @@ beat-maker/
 
 ## 9. Open Questions
 
-1. **License:** GPL (enables Rubber Band GPL use) vs. proprietary (requires commercial Rubber Band license)?
+1. ~~**License:** GPL vs. proprietary?~~ **Decided 2026-09-05: GPL-3.0-or-later** (LICENSE added), which lets Beat Maker use the Rubber Band Library under its GPL terms.
 2. **Name:** "Beat Maker" is a working title; check trademark availability.
 3. **Cloud/collaboration:** Out of scope for v1, but should the session format be designed for merge/sync now?
 4. **Mobile companion:** Should Smart Controls be remote-controllable from a phone/tablet in v1?

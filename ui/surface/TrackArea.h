@@ -171,7 +171,19 @@ private:
     void paintEditOverlays (juce::Graphics&);
 
     // ---- Edit helpers ----
-    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain, automationPoint, clipGainPoint, scrub, pencil };
+    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain, automationPoint, clipGainPoint, scrub, pencil, warpMarker };
+
+    // Elastic audio
+    void showClipMenu (const model::ClipRef&, juce::Point<int> screenPos);
+    int warpMarkerAt (const model::ClipRef&, juce::Point<int>) const;   // -1 = none
+    void applyElastic (const model::ClipRef&, engine::StretchSpec, const juce::String& name);
+    void quantizeSelection();
+    void tabToTransient (bool forward);
+    int dragMarkerIndex = -1;
+    juce::int64 ghostMarkerSample = 0;   // rendered sample of the marker being dragged
+public:
+    std::function<void (const juce::String&)> onStatus;   // one-line status messages
+private:
     EditSettings::Tool effectiveTool (const juce::MouseEvent&, const std::optional<model::ClipRef>& hit, bool& nearStart, bool& nearEnd) const;
     std::optional<model::ClipRef> clipAtPoint (juce::Point<int>) const;
     juce::Rectangle<float> rectForClip (const model::ClipRef&) const;

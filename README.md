@@ -2,6 +2,10 @@
 
 A DAW with a GarageBand-style surface and Pro Tools-style depth. See [PLAN.md](PLAN.md) for the full plan.
 
+Beat Maker is free software under the GNU General Public License v3.0 or later
+(see [LICENSE](LICENSE)). Time stretching and pitch shifting use the
+[Rubber Band Library](https://breakfastquay.com/rubberband/) under the GPL.
+
 ## Layout
 
 ```
@@ -31,7 +35,8 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --instrument=bass --instrument=electricpiano   # any bundled instrument
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --instrument=sampler --sample=hit.wav          # Sampler with a sound loaded
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --bounce=beat.wav # batch render, no UI interaction
-"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--loop=assets/loops/Hip Hop Beat 90.wav"  # conformed to 120
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--loop=assets/loops/Hip Hop Beat 90.wav"  # stretched to 120, pitch kept
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --elastic-demo --bounce=elastic.wav          # conform, quantize, pitch shift, TCE
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -173,9 +178,23 @@ Run the tests with `ctest --test-dir build`.
   `~/Music/Beat Maker/Loops` and any folders you add. Tempo, key and category
   are read from file names (with tempo estimated from length when missing).
   Click a loop to audition it, double-click to add it at the playhead, or drag
-  it onto a track. Loops are conformed to the session tempo by varispeed
-  resampling (pitch follows tempo until Phase 3 adds polyphonic stretching)
-  and snapped to the beat grid.
+  it onto a track. Loops are conformed to the session tempo with Elastic
+  Audio (Rhythmic for drum loops, Polyphonic for everything else, so pitch
+  stays put), remember their source tempo, and snap to the beat grid.
+- Elastic Audio (right-click an audio clip): Polyphonic, Rhythmic, Monophonic
+  and Varispeed modes, pitch shift in semitones, Conform to Session Tempo,
+  warp markers (Add Warp Marker Here, then drag the orange handles at the top
+  of the waveform; Alt-click removes one), Quantize to Grid (Alt+Q, uses the
+  grid value; every transient gets a warp marker pulled to the nearest line),
+  and Reset. The TCE toggle in the toolbar turns the Trimmer into a
+  Time Compression/Expansion trimmer: dragging an edge stretches the clip to
+  the new length instead of revealing or hiding audio. Stretches are rendered
+  through the Rubber Band R3 engine and stay non-destructive: the clip keeps
+  its original audio, so modes, ratios and markers can be changed or undone.
+- Transient tools (Beat Detective-style): Tab / Shift+Tab jump the playhead to
+  the next / previous transient of the selected audio track (or all audio
+  tracks when none is selected), and Separate at Transients in the clip menu
+  splits a clip at every detected hit as one undo step.
 - Recording: arm an audio track (R), pick its input, optionally enable input
   monitoring (I), then press Record. Takes are written as 24-bit WAV to
   `~/Music/Beat Maker/Audio Files` on a background thread and land on the
@@ -195,8 +214,8 @@ Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctr
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
 Still to come in Phase 3: convolution reverb and pitch correction, sidechain
-routing, Elastic-style time stretching, Beat Detective-style transient tools,
-CLAP hosting. See PLAN.md §5.
+routing, Beat Detective clip conform and edit smoothing, background rendering
+of long stretches, CLAP hosting. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -223,4 +242,8 @@ pushes it into per-track lock-free ring buffers that a background thread
 flushes to WAV; start/stop hand the session across threads with an atomic
 pointer plus a busy flag so teardown never races the callback. `Bouncer`
 renders a snapshot through a private `Transport` + `AudioGraph`, so an offline
-bounce is bit-identical to live playback of the same session.
+bounce is bit-identical to live playback of the same session. Elastic Audio is
+offline too: `engine::TimeStretch` renders a clip's original audio through a
+`StretchSpec` (mode, ratio, pitch, warp markers as a Rubber Band key-frame
+map) and `SetClipElasticCommand` swaps the rendered buffer in, remapping the
+clip's offset, length, fades and gain line between the old and new renderings.

@@ -12,6 +12,7 @@
 #include <dsp/Effects.h>
 #include <dsp/Fades.h>
 #include <dsp/Instrument.h>
+#include <dsp/TimeStretch.h>
 #include <sequencer/MidiSequence.h>
 #include <sequencer/StepPattern.h>
 
@@ -41,6 +42,17 @@ struct AudioClip
     // line stays glued to the audio through trims, splits and moves.
     std::shared_ptr<const engine::AutomationLane> gainLane;
     bool audioModified = false;   // pencil edits: `audio` no longer matches sourceFile
+
+    // Elastic (time stretch / pitch shift). `audio` is the rendered result;
+    // `sourceAudio` the unstretched original (null while elastic is off, in
+    // which case `audio` is the original). Offsets, lengths, fades and the
+    // gain line are all in the rendered domain.
+    engine::StretchSpec elastic;
+    std::shared_ptr<const juce::AudioBuffer<float>> sourceAudio;
+    double sourceBpm = 0.0;       // tempo the audio was recorded/analysed at (0 = unknown)
+
+    const juce::AudioBuffer<float>* originalAudio() const noexcept { return sourceAudio != nullptr ? sourceAudio.get() : audio.get(); }
+    bool isElastic() const noexcept { return elastic.isActive(); }
 
     // Fades can never overlap or exceed the clip.
     void clampFades() noexcept

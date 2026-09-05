@@ -27,6 +27,7 @@ private:
     juce::OwnedArray<juce::TextButton> modeButtons, toolButtons;
     juce::ComboBox gridBox;
     juce::TextButton relativeButton { "Rel" };
+    juce::TextButton tceButton { "TCE" };
     juce::TextButton ioButton { "I/O..." };
     juce::Label hint;
 };

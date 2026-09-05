@@ -29,6 +29,7 @@
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
 #include <dsp/Resampler.h>
+#include <Elastic.h>
 #include <RenderSnapshotBuilder.h>
 #include <Session.h>
 #include <io/AudioEngine.h>
@@ -183,6 +184,7 @@ public:
             p->rootNote = t->instrumentParams->rootNote; p->sampleName = t->instrumentParams->sampleName;
             session.execute (std::make_unique<model::SetInstrumentParamsCommand> (track, std::move (p), "Change Preset"));
         };
+        trackArea.onStatus = [this] (const juce::String& text) { statusMessage = text; updateStatus(); };
         trackArea.onMuteChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::mute, on)); };
         trackArea.onSoloChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on)); };
         trackArea.onArmChanged  = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::arm, on)); };
@@ -334,6 +336,34 @@ public:
         trackArea.showAutomationLane (0, engine::ParamId::volume());
     }
     void importLoopFromCommandLine (const juce::File& file) { importLoop (file, -1, engine.getTransport().getPositionSeconds()); }
+
+    // --elastic-demo: session at 100 BPM; a 120 BPM drum loop conformed
+    // (Rhythmic) and quantized to 1/16, a 120 BPM pad conformed (Polyphonic)
+    // and pitched up a fourth, and a copy of the drums TCE'd to 3 beats.
+    void elasticDemoFromCommandLine()
+    {
+        engine.getTransport().setBpm (100.0);
+        const auto loops = bundledLoopsFolder();
+        importLoop (loops.getChildFile ("Drum Loop 120.wav"), -1, 0.0);
+        importLoop (loops.getChildFile ("Synth Pad 120 Am.wav"), -1, 0.0);
+        if (session.getNumTracks() < 2) return;
+
+        const model::ClipRef drums { 0, model::ClipRef::Kind::audio, 0 }, pad { 1, model::ClipRef::Kind::audio, 0 };
+        if (auto spec = model::Elastic::quantizeToGrid (session.getTracks()[0].clips[0], 100.0, 0.25))
+            session.execute (std::make_unique<model::SetClipElasticCommand> (session, drums, *spec, "Quantize Audio"));
+        session.execute (std::make_unique<model::SetClipElasticCommand> (session, pad, model::Elastic::withPitch (session.getTracks()[1].clips[0], 5.0), "Pitch Shift"));
+        session.execute (std::make_unique<model::SetTrackMixCommand> (0, 0.7f, 0.0f));   // headroom for the sum
+        session.execute (std::make_unique<model::SetTrackMixCommand> (1, 0.5f, 0.0f));
+
+        session.execute (std::make_unique<model::DuplicateClipCommand> (drums));
+        const model::ClipRef copy { 0, model::ClipRef::Kind::audio, 1 };
+        const auto& c = session.getTracks()[0].clips[1];
+        session.execute (std::make_unique<model::SetClipElasticCommand> (session, copy,
+                             model::Elastic::forVisibleLength (c, (juce::int64) std::llround (3.0 * 60.0 / 100.0 * c.sampleRate)), "TCE Trim"));
+        trackArea.setSelectedTrack (0);
+        statusMessage = "Elastic demo: drums Rhythmic + quantized, pad Polyphonic +5 st, copy TCE'd to 3 beats  (" + engine::TimeStretch::libraryVersion() + ")";
+        updateStatus();
+    }
 
     // --fades=<in ms>,<out ms>[,<gain dB>]: apply to every audio clip (smoke tests).
     void applyFadesFromCommandLine (const juce::String& spec)
@@ -577,9 +607,10 @@ private:
         return juce::jmax (0.0, std::round (seconds / beat) * beat);
     }
 
-    // Place a library loop on a track, conformed to the session tempo by
-    // varispeed resampling (pitch follows tempo until Phase 3 adds
-    // polyphonic time-stretching) and snapped to the beat grid.
+    // Place a library loop on a track, conformed to the session tempo with
+    // Elastic Audio (Rhythmic for drums, Polyphonic otherwise: pitch stays
+    // put) and snapped to the beat grid. The clip remembers its source
+    // tempo so it can be re-conformed after a tempo change.
     void importLoop (const juce::File& file, int trackIndex, double seconds)
     {
         juce::String error;
@@ -588,16 +619,6 @@ private:
 
         const auto info = persistence::LoopLibrary::analyse (file, loader.getFormatManager());
         const double sessionBpm = engine.getTransport().getBpm();
-        auto audio = loaded->audio;
-        juce::String conformNote;
-
-        if (info.bpm > 0.0 && std::abs (info.bpm - sessionBpm) > 0.01)
-        {
-            const double ratio = engine::Resampler::ratioForTempo (info.bpm, sessionBpm);
-            audio = std::make_shared<const juce::AudioBuffer<float>> (engine::Resampler::resample (*audio, ratio));
-            conformNote = "  (" + juce::String (juce::roundToInt (info.bpm)) + " -> " + juce::String (juce::roundToInt (sessionBpm))
-                        + " BPM, varispeed)";
-        }
 
         if (trackIndex < 0 || trackIndex >= session.getNumTracks())
             trackIndex = addTrack (file.getFileNameWithoutExtension());
@@ -606,11 +627,28 @@ private:
         model::AudioClip clip;
         clip.name          = info.name;
         clip.sourceFile    = file;
-        clip.audio         = audio;
+        clip.audio         = loaded->audio;
         clip.sampleRate    = loaded->sampleRate;
         clip.timelineStart = (juce::int64) std::llround (start * loaded->sampleRate);
-        clip.length        = audio->getNumSamples();
-        session.execute (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
+        clip.length        = loaded->audio->getNumSamples();
+        clip.sourceBpm     = info.bpm;
+        auto add = std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip));
+        session.execute (std::move (add));
+        const model::ClipRef ref { trackIndex, model::ClipRef::Kind::audio, (int) session.getTracks()[(size_t) trackIndex].clips.size() - 1 };
+
+        juce::String conformNote;
+        if (info.bpm > 0.0 && std::abs (info.bpm - sessionBpm) > 0.01)
+        {
+            const auto mode = info.category == persistence::LoopInfo::Category::drums ? engine::StretchMode::rhythmic : engine::StretchMode::polyphonic;
+            const auto& placed = session.getTracks()[(size_t) trackIndex].clips[(size_t) ref.index];
+            auto stretch = std::make_unique<model::SetClipElasticCommand> (session, ref, model::Elastic::forTempo (placed, sessionBpm, mode), "Conform to Tempo");
+            if (! stretch->wasCancelled())
+            {
+                session.execute (std::move (stretch));
+                conformNote = "  (" + juce::String (juce::roundToInt (info.bpm)) + " -> " + juce::String (juce::roundToInt (sessionBpm))
+                            + " BPM, " + engine::TimeStretch::modeName (mode) + ")";
+            }
+        }
 
         statusMessage = "Added " + info.name + " at bar " + juce::String (engine.getTransport().barBeatForSeconds (start).bar) + conformNote;
         updateStatus();
@@ -1387,6 +1425,7 @@ public:
             else if (arg == "--clip-gain-demo") main.clipGainDemoFromCommandLine();
             else if (arg == "--scan-plugins") main.scanPluginsFromCommandLine();
             else if (arg == "--insert-demo") main.insertDemoFromCommandLine();
+            else if (arg == "--elastic-demo") main.elasticDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

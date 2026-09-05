@@ -52,6 +52,12 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
     relativeButton.setTooltip ("Relative Grid: snap the movement, keep the clip's offset from the grid");
     relativeButton.onClick = [this] { settings.relativeGrid = relativeButton.getToggleState(); settings.notify(); };
 
+    addAndMakeVisible (tceButton);
+    tceButton.setClickingTogglesState (true);
+    tceButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+    tceButton.setTooltip ("TCE Trimmer: trimming an audio clip stretches it (Elastic) instead of revealing or hiding audio");
+    tceButton.onClick = [this] { settings.tceTrim = tceButton.getToggleState(); settings.notify(); };
+
     addAndMakeVisible (ioButton);
     ioButton.setTooltip ("I/O Setup: input/output/bus paths and delay compensation (Ctrl+Alt+I)");
     ioButton.onClick = [this] { if (onIOSetup) onIOSetup(); };
@@ -72,9 +78,10 @@ void EditToolbar::refresh()
     gridBox.setSelectedId (id, juce::dontSendNotification);
     relativeButton.setToggleState (settings.relativeGrid, juce::dontSendNotification);
     relativeButton.setEnabled (settings.mode == EditSettings::Mode::grid);
+    tceButton.setToggleState (settings.tceTrim, juce::dontSendNotification);
 
     juce::String h = juce::String (EditSettings::modeName (settings.mode)) + "  |  " + EditSettings::toolName (settings.tool)
-                   + "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Ctrl+Shift+Up/Down: clip gain";
+                   + "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Tab: transient   Alt+Q: quantize   right-click: Elastic";
     hint.setText (h, juce::dontSendNotification);
 }
 
@@ -95,6 +102,8 @@ void EditToolbar::resized()
     gridBox.setBounds (area.removeFromLeft (64));
     area.removeFromLeft (4);
     relativeButton.setBounds (area.removeFromLeft (36));
+    area.removeFromLeft (4);
+    tceButton.setBounds (area.removeFromLeft (40));
     area.removeFromLeft (12);
     ioButton.setBounds (area.removeFromRight (56));
     area.removeFromRight (8);

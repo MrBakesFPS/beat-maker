@@ -5,6 +5,7 @@ target_sources(beatmaker_model INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/Session.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/RenderSnapshotBuilder.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/ClipEdits.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Elastic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/MixerCommands.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/AutomationRecorder.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/DelayCompensation.cpp

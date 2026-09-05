@@ -2,6 +2,7 @@
 #include <GroupLogic.h>
 #include <Playlists.h>
 #include <dsp/Fades.h>
+#include <Elastic.h>
 
 namespace beatmaker::ui
 {
@@ -977,10 +978,35 @@ void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, co
 
     if (showsClipGain (track)) paintClipGainLine (g, track, clip, clipRect);
 
+    // Warp markers: a line with a handle at the top of the waveform.
+    if (clip.isElastic())
+    {
+        const bool draggingThis = drag == Drag::warpMarker && &session.getTrack (dragClip.track)->clips[(size_t) dragClip.index] == &clip;
+        for (int i = 0; i < (int) clip.elastic.markers.size(); ++i)
+        {
+            const juce::int64 rendered = draggingThis && i == dragMarkerIndex ? ghostMarkerSample : clip.elastic.markers[(size_t) i].output;
+            if (rendered < clip.sourceOffset || rendered > clip.sourceOffset + clip.length) continue;
+            const float x = secondsToX (clip.getStartSeconds() + (double) (rendered - clip.sourceOffset) / clip.sampleRate);
+            if (x < waveArea.getX() || x > waveArea.getRight()) continue;
+            g.setColour (juce::Colours::orange.withAlpha (draggingThis && i == dragMarkerIndex ? 1.0f : 0.85f));
+            g.drawLine (x, waveArea.getY(), x, waveArea.getBottom(), 1.5f);
+            juce::Path handle;
+            handle.addTriangle (x - 5.0f, waveArea.getY(), x + 5.0f, waveArea.getY(), x, waveArea.getY() + 7.0f);
+            g.fillPath (handle);
+        }
+    }
+
     juce::String label = clip.name;
     if (std::abs (clip.gain - 1.0f) > 1.0e-4f)
         label += "   " + juce::String (juce::Decibels::gainToDecibels (clip.gain), 1) + " dB";
     if (clip.audioModified) label += "   (edited)";
+    if (clip.isElastic())
+    {
+        label += "   [" + juce::String (engine::TimeStretch::modeName (clip.elastic.mode));
+        if (std::abs (clip.elastic.ratio - 1.0) > 1.0e-6) label += " " + juce::String (juce::roundToInt (100.0 / clip.elastic.ratio)) + "%";
+        if (std::abs (clip.elastic.pitchSemitones) > 1.0e-6) label += " " + juce::String (clip.elastic.pitchSemitones > 0 ? "+" : "") + juce::String (clip.elastic.pitchSemitones, 0) + " st";
+        label += "]";
+    }
     paintClipFrame (g, clipRect, track, label);
 }
 
@@ -1424,6 +1450,31 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    // Right-click on an audio clip: the Elastic / clip menu.
+    if (hit->kind == model::ClipRef::Kind::audio && e.mods.isPopupMenu())
+    {
+        if (! isSelected (*hit)) selectClip (*hit, false);
+        dragAnchorSeconds = xToSeconds ((float) e.x);
+        showClipMenu (*hit, e.getScreenPosition());
+        return;
+    }
+
+    // Warp marker handles (Grabber / Smart): drag to move, Alt-click to delete.
+    if (hit->kind == model::ClipRef::Kind::audio && (tool == EditSettings::Tool::grabber || tool == EditSettings::Tool::smart))
+    {
+        const int marker = warpMarkerAt (*hit, e.getPosition());
+        if (marker >= 0)
+        {
+            const auto& clip = session.getTrack (hit->track)->clips[(size_t) hit->index];
+            if (e.mods.isAltDown()) { applyElastic (*hit, model::Elastic::withoutMarker (clip, marker), "Delete Warp Marker"); return; }
+            dragClip = *hit;
+            dragMarkerIndex = marker;
+            ghostMarkerSample = clip.elastic.markers[(size_t) marker].output;
+            drag = Drag::warpMarker;
+            return;
+        }
+    }
+
     // Grabber / Trimmer on a clip
     if (edit.mode == EditSettings::Mode::spot && tool == EditSettings::Tool::grabber)
     {
@@ -1491,6 +1542,17 @@ void TrackArea::mouseDrag (const juce::MouseEvent& e)
                 if (t >= 0) { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, t); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, t); }
                 for (int m : model::GroupLogic::editMembers (session, timeSelection.firstTrack))
                 { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, m); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, m); }
+            }
+            break;
+        }
+        case Drag::warpMarker:
+        {
+            if (auto* t = session.getTrack (dragClip.track); t != nullptr && dragClip.index < (int) t->clips.size())
+            {
+                const auto& clip = t->clips[(size_t) dragClip.index];
+                const double seconds = edit.mode == EditSettings::Mode::grid ? snapSeconds (now) : now;
+                const juce::int64 rendered = clip.sourceOffset + toSamples (seconds - clip.getStartSeconds());
+                ghostMarkerSample = model::Elastic::withMarkerMoved (clip, dragMarkerIndex, rendered).markers[(size_t) dragMarkerIndex].output;
             }
             break;
         }
@@ -1677,6 +1739,13 @@ void TrackArea::mouseUp (const juce::MouseEvent& e)
             pencilBuffer.reset();
             break;
 
+        case Drag::warpMarker:
+            if (dragMoved)
+                if (auto* t = session.getTrack (dragClip.track); t != nullptr && dragClip.index < (int) t->clips.size())
+                    applyElastic (dragClip, model::Elastic::withMarkerMoved (t->clips[(size_t) dragClip.index], dragMarkerIndex, ghostMarkerSample), "Move Warp Marker");
+            dragMarkerIndex = -1;
+            break;
+
         case Drag::clipGainPoint:
             if (dragMoved)
                 if (auto* t = session.getTrack (dragClip.track); t != nullptr && dragClip.index < (int) t->clips.size())
@@ -1714,6 +1783,21 @@ void TrackArea::commitDrag()
         std::unique_ptr<model::Command> cmd;
         if (isMove)
             cmd = model::GroupLogic::moveCommand (session, dragClip, dragTargetTrack, toSamples (ghostStart));
+        else if (edit.tceTrim && dragClip.kind == model::ClipRef::Kind::audio)
+        {
+            // TCE: the clip is stretched to the new length; a start trim then moves it so the right edge stays put.
+            const auto& clip = session.getTrack (dragClip.track)->clips[(size_t) dragClip.index];
+            auto elastic = std::make_unique<model::SetClipElasticCommand> (session, dragClip,
+                               model::Elastic::forVisibleLength (clip, toSamples (ghostLength)), "TCE Trim",
+                               [] (double) { return true; });
+            if (elastic->wasCancelled()) return;
+            auto compound = std::make_unique<model::CompoundCommand> ("TCE Trim");
+            compound->add (std::move (elastic));
+            if (std::abs (ghostStart - (double) t->start / sr) > 1e-9)
+                compound->add (std::make_unique<model::MoveClipCommand> (dragClip, dragClip.track, toSamples (ghostStart)));
+            cmd = std::move (compound);
+            if (onStatus) onStatus ("TCE: stretched to " + juce::String (ghostLength, 2) + " s");
+        }
         else
             cmd = model::GroupLogic::trimCommand (session, dragClip, toSamples (ghostStart), toSamples (ghostLength));
 
@@ -1993,6 +2077,9 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress (juce::KeyPress::downKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { nudgeClipGain (-0.5f); return true; }
     if (key == juce::KeyPress (','))                                             { nudgeSelectedClips (-1); return true; }
     if (key == juce::KeyPress ('.'))                                             { nudgeSelectedClips (1); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::tabKey, 0, 0))                    { tabToTransient (true); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::tabKey, juce::ModifierKeys::shiftModifier, 0)) { tabToTransient (false); return true; }
+    if (key == juce::KeyPress ('q', juce::ModifierKeys::altModifier, 0))         { quantizeSelection(); return true; }
     if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0))
     {
         selectedClips.clear();
@@ -2121,6 +2208,160 @@ void TrackArea::itemDropped (const SourceDetails& details)
 
     if (onLoopDropped)
         onLoopDropped (file, trackIndex, xToSeconds ((float) juce::jmax (details.localPosition.x, theme::trackHeaderWidth)));
+}
+
+} // namespace beatmaker::ui
+
+//==============================================================================
+// Elastic audio
+
+namespace beatmaker::ui
+{
+
+void TrackArea::applyElastic (const model::ClipRef& ref, engine::StretchSpec spec, const juce::String& name)
+{
+    auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, std::move (spec), name);
+    if (cmd->wasCancelled()) { if (onStatus) onStatus (name + ": nothing to render"); return; }
+    session.execute (std::move (cmd));
+    if (const auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+    {
+        const auto& c = t->clips[(size_t) ref.index];
+        if (onStatus)
+            onStatus (name + ": " + c.name + "  " + engine::TimeStretch::modeName (c.elastic.mode)
+                      + (c.isElastic() ? "  " + juce::String (juce::roundToInt (100.0 / c.elastic.ratio)) + "%"
+                                         + (std::abs (c.elastic.pitchSemitones) > 1e-6 ? "  " + juce::String (c.elastic.pitchSemitones, 0) + " st" : juce::String())
+                                         + "  " + juce::String (c.elastic.markers.size()) + " warp markers"
+                                       : juce::String()));
+    }
+    repaint();
+}
+
+int TrackArea::warpMarkerAt (const model::ClipRef& ref, juce::Point<int> p) const
+{
+    const auto* t = session.getTrack (ref.track);
+    if (t == nullptr || ref.kind != model::ClipRef::Kind::audio || ref.index >= (int) t->clips.size()) return -1;
+    const auto& clip = t->clips[(size_t) ref.index];
+    if (! clip.isElastic()) return -1;
+    const auto wave = waveAreaFor (ref);
+    if (p.y < wave.getY() || p.y > wave.getY() + 14.0f) return -1;   // handles live along the top of the waveform
+    for (int i = 0; i < (int) clip.elastic.markers.size(); ++i)
+    {
+        const juce::int64 rendered = clip.elastic.markers[(size_t) i].output;
+        if (rendered < clip.sourceOffset || rendered > clip.sourceOffset + clip.length) continue;
+        const float x = secondsToX (clip.getStartSeconds() + (double) (rendered - clip.sourceOffset) / clip.sampleRate);
+        if (std::abs (x - (float) p.x) <= 6.0f) return i;
+    }
+    return -1;
+}
+
+void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screenPos)
+{
+    const auto* t = session.getTrack (ref.track);
+    if (t == nullptr || ref.index >= (int) t->clips.size()) return;
+    const auto& clip = t->clips[(size_t) ref.index];
+    const bool elastic = clip.isElastic();
+
+    juce::PopupMenu menu, modes, pitch;
+    int id = 100;
+    for (auto m : { engine::StretchMode::off, engine::StretchMode::polyphonic, engine::StretchMode::rhythmic,
+                    engine::StretchMode::monophonic, engine::StretchMode::varispeed })
+        modes.addItem (id++, engine::TimeStretch::modeName (m), true, clip.elastic.mode == m);
+    menu.addSubMenu ("Elastic Audio", modes);
+
+    for (int st = 12; st >= -12; --st)
+        pitch.addItem (300 + st, (st > 0 ? "+" : "") + juce::String (st) + (st == 0 ? "  (none)" : st == 12 || st == -12 ? "  (octave)" : ""),
+                       true, std::abs (clip.elastic.pitchSemitones - st) < 0.5 && elastic);
+    menu.addSubMenu ("Pitch Shift", pitch, clip.elastic.mode != engine::StretchMode::varispeed);
+
+    menu.addSeparator();
+    menu.addItem (1, "Conform to Session Tempo" + (clip.sourceBpm > 0.0 ? "  (" + juce::String (juce::roundToInt (clip.sourceBpm)) + " -> "
+                                                                             + juce::String (juce::roundToInt (transport.getBpm())) + " BPM)" : juce::String ("  (source tempo unknown)")),
+                  clip.sourceBpm > 0.0);
+    menu.addItem (2, "Quantize to Grid  (Alt+Q)");
+    menu.addItem (3, "Add Warp Marker Here", true);
+    menu.addItem (4, "Clear Warp Markers", elastic && ! clip.elastic.markers.empty());
+    menu.addSeparator();
+    menu.addItem (5, "Separate at Transients");
+    menu.addItem (6, "Reset Elastic (original audio)", elastic);
+
+    const double anchor = dragAnchorSeconds;
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, ref, anchor] (int result)
+    {
+        const auto* track = session.getTrack (ref.track);
+        if (result == 0 || track == nullptr || ref.index >= (int) track->clips.size()) return;
+        const auto& c = track->clips[(size_t) ref.index];
+
+        if (result >= 100 && result < 105)
+        {
+            const engine::StretchMode m[] = { engine::StretchMode::off, engine::StretchMode::polyphonic, engine::StretchMode::rhythmic,
+                                              engine::StretchMode::monophonic, engine::StretchMode::varispeed };
+            applyElastic (ref, model::Elastic::withMode (c, m[result - 100]), "Elastic Mode");
+        }
+        else if (result >= 288 && result <= 312)
+            applyElastic (ref, model::Elastic::withPitch (c, (double) (result - 300)), "Pitch Shift");
+        else if (result == 1)
+            applyElastic (ref, model::Elastic::forTempo (c, transport.getBpm(), c.elastic.isActive() ? c.elastic.mode : engine::StretchMode::polyphonic), "Conform to Tempo");
+        else if (result == 2)
+        {
+            selectedClips = { ref };
+            quantizeSelection();
+        }
+        else if (result == 3)
+        {
+            const juce::int64 rendered = c.sourceOffset + toSamples ((edit.mode == EditSettings::Mode::grid ? snapSeconds (anchor) : anchor) - c.getStartSeconds());
+            if (rendered > c.sourceOffset && rendered < c.sourceOffset + c.length)
+                applyElastic (ref, model::Elastic::withMarkerAt (c, rendered), "Add Warp Marker");
+        }
+        else if (result == 4)
+            applyElastic (ref, model::Elastic::withoutMarkers (c), "Clear Warp Markers");
+        else if (result == 5)
+        {
+            if (auto cmd = model::Elastic::separateAtTransients (session, ref))
+            {
+                selectedClips.clear();
+                session.execute (std::move (cmd));
+                if (onStatus) onStatus ("Separated at transients");
+            }
+            else if (onStatus) onStatus ("No transients found in " + c.name);
+        }
+        else if (result == 6)
+            applyElastic (ref, model::Elastic::withMode (c, engine::StretchMode::off), "Reset Elastic");
+    });
+}
+
+void TrackArea::quantizeSelection()
+{
+    int done = 0;
+    for (const auto& ref : std::vector<model::ClipRef> (selectedClips))
+    {
+        const auto* t = session.getTrack (ref.track);
+        if (t == nullptr || ref.kind != model::ClipRef::Kind::audio || ref.index >= (int) t->clips.size()) continue;
+        if (auto spec = model::Elastic::quantizeToGrid (t->clips[(size_t) ref.index], transport.getBpm(), edit.gridBeats))
+        {
+            auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, *spec, "Quantize Audio");
+            if (! cmd->wasCancelled()) { session.execute (std::move (cmd)); ++done; }
+        }
+    }
+    if (onStatus) onStatus (done > 0 ? "Quantized " + juce::String (done) + " clip(s) to the " + juce::String (edit.gridBeats, 2) + "-beat grid"
+                                     : "Quantize: select an audio clip with transients");
+    repaint();
+}
+
+void TrackArea::tabToTransient (bool forward)
+{
+    const juce::int64 here = toSamples (transport.getPositionSeconds());
+    const int track = selectedTrack >= 0 && session.getTrack (selectedTrack) != nullptr && session.getTrack (selectedTrack)->isAudio() ? selectedTrack : -1;
+    if (auto next = model::Elastic::nextTransient (session, track, here + (forward ? 1 : -1), forward))
+    {
+        const double seconds = (double) *next / transport.getSampleRate();
+        transport.setPositionSeconds (seconds);
+        timeSelection = {};
+        if (onTimeSelectionChanged) onTimeSelectionChanged();
+        ensurePlayheadVisible();
+        if (onStatus) onStatus ("Transient at " + juce::String (seconds, 3) + " s");
+        repaint();
+    }
+    else if (onStatus) onStatus (forward ? "No transient after the playhead" : "No transient before the playhead");
 }
 
 } // namespace beatmaker::ui
