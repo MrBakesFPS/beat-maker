@@ -3,6 +3,7 @@
 #include <Playlists.h>
 #include <dsp/Fades.h>
 #include <Elastic.h>
+#include "../shared/ElasticJob.h"
 
 namespace beatmaker::ui
 {
@@ -1788,15 +1789,22 @@ void TrackArea::commitDrag()
             // TCE: the clip is stretched to the new length; a start trim then moves it so the right edge stays put.
             const auto& clip = session.getTrack (dragClip.track)->clips[(size_t) dragClip.index];
             auto elastic = std::make_unique<model::SetClipElasticCommand> (session, dragClip,
-                               model::Elastic::forVisibleLength (clip, toSamples (ghostLength)), "TCE Trim",
-                               [] (double) { return true; });
+                               model::Elastic::forVisibleLength (clip, toSamples (ghostLength)), "TCE Trim", /*deferRender*/ true);
             if (elastic->wasCancelled()) return;
-            auto compound = std::make_unique<model::CompoundCommand> ("TCE Trim");
-            compound->add (std::move (elastic));
-            if (std::abs (ghostStart - (double) t->start / sr) > 1e-9)
-                compound->add (std::make_unique<model::MoveClipCommand> (dragClip, dragClip.track, toSamples (ghostStart)));
-            cmd = std::move (compound);
-            if (onStatus) onStatus ("TCE: stretched to " + juce::String (ghostLength, 2) + " s");
+            const juce::int64 moveTo = std::abs (ghostStart - (double) t->start / sr) > 1e-9 ? toSamples (ghostStart) : -1;
+            const auto ref = dragClip;
+            const double seconds = ghostLength;
+            selectedClips.clear();
+            ElasticJob::run (session, std::move (elastic), [this, ref, moveTo, seconds] (bool applied)
+            {
+                if (! applied) { if (onStatus) onStatus ("TCE Trim: cancelled"); return; }
+                if (moveTo >= 0) session.execute (std::make_unique<model::MoveClipCommand> (ref, ref.track, moveTo));
+                if (auto sel = model::ClipEdits::clipAt (session, ref.track, (moveTo >= 0 ? moveTo : session.getTrack (ref.track)->clips[(size_t) ref.index].timelineStart) + 1))
+                    selectedClips.push_back (*sel);
+                if (onStatus) onStatus ("TCE: stretched to " + juce::String (seconds, 2) + " s");
+                repaint();
+            });
+            return;
         }
         else
             cmd = model::GroupLogic::trimCommand (session, dragClip, toSamples (ghostStart), toSamples (ghostLength));
@@ -2220,20 +2228,25 @@ namespace beatmaker::ui
 
 void TrackArea::applyElastic (const model::ClipRef& ref, engine::StretchSpec spec, const juce::String& name)
 {
-    auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, std::move (spec), name);
+    auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, std::move (spec), name, /*deferRender*/ true);
     if (cmd->wasCancelled()) { if (onStatus) onStatus (name + ": nothing to render"); return; }
-    session.execute (std::move (cmd));
-    if (const auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+    const bool background = cmd->getSampleRate() > 0.0 && (double) cmd->getSourceLength() / cmd->getSampleRate() > ElasticJob::asyncThresholdSeconds;
+    ElasticJob::run (session, std::move (cmd), [this, ref, name, background] (bool applied)
     {
-        const auto& c = t->clips[(size_t) ref.index];
-        if (onStatus)
-            onStatus (name + ": " + c.name + "  " + engine::TimeStretch::modeName (c.elastic.mode)
-                      + (c.isElastic() ? "  " + juce::String (juce::roundToInt (100.0 / c.elastic.ratio)) + "%"
-                                         + (std::abs (c.elastic.pitchSemitones) > 1e-6 ? "  " + juce::String (c.elastic.pitchSemitones, 0) + " st" : juce::String())
-                                         + "  " + juce::String (c.elastic.markers.size()) + " warp markers"
-                                       : juce::String()));
-    }
-    repaint();
+        if (! applied) { if (onStatus) onStatus (name + ": cancelled"); return; }
+        if (const auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+        {
+            const auto& c = t->clips[(size_t) ref.index];
+            if (onStatus)
+                onStatus (name + ": " + c.name + "  " + engine::TimeStretch::modeName (c.elastic.mode)
+                          + (c.isElastic() ? "  " + juce::String (juce::roundToInt (100.0 / c.elastic.ratio)) + "%"
+                                             + (std::abs (c.elastic.pitchSemitones) > 1e-6 ? "  " + juce::String (c.elastic.pitchSemitones, 0) + " st" : juce::String())
+                                             + "  " + juce::String (c.elastic.markers.size()) + " warp markers"
+                                           : juce::String())
+                          + (background ? "  (rendered in the background)" : juce::String()));
+        }
+        repaint();
+    });
 }
 
 int TrackArea::warpMarkerAt (const model::ClipRef& ref, juce::Point<int> p) const
@@ -2360,8 +2373,8 @@ void TrackArea::quantizeSelection()
         if (t == nullptr || ref.kind != model::ClipRef::Kind::audio || ref.index >= (int) t->clips.size()) continue;
         if (auto spec = model::Elastic::quantizeToGrid (t->clips[(size_t) ref.index], transport.getBpm(), edit.gridBeats))
         {
-            auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, *spec, "Quantize Audio");
-            if (! cmd->wasCancelled()) { session.execute (std::move (cmd)); ++done; }
+            auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, *spec, "Quantize Audio", /*deferRender*/ true);
+            if (! cmd->wasCancelled()) { ElasticJob::run (session, std::move (cmd)); ++done; }
         }
     }
     if (onStatus) onStatus (done > 0 ? "Quantized " + juce::String (done) + " clip(s) to the " + juce::String (edit.gridBeats, 2) + "-beat grid"

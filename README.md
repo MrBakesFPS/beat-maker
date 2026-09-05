@@ -213,6 +213,9 @@ Run the tests with `ctest --test-dir build`.
   the new length instead of revealing or hiding audio. Stretches are rendered
   through the Rubber Band R3 engine and stay non-destructive: the clip keeps
   its original audio, so modes, ratios and markers can be changed or undone.
+  Clips longer than 8 seconds render on a background thread behind a
+  cancellable progress window; the result is applied only if the clip has
+  not been edited meanwhile.
 - Transient tools (Beat Detective-style): Tab / Shift+Tab jump the playhead to
   the next / previous transient of the selected audio track (or all audio
   tracks when none is selected), and Separate at Transients in the clip menu
@@ -243,8 +246,8 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: background rendering of long stretches, sidechain
-inputs for hosted plugins, and CLAP hosting. See PLAN.md §5.
+Still to come in Phase 3: sidechain inputs for hosted plugins and CLAP
+hosting. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

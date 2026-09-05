@@ -25,16 +25,27 @@ namespace
 
 //==============================================================================
 
-SetClipElasticCommand::SetClipElasticCommand (const Session& s, ClipRef r, engine::StretchSpec spec, juce::String commandName,
-                                              engine::TimeStretch::ProgressFn progress)
-    : ref (r), name (std::move (commandName))
+SetClipElasticCommand::SetClipElasticCommand (const Session& s, ClipRef r, engine::StretchSpec newSpec, juce::String commandName, bool)
+    : ref (r), name (std::move (commandName)), spec (std::move (newSpec))
 {
     const auto* clip = clipFor (s, ref);
     if (clip == nullptr || clip->originalAudio() == nullptr) { cancelled = true; return; }
     before = *clip;
     after = *clip;
-
     spec.sortMarkers();
+}
+
+SetClipElasticCommand::SetClipElasticCommand (const Session& s, ClipRef r, engine::StretchSpec newSpec, juce::String commandName,
+                                              engine::TimeStretch::ProgressFn progress)
+    : SetClipElasticCommand (s, r, std::move (newSpec), std::move (commandName), true)
+{
+    if (! cancelled) render (progress);
+}
+
+bool SetClipElasticCommand::render (const engine::TimeStretch::ProgressFn& progress)
+{
+    if (cancelled || rendered) return ! cancelled;
+    const auto* clip = &before;
     const auto& source = *clip->originalAudio();
     const juce::int64 srcLen = source.getNumSamples();
 
@@ -42,9 +53,9 @@ SetClipElasticCommand::SetClipElasticCommand (const Session& s, ClipRef r, engin
     after.elastic = spec;
     if (spec.isActive())
     {
-        auto rendered = engine::TimeStretch::render (source, clip->sampleRate, spec, progress);
-        if (rendered.getNumSamples() == 0) { cancelled = true; return; }
-        after.audio = std::make_shared<const juce::AudioBuffer<float>> (std::move (rendered));
+        auto output = engine::TimeStretch::render (source, clip->sampleRate, spec, progress);
+        if (output.getNumSamples() == 0) { cancelled = true; return false; }
+        after.audio = std::make_shared<const juce::AudioBuffer<float>> (std::move (output));
         after.sourceAudio = original;
     }
     else
@@ -75,20 +86,29 @@ SetClipElasticCommand::SetClipElasticCommand (const Session& s, ClipRef r, engin
         after.gainLane = lane;
     }
     juce::ignoreUnused (srcLen);
+    rendered = true;
+    return true;
 }
 
 void SetClipElasticCommand::execute (Session& s)
 {
-    if (cancelled) return;
+    if (cancelled || ! rendered) return;
     auto& tracks = EditAccess::tracks (s);
+    if (! juce::isPositiveAndBelow (ref.track, (int) tracks.size()) || ! juce::isPositiveAndBelow (ref.index, (int) tracks[(size_t) ref.track].clips.size())) { stale = true; return; }
     auto& clip = tracks[(size_t) ref.track].clips[(size_t) ref.index];
+    if (! applied)
+    {
+        // A background render must land on the clip it captured.
+        if (clip.audio != before.audio || clip.sourceOffset != before.sourceOffset || clip.length != before.length) { stale = true; return; }
+        applied = true;
+    }
     after.name = clip.name; after.timelineStart = clip.timelineStart; after.gain = clip.gain;   // untouched fields stay live
     clip = after;
 }
 
 void SetClipElasticCommand::undo (Session& s)
 {
-    if (cancelled) return;
+    if (cancelled || ! rendered || stale) return;
     auto& tracks = EditAccess::tracks (s);
     auto& clip = tracks[(size_t) ref.track].clips[(size_t) ref.index];
     before.name = clip.name; before.timelineStart = clip.timelineStart; before.gain = clip.gain;

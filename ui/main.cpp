@@ -6,6 +6,7 @@
 
 #include "depth/BounceDialog.h"
 #include "depth/BeatDetectiveDialog.h"
+#include "shared/ElasticJob.h"
 #include "depth/EditToolbar.h"
 #include "depth/FadesDialog.h"
 #include "depth/GroupDialog.h"
@@ -446,11 +447,19 @@ public:
         session.execute (std::make_unique<model::DuplicateClipCommand> (drums));
         const model::ClipRef copy { 0, model::ClipRef::Kind::audio, 1 };
         const auto& c = session.getTracks()[0].clips[1];
-        session.execute (std::make_unique<model::SetClipElasticCommand> (session, copy,
-                             model::Elastic::forVisibleLength (c, (juce::int64) std::llround (3.0 * 60.0 / 100.0 * c.sampleRate)), "TCE Trim"));
         trackArea.setSelectedTrack (0);
         statusMessage = "Elastic demo: drums Rhythmic + quantized, pad Polyphonic +5 st, copy TCE'd to 3 beats  (" + engine::TimeStretch::libraryVersion() + ")";
         updateStatus();
+        // The TCE goes through the job so --elastic-async=0 exercises the background path.
+        auto tce = std::make_unique<model::SetClipElasticCommand> (session, copy,
+                       model::Elastic::forVisibleLength (c, (juce::int64) std::llround (3.0 * 60.0 / 100.0 * c.sampleRate)), "TCE Trim", true);
+        const bool background = (double) tce->getSourceLength() / tce->getSampleRate() > ui::ElasticJob::asyncThresholdSeconds;
+        if (! background) tce->render();
+        ui::ElasticJob::run (session, std::move (tce), [this, background] (bool applied)
+        {
+            statusMessage += applied ? (background ? "  [TCE rendered in the background]" : "  [TCE rendered inline]") : "  [TCE cancelled]";
+            updateStatus();
+        });
     }
 
     // --fades=<in ms>,<out ms>[,<gain dB>]: apply to every audio clip (smoke tests).
@@ -1611,6 +1620,7 @@ public:
             else if (arg == "--convolution-demo") main.convolutionDemoFromCommandLine();
             else if (arg == "--pitch-demo") main.pitchDemoFromCommandLine();
             else if (arg == "--beat-detective-demo") main.beatDetectiveDemoFromCommandLine();
+            else if (arg.startsWith ("--elastic-async=")) ui::ElasticJob::asyncThresholdSeconds = arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

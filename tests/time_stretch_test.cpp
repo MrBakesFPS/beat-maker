@@ -4,6 +4,7 @@
 #include <dsp/Transients.h>
 #include <Elastic.h>
 #include <Session.h>
+#include <thread>
 
 using namespace beatmaker::engine;
 using namespace beatmaker::model;
@@ -282,4 +283,43 @@ TEST_CASE ("Warp marker helpers add, move within neighbours, and remove")
     CHECK (spec.markers.size() == 1);
     spec = Elastic::withoutMarkers (f.clip());
     CHECK (spec.markers.empty());
+}
+
+TEST_CASE ("Elastic commands can render on a background thread and refuse to land on a changed clip")
+{
+    Fixture f (sine (440.0, 1.0));
+    auto spec = Elastic::forVisibleLength (f.clip(), 72000);
+
+    // Deferred: capture now, render elsewhere, apply later
+    auto deferred = std::make_unique<SetClipElasticCommand> (f.session, f.ref(), spec, "TCE Trim", true);
+    CHECK_FALSE (deferred->isRendered());
+    CHECK (deferred->getSourceLength() == 48000);
+    std::thread worker ([&] { deferred->render(); });
+    worker.join();
+    CHECK (deferred->isRendered());
+
+    // Same result as the synchronous form
+    SetClipElasticCommand sync (f.session, f.ref(), spec, "TCE Trim");
+    f.session.execute (std::move (deferred));
+    CHECK (f.clip().length == 72000);
+    CHECK (f.clip().audio->getNumSamples() == 72000);
+    f.session.undo();
+    CHECK (f.clip().length == 48000);
+
+    // Cancelled render: nothing happens
+    auto cancelled = std::make_unique<SetClipElasticCommand> (f.session, f.ref(), spec, "TCE Trim", true);
+    CHECK_FALSE (cancelled->render ([] (double) { return false; }));
+    CHECK_FALSE (cancelled->isRendered());
+    f.session.execute (std::move (cancelled));
+    CHECK (f.clip().length == 48000);
+
+    // The clip changed while rendering: the command is stale and leaves it alone
+    auto stale = std::make_unique<SetClipElasticCommand> (f.session, f.ref(), spec, "TCE Trim", true);
+    stale->render();
+    f.session.execute (std::make_unique<TrimClipCommand> (f.ref(), 48000, 24000));
+    auto* raw = stale.get();
+    f.session.execute (std::move (stale));
+    CHECK (raw->wasStale());
+    CHECK (f.clip().length == 24000);
+    CHECK_FALSE (f.clip().isElastic());
 }

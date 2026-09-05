@@ -18,18 +18,31 @@ namespace beatmaker::model
 class SetClipElasticCommand final : public Command
 {
 public:
-    // The rendering happens in the constructor (caller's thread).
+    // Synchronous: captures the clip and renders in the constructor (caller's thread).
     SetClipElasticCommand (const Session&, ClipRef, engine::StretchSpec, juce::String name = "Elastic Audio",
                            engine::TimeStretch::ProgressFn progress = {});
+
+    // Two-step form for background rendering: capture on the message thread,
+    // render() on any thread (touches only the captured copies), then execute
+    // on the message thread. execute() refuses (harmlessly) if the clip changed
+    // in the meantime.
+    SetClipElasticCommand (const Session&, ClipRef, engine::StretchSpec, juce::String name, bool deferRender);
+    bool render (const engine::TimeStretch::ProgressFn& progress = {});
+
     juce::String getName() const override { return name; }
     void execute (Session&) override;
     void undo (Session&) override;
     bool wasCancelled() const noexcept { return cancelled; }
+    bool isRendered() const noexcept { return rendered; }
+    bool wasStale() const noexcept { return stale; }
+    juce::int64 getSourceLength() const noexcept { return before.originalAudio() != nullptr ? before.originalAudio()->getNumSamples() : 0; }
+    double getSampleRate() const noexcept { return before.sampleRate; }
 
 private:
     ClipRef ref;
     juce::String name;
-    bool cancelled = false;
+    engine::StretchSpec spec;
+    bool cancelled = false, rendered = false, stale = false, applied = false;
     AudioClip before, after;   // full snapshots of the clip's audio-related state
 };
 
