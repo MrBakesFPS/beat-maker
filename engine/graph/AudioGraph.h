@@ -68,6 +68,7 @@ private:
 
     void renderRange (float* const* outputs, int numOutputs, int numSamples);
     void mixMonitoredInputs (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
+    void mixPreview (float* const* outputs, int numOutputs, int numSamples);
     void mixClips (float* const* outputs, int numOutputs, juce::int64 rangeStart, int numSamples);
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
     void processPreviewEvents();
@@ -77,6 +78,9 @@ private:
     Transport& transport;
     DrumMachine drums;
     Recorder* recorder = nullptr;
+
+    const juce::AudioBuffer<float>* previewSource = nullptr;  // identity of the current preview
+    int previewPosition = 0;
 
     RenderSnapshot* current = nullptr;                 // owned by the audio thread
     std::atomic<RenderSnapshot*> incoming { nullptr }; // message -> audio

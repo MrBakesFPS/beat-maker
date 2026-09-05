@@ -71,6 +71,13 @@ void AudioGraph::swapInPendingSnapshot() noexcept
 
     current = next;
 
+    // A different preview buffer restarts from the top.
+    if (current->preview.get() != previewSource)
+    {
+        previewSource = current->preview.get();
+        previewPosition = 0;
+    }
+
     // Voices may only reference kits the new snapshot keeps alive.
     std::array<const DrumKit*, 64> kits {};
     int numKits = 0;
@@ -211,8 +218,9 @@ void AudioGraph::renderRange (float* const* outputs, int numOutputs, int numSamp
     }
 
     // Drum voices always render so previews sound while stopped and tails
-    // ring out after stop.
+    // ring out after stop. Library preview likewise ignores the transport.
     drums.render (outputs, numOutputs, numSamples);
+    mixPreview (outputs, numOutputs, numSamples);
 
     for (int ch = 0; ch < juce::jmin (numOutputs, (int) outputPeak.size()); ++ch)
         if (outputs[ch] != nullptr)
@@ -238,6 +246,33 @@ void AudioGraph::mixMonitoredInputs (const float* const* inputs, int numInputs,
             if (idx < 0 || idx >= numInputs || inputs[idx] == nullptr) continue;
             juce::FloatVectorOperations::addWithMultiply (outputs[ch], inputs[idx], m.gain, numSamples);
         }
+    }
+}
+
+void AudioGraph::mixPreview (float* const* outputs, int numOutputs, int numSamples)
+{
+    if (current == nullptr || current->preview == nullptr)
+        return;
+
+    const auto& src = *current->preview;
+    const int length = src.getNumSamples();
+    const int srcChannels = src.getNumChannels();
+    if (length <= 0 || srcChannels <= 0)
+        return;
+
+    for (int done = 0; done < numSamples; )
+    {
+        if (previewPosition >= length)
+            previewPosition = 0;                     // loop
+
+        const int n = juce::jmin (numSamples - done, length - previewPosition);
+        for (int ch = 0; ch < numOutputs; ++ch)
+            if (outputs[ch] != nullptr)
+                juce::FloatVectorOperations::addWithMultiply (outputs[ch] + done,
+                                                              src.getReadPointer (juce::jmin (ch, srcChannels - 1), previewPosition),
+                                                              current->previewGain, n);
+        previewPosition += n;
+        done += n;
     }
 }
 

@@ -6,13 +6,16 @@
 
 #include "depth/BounceDialog.h"
 #include "shared/Theme.h"
+#include "surface/LoopBrowser.h"
 #include "surface/StepSequencer.h"
 #include "surface/TrackArea.h"
 #include "surface/TransportBar.h"
 
 #include <AudioFileLoader.h>
+#include <LoopLibrary.h>
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
+#include <dsp/Resampler.h>
 #include <RenderSnapshotBuilder.h>
 #include <Session.h>
 #include <io/AudioEngine.h>
@@ -34,6 +37,7 @@ static std::atomic<bool> terminationRequested { false };
 static void onTerminationSignal (int) { terminationRequested.store (true); }
 
 class MainComponent final : public juce::Component,
+                            public juce::DragAndDropContainer,
                             private model::Session::Listener,
                             private juce::Timer
 {
@@ -54,7 +58,10 @@ public:
         addAndMakeVisible (transportBar);
         addAndMakeVisible (trackArea);
         addAndMakeVisible (sequencer);
+        addAndMakeVisible (loopBrowser);
         addAndMakeVisible (statusLabel);
+
+        setupLoopLibrary();
         statusLabel.setColour (juce::Label::textColourId, ui::theme::textDim);
         statusLabel.setFont (juce::FontOptions (12.0f));
         updateStatus();
@@ -63,6 +70,19 @@ public:
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
+        transportBar.onLibraryToggled = [this] (bool visible) { setLibraryVisible (visible); };
+
+        loopBrowser.onPreview = [this] (const persistence::LoopInfo* loop) { previewLoop (loop); };
+        loopBrowser.onAddAtPlayhead = [this] (const persistence::LoopInfo& loop)
+        {
+            importLoop (loop.file, -1, engine.getTransport().getPositionSeconds());
+        };
+        loopBrowser.onAddFolder = [this] { chooseLoopFolder(); };
+        trackArea.onLoopDropped = [this] (const juce::File& file, int trackIndex, double seconds)
+        {
+            loopBrowser.stopPreview();
+            importLoop (file, trackIndex, seconds);
+        };
 
         trackArea.onFilesDropped = [this] (const juce::StringArray& files, int trackIndex, double seconds)
         {
@@ -129,6 +149,7 @@ public:
     }
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
     void showBounceDialog();
+    void importLoopFromCommandLine (const juce::File& file) { importLoop (file, -1, engine.getTransport().getPositionSeconds()); }
 
     // Synchronous whole-arrangement bounce for command-line use. Returns an
     // exit message for stdout.
@@ -194,6 +215,8 @@ public:
             sequencer.setBounds (area.removeFromBottom (juce::jmin (300, area.getHeight() / 2)));
             area.removeFromBottom (2);
         }
+        if (libraryVisible)
+            loopBrowser.setBounds (area.removeFromLeft (juce::jmin (280, area.getWidth() / 3)));
         trackArea.setBounds (area);
     }
 
@@ -211,6 +234,8 @@ public:
         if (key == juce::KeyPress ('c'))                      { transport.setLoopEnabled (! transport.isLoopEnabled()); return true; }
         if (key == juce::KeyPress ('r'))                      { toggleRecord(); return true; }
         if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
+        if (key == juce::KeyPress ('l'))                      { setLibraryVisible (! libraryVisible); return true; }
+        if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { addDrumMachineTrack(); return true; }
         if (key == juce::KeyPress ('b', juce::ModifierKeys::commandModifier, 0)) { showBounceDialogImpl(); return true; }
 
@@ -228,6 +253,144 @@ private:
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
         return raw->getTrackIndex();
+    }
+
+    //==========================================================================
+    // Loop library
+
+    static juce::File bundledLoopsFolder()
+    {
+        // Development builds point straight at the source tree; installed
+        // builds look next to the executable.
+        const juce::File exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+        for (const auto& candidate : {
+       #ifdef BEATMAKER_ASSETS_DIR
+                 juce::File (BEATMAKER_ASSETS_DIR).getChildFile ("loops"),
+       #endif
+                 exe.getSiblingFile ("assets").getChildFile ("loops"),
+                 exe.getParentDirectory().getParentDirectory().getChildFile ("assets").getChildFile ("loops") })
+            if (candidate.isDirectory()) return candidate;
+        return {};
+    }
+
+    static juce::File userLoopsFolder()
+    {
+        return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Loops");
+    }
+
+    static juce::PropertiesFile::Options settingsOptions()
+    {
+        juce::PropertiesFile::Options o;
+        o.applicationName = "Beat Maker";
+        o.filenameSuffix = "settings";
+        o.folderName = "Beat Maker";
+        o.osxLibrarySubFolder = "Application Support";
+        return o;
+    }
+
+    void setupLoopLibrary()
+    {
+        appSettings = std::make_unique<juce::PropertiesFile> (settingsOptions());
+
+        juce::Array<juce::File> folders;
+        if (const auto bundled = bundledLoopsFolder(); bundled.isDirectory()) folders.add (bundled);
+        userLoopsFolder().createDirectory();
+        folders.add (userLoopsFolder());
+        for (const auto& path : juce::StringArray::fromLines (appSettings->getValue ("loopFolders")))
+            if (juce::File (path).isDirectory()) folders.add (juce::File (path));
+
+        loopLibrary.setFolders (folders);
+        loopLibrary.rescanAsync();
+        loopBrowser.setSessionBpm (engine.getTransport().getBpm());
+    }
+
+    void chooseLoopFolder()
+    {
+        fileChooser = std::make_unique<juce::FileChooser> ("Add Loop Folder", juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                                  [this] (const juce::FileChooser& fc)
+                                  {
+                                      const auto folder = fc.getResult();
+                                      if (! folder.isDirectory()) return;
+                                      loopLibrary.addFolder (folder);
+
+                                      juce::StringArray saved = juce::StringArray::fromLines (appSettings->getValue ("loopFolders"));
+                                      saved.addIfNotAlreadyThere (folder.getFullPathName());
+                                      saved.removeEmptyStrings();
+                                      appSettings->setValue ("loopFolders", saved.joinIntoString ("\n"));
+                                      appSettings->saveIfNeeded();
+
+                                      loopLibrary.rescanAsync();
+                                  });
+    }
+
+    void previewLoop (const persistence::LoopInfo* loop)
+    {
+        previewAudio.reset();
+        if (loop != nullptr)
+        {
+            juce::String error;
+            if (const auto loaded = loader.load (loop->file, engine.getSampleRate(), error))
+                previewAudio = loaded->audio;
+            else
+                statusMessage = error;
+        }
+        pushSnapshot();
+        updateStatus();
+    }
+
+    double snapToBeat (double seconds) const
+    {
+        const double beat = engine.getTransport().beatsToSeconds (1.0);
+        return juce::jmax (0.0, std::round (seconds / beat) * beat);
+    }
+
+    // Place a library loop on a track, conformed to the session tempo by
+    // varispeed resampling (pitch follows tempo until Phase 3 adds
+    // polyphonic time-stretching) and snapped to the beat grid.
+    void importLoop (const juce::File& file, int trackIndex, double seconds)
+    {
+        juce::String error;
+        const auto loaded = loader.load (file, engine.getSampleRate(), error);
+        if (! loaded) { statusMessage = error; updateStatus(); return; }
+
+        const auto info = persistence::LoopLibrary::analyse (file, loader.getFormatManager());
+        const double sessionBpm = engine.getTransport().getBpm();
+        auto audio = loaded->audio;
+        juce::String conformNote;
+
+        if (info.bpm > 0.0 && std::abs (info.bpm - sessionBpm) > 0.01)
+        {
+            const double ratio = engine::Resampler::ratioForTempo (info.bpm, sessionBpm);
+            audio = std::make_shared<const juce::AudioBuffer<float>> (engine::Resampler::resample (*audio, ratio));
+            conformNote = "  (" + juce::String (juce::roundToInt (info.bpm)) + " -> " + juce::String (juce::roundToInt (sessionBpm))
+                        + " BPM, varispeed)";
+        }
+
+        if (trackIndex < 0 || trackIndex >= session.getNumTracks())
+            trackIndex = addTrack (file.getFileNameWithoutExtension());
+
+        const double start = snapToBeat (seconds);
+        model::AudioClip clip;
+        clip.name          = info.name;
+        clip.sourceFile    = file;
+        clip.audio         = audio;
+        clip.sampleRate    = loaded->sampleRate;
+        clip.timelineStart = (juce::int64) std::llround (start * loaded->sampleRate);
+        clip.length        = audio->getNumSamples();
+        session.execute (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
+
+        statusMessage = "Added " + info.name + " at bar " + juce::String (engine.getTransport().barBeatForSeconds (start).bar) + conformNote;
+        updateStatus();
+    }
+
+    void setLibraryVisible (bool visible)
+    {
+        libraryVisible = visible;
+        loopBrowser.setVisible (visible);
+        transportBar.setLibraryVisible (visible);
+        if (! visible) loopBrowser.stopPreview();
+        resized();
     }
 
     //==========================================================================
@@ -550,9 +713,16 @@ private:
                                   });
     }
 
+    void pushSnapshot()
+    {
+        auto snapshot = model::buildRenderSnapshot (session);
+        snapshot->preview = previewAudio;
+        engine.setSnapshot (std::move (snapshot));
+    }
+
     void sessionChanged (model::Session& s) override
     {
-        engine.setSnapshot (model::buildRenderSnapshot (s));
+        pushSnapshot();
 
         // Cycle range follows the arrangement until a user-defined range exists.
         engine.getTransport().setLoopRange (0, (juce::int64) std::llround (s.getLengthSeconds() * engine.getSampleRate()));
@@ -568,7 +738,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   R: record   Return: start   C: cycle   Ctrl+D: drum track   E: editor   Ctrl+O: open   Ctrl+B: bounce   Ctrl+wheel: zoom";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   E: editor   Ctrl+D: drum track   Ctrl+O: open   Ctrl+B: bounce   Ctrl+wheel: zoom";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -579,6 +749,11 @@ private:
     ui::TransportBar transportBar { engine.getTransport() };
     ui::TrackArea trackArea { session, engine.getTransport(), loader.getFormatManager() };
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
+    persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
+    ui::LoopBrowser loopBrowser { loopLibrary };
+    std::unique_ptr<juce::PropertiesFile> appSettings;
+    std::shared_ptr<const juce::AudioBuffer<float>> previewAudio;
+    bool libraryVisible = true;
     std::shared_ptr<const engine::DrumKit> defaultKit;
     bool editorVisible = true;
     bool loopWasEnabled = false;
@@ -609,21 +784,26 @@ public:
         // Command line: audio files are imported; --drums adds a Drum Machine
         // track with the starter beat; --record adds an armed audio track and
         // starts recording; --cycle enables looping; --play starts the
-        // transport; --bounce=<file> renders the arrangement and quits.
+        // transport; --loop=<file> adds a library loop tempo-conformed at the
+        // playhead; --bounce=<file> renders the arrangement and quits.
         auto& main = mainWindow->getMainComponent();
         bool play = false;
         juce::File bounceFile;
 
-        for (const auto& arg : juce::StringArray::fromTokens (commandLine, true))
+        // Use the raw argument array: paths with spaces arrive intact.
+        juce::ignoreUnused (commandLine);
+        for (const auto& arg : getCommandLineParameterArray())
         {
             if (arg == "--drums")       main.addDrumMachineTrackFromCommandLine();
             else if (arg == "--record") main.addArmedAudioTrackAndRecord();
             else if (arg == "--cycle")  main.setCycleEnabled (true);
             else if (arg == "--play")   play = true;
             else if (arg.startsWith ("--bounce=")) bounceFile = juce::File::getCurrentWorkingDirectory()
-                                                                    .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false).unquoted());
+                                                                    .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--bounce-dialog") main.showBounceDialog();
-            else if (const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (arg.unquoted()); f.existsAsFile())
+            else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()
+                                                                                    .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
+            else if (const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (arg); f.existsAsFile())
                 main.importAudioFile (f);
         }
 

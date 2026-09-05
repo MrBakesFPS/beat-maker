@@ -65,6 +65,13 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     cycleButton.setTooltip ("Cycle: loop the whole arrangement (C)");
     cycleButton.onClick = [this] { transport.setLoopEnabled (cycleButton.getToggleState()); };
 
+    addAndMakeVisible (libraryButton);
+    libraryButton.setClickingTogglesState (true);
+    libraryButton.setToggleState (true, juce::dontSendNotification);
+    libraryButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
+    libraryButton.setTooltip ("Show or hide the loop library (L)");
+    libraryButton.onClick = [this] { if (onLibraryToggled) onLibraryToggled (libraryButton.getToggleState()); };
+
     addAndMakeVisible (editorButton);
     editorButton.setClickingTogglesState (true);
     editorButton.setToggleState (true, juce::dontSendNotification);
@@ -99,6 +106,8 @@ void TransportBar::resized()
     openButton.setBounds (area.removeFromRight (80).reduced (0, 6));
     area.removeFromRight (8);
     editorButton.setBounds (area.removeFromRight (64).reduced (0, 8));
+    area.removeFromRight (6);
+    libraryButton.setBounds (area.removeFromRight (68).reduced (0, 8));
     area.removeFromRight (16);
 
     barsBeatsLcd.setBounds (area.removeFromLeft (200)); area.removeFromLeft (4);

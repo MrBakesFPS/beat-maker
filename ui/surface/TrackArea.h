@@ -17,6 +17,7 @@ namespace beatmaker::ui
 
 class TrackArea final : public juce::Component,
                         public juce::FileDragAndDropTarget,
+                        public juce::DragAndDropTarget,
                         private juce::Timer,
                         private juce::ChangeListener,
                         private model::Session::Listener
@@ -27,6 +28,8 @@ public:
 
     // (files, trackIndex or -1 for "new track", timeline position in seconds)
     std::function<void (const juce::StringArray&, int, double)> onFilesDropped;
+    // (loop file, trackIndex or -1 for new track, timeline seconds) from the Library
+    std::function<void (const juce::File&, int, double)> onLoopDropped;
     std::function<void (int trackIndex, bool mute)> onMuteChanged;
     std::function<void (int trackIndex, bool solo)> onSoloChanged;
     std::function<void (int trackIndex, bool armed)> onArmChanged;
@@ -56,6 +59,11 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
     void fileDragEnter (const juce::StringArray&, int, int) override { dragHover = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { dragHover = false; repaint(); }
+
+    bool isInterestedInDragSource (const SourceDetails&) override;
+    void itemDragEnter (const SourceDetails&) override { dragHover = true; repaint(); }
+    void itemDragExit (const SourceDetails&) override { dragHover = false; repaint(); }
+    void itemDropped (const SourceDetails&) override;
 
 private:
     struct TrackControls

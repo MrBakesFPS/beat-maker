@@ -1,4 +1,5 @@
 #include "AudioFileLoader.h"
+#include <dsp/Resampler.h>
 
 namespace beatmaker::persistence
 {
@@ -47,21 +48,8 @@ std::optional<LoadedAudio> AudioFileLoader::load (const juce::File& file, double
     }
 
     // Resample to the engine rate.
-    const double ratio = reader->sampleRate / targetSampleRate; // input samples per output sample
-    const int outLength = (int) std::ceil (sourceLength / ratio);
-
-    juce::AudioBuffer<float> resampled (numChannels, outLength);
-    resampled.clear();
-
-    for (int ch = 0; ch < numChannels; ++ch)
-    {
-        juce::LagrangeInterpolator interpolator;
-        interpolator.reset();
-        interpolator.process (ratio, source.getReadPointer (ch), resampled.getWritePointer (ch), outLength,
-                              sourceLength, 0);
-    }
-
-    result.numSamples = outLength;
+    auto resampled = engine::Resampler::resample (source, reader->sampleRate / targetSampleRate);
+    result.numSamples = resampled.getNumSamples();
     result.audio = std::make_shared<const juce::AudioBuffer<float>> (std::move (resampled));
     return result;
 }

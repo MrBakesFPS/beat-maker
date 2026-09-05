@@ -16,6 +16,7 @@ target_sources(beatmaker_tests PRIVATE
     sequencer_test.cpp
     recorder_test.cpp
     bounce_test.cpp
+    loop_library_test.cpp
     audio_file_loader_test.cpp)
 
 target_compile_definitions(beatmaker_tests PRIVATE

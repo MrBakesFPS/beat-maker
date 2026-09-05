@@ -23,6 +23,7 @@ public:
     juce::String initialise (int numInputChannels = 2, int numOutputChannels = 2);
 
     Transport&  getTransport() noexcept { return transport; }
+    const Transport& getTransport() const noexcept { return transport; }
     AudioGraph& getGraph() noexcept     { return graph; }
     Recorder&   getRecorder() noexcept  { return recorder; }
 

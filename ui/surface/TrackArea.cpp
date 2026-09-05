@@ -545,4 +545,23 @@ void TrackArea::filesDropped (const juce::StringArray& files, int x, int y)
         onFilesDropped (files, trackIndex, xToSeconds ((float) juce::jmax (x, theme::trackHeaderWidth)));
 }
 
+bool TrackArea::isInterestedInDragSource (const SourceDetails& details)
+{
+    return details.description.toString().startsWith ("loop:");
+}
+
+void TrackArea::itemDropped (const SourceDetails& details)
+{
+    dragHover = false;
+    repaint();
+
+    const juce::File file (details.description.toString().fromFirstOccurrenceOf ("loop:", false, false));
+    int trackIndex = trackIndexAtY (details.localPosition.y);
+    if (auto* t = session.getTrack (trackIndex); t != nullptr && t->isInstrument())
+        trackIndex = -1;
+
+    if (onLoopDropped)
+        onLoopDropped (file, trackIndex, xToSeconds ((float) juce::jmax (details.localPosition.x, theme::trackHeaderWidth)));
+}
+
 } // namespace beatmaker::ui

@@ -29,6 +29,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "assets/loops/Drum Loop 120.wav"
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --cycle --play   # instant beat
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --bounce=beat.wav # batch render, no UI interaction
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--loop=assets/loops/Hip Hop Beat 90.wav"  # conformed to 120
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -43,6 +44,13 @@ Run the tests with `ctest --test-dir build`.
   starter beat, and a step-sequencer editor panel. Click a step to toggle it,
   Shift-click for a soft hit, drag to paint, click a pad name to audition it,
   drop an audio file on a pad row to replace its sample.
+- Loop Library (L): a GarageBand-style browser over bundled loops plus
+  `~/Music/Beat Maker/Loops` and any folders you add. Tempo, key and category
+  are read from file names (with tempo estimated from length when missing).
+  Click a loop to audition it, double-click to add it at the playhead, or drag
+  it onto a track. Loops are conformed to the session tempo by varispeed
+  resampling (pitch follows tempo until Phase 3 adds polyphonic stretching)
+  and snapped to the beat grid.
 - Recording: arm an audio track (R), pick its input, optionally enable input
   monitoring (I), then press Record. Takes are written as 24-bit WAV to
   `~/Music/Beat Maker/Audio Files` on a background thread and land on the
@@ -57,12 +65,11 @@ Run the tests with `ctest --test-dir build`.
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.
 
-Keys: Space play/stop, R record, Return back to start, C cycle, E editor panel,
+Keys: Space play/stop, R record, Return back to start, C cycle, L library, E editor panel,
 Ctrl+D new drum track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 1: the loop browser, piano roll, Smart Controls.
-See PLAN.md §5.
+Still to come in Phase 1: piano roll and Smart Controls. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

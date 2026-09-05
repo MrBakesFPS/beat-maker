@@ -20,8 +20,10 @@ public:
     std::function<void()> onRecord;
     std::function<void()> onBounce;
     std::function<void (bool)> onEditorToggled;
+    std::function<void (bool)> onLibraryToggled;
 
-    void setEditorVisible (bool visible) { editorButton.setToggleState (visible, juce::dontSendNotification); }
+    void setEditorVisible (bool visible)  { editorButton.setToggleState (visible, juce::dontSendNotification); }
+    void setLibraryVisible (bool visible) { libraryButton.setToggleState (visible, juce::dontSendNotification); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -40,6 +42,7 @@ private:
     juce::ShapeButton rtzButton    { "Return to Start", theme::stop, theme::stop.brighter(), theme::stop.darker() };
 
     juce::Label barsBeatsLcd, timeLcd, tempoLcd;
+    juce::TextButton libraryButton { "Library" };
     juce::TextButton cycleButton { "Cycle" };
     juce::TextButton editorButton { "Editor" };
     juce::TextButton openButton { "Open..." };

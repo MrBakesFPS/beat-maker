@@ -191,7 +191,7 @@ beat-maker/
 
 ### Phase 1 — Surface MVP (Weeks 5–12)
 - [x] Audio & Instrument tracks; record from input; clip display with waveforms. *(Recording done 2026-09-05: per-track arm, input select, input monitoring, threaded WAV writer, live waveform, punch-out)*
-- [ ] Loop browser with bundled loops; drag-to-track; tempo conform.
+- [x] Loop browser with bundled loops; drag-to-track; tempo conform. *(Done 2026-09-05: LoopLibrary scanner with name/length metadata, Library panel with search/category filters/audition/drag/double-click, varispeed conform + beat snap; 7 bundled loops. Polyphonic stretch remains a Phase 3 item.)*
 - [x] Step sequencer + Drum Machine instrument. *(Done 2026-09-05: synthesised 16-pad kit, pattern clips, step editor, pad audition, per-pad sample load, Cycle mode)*
 - [ ] Piano roll editor.
 - [ ] Simple mixer (volume/pan/mute/solo) and Smart Controls panel.

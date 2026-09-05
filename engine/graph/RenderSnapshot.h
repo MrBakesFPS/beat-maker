@@ -48,6 +48,11 @@ struct RenderSnapshot
     std::vector<RenderClip> clips;
     std::vector<RenderPattern> patterns;
     std::vector<MonitorInput> monitors;
+
+    // Library audition: played from its start whenever the pointer changes,
+    // independent of the transport, looping while present.
+    std::shared_ptr<const juce::AudioBuffer<float>> preview;
+    float previewGain = 0.8f;
     float masterGain = 1.0f;
 };
 

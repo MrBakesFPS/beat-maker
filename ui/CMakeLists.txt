@@ -12,9 +12,11 @@ target_sources(BeatMaker PRIVATE
     surface/TransportBar.cpp
     surface/TrackArea.cpp
     surface/StepSequencer.cpp
+    surface/LoopBrowser.cpp
     depth/BounceDialog.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
+    BEATMAKER_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:BeatMaker,JUCE_PRODUCT_NAME>"
