@@ -209,7 +209,7 @@ beat-maker/
 
 ### Phase 3 — Plugins & Instruments (Weeks 23–30)
 - [~] VST3 + CLAP hosting with scanner and sandbox; LV2 (Linux) and AU (macOS). *(2026-09-05: VST3/LV2/AU via JUCE with out-of-process scan validation and blacklist, latency to ADC, parameter automation, editor windows. CLAP pending (no JUCE host); out-of-process *hosting* pending.)*
-- [ ] Bundled effects suite complete; sidechain routing.
+- [~] Bundled effects suite complete; sidechain routing. *(2026-09-05: 7-band EQ with response display, Compressor, Limiter, Gate/Expander, De-esser, Delay (digital/tape/ping-pong), Reverb, Chorus, Flanger, Phaser, Saturation, Amp Sim, Utility. Pending: convolution reverb, pitch correction, sidechain routing.)*
 - [ ] Sampler, subtractive and wavetable synths.
 - [ ] Elastic-style time stretch with warp markers; Beat Detective-style tools.
 - **Milestone:** Third-party plugins run reliably; time-stretched vocals sound clean.

@@ -218,6 +218,25 @@ public:
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
     void scanPluginsFromCommandLine() { scanPlugins(); }
 
+    void insertDemoFromCommandLine()
+    {
+        const double sr = engine.getSampleRate();
+        if (session.getNumTracks() > 0)
+        {
+            session.execute (std::make_unique<model::SetInsertCommand> (0, 0, engine::EffectType::eq, sr));
+            session.execute (std::make_unique<model::SetInsertCommand> (0, 1, engine::EffectType::saturation, sr));
+            session.execute (std::make_unique<model::SetInsertCommand> (0, 2, engine::EffectType::chorus, sr));
+        }
+        if (session.getNumTracks() > 1)
+        {
+            session.execute (std::make_unique<model::SetInsertCommand> (1, 0, engine::EffectType::gate, sr));
+            session.execute (std::make_unique<model::SetInsertCommand> (1, 1, engine::EffectType::deesser, sr));
+            session.execute (std::make_unique<model::SetInsertCommand> (1, 2, engine::EffectType::phaser, sr));
+        }
+        session.execute (std::make_unique<model::SetInsertCommand> (-1, 0, engine::EffectType::limiter, sr));
+        session.execute (std::make_unique<model::SetInsertCommand> (-1, 1, engine::EffectType::utility, sr));
+    }
+
     // --clip-gain-demo: a gain line on the first audio clip, Clip Gain view on, zoomed to fit
     void clipGainDemoFromCommandLine()
     {
@@ -1298,6 +1317,7 @@ public:
             else if (arg == "--playlist-demo") main.playlistDemoFromCommandLine();
             else if (arg == "--clip-gain-demo") main.clipGainDemoFromCommandLine();
             else if (arg == "--scan-plugins") main.scanPluginsFromCommandLine();
+            else if (arg == "--insert-demo") main.insertDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

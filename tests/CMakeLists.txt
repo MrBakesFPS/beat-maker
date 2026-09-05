@@ -27,6 +27,7 @@ target_sources(beatmaker_tests PRIVATE
     trim_master_test.cpp
     clip_gain_scrub_pencil_test.cpp
     plugin_host_test.cpp
+    effects_suite_test.cpp
     recorder_test.cpp
     bounce_test.cpp
     loop_library_test.cpp

@@ -38,6 +38,14 @@ Run the tests with `ctest --test-dir build`.
 
 **Phases 0, 1 and 2 complete. Phase 3 in progress.**
 
+- Built-in effects suite: 7-band EQ (HPF, low shelf, three parametric peaks,
+  high shelf, LPF) with a live frequency-response display, Compressor with
+  lookahead, Limiter (2 ms lookahead, ceiling), Gate/Expander (threshold,
+  ratio, attack, hold, release, range), De-esser (split-band), Delay
+  (digital, tape with saturated feedback, ping-pong), Reverb, Chorus,
+  Flanger, Phaser, Saturation (soft, hard, tube), Amp Sim (drive, tone stack,
+  presence, cabinet) and Utility (gain, phase, width, mono). Dynamics show a
+  gain-reduction bar on their slot; every parameter is automatable.
 - Plugin hosting: VST3 and LV2 on Linux (AU on macOS) through JUCE. From any
   insert slot choose Plugins > Scan for Plugins..., then pick a plugin by
   format. Scanning validates each plugin in a separate process (the app
@@ -172,7 +180,8 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: the full bundled effects suite and instruments,
+Still to come in Phase 3: more bundled instruments (Sampler, FM/Wavetable,
+Electric Piano, Bass), convolution reverb and pitch correction,
 Elastic-style time stretching, Beat Detective-style transient tools, CLAP
 hosting. See PLAN.md §5.
 

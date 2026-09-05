@@ -14,8 +14,8 @@ namespace
 class EffectEditor final : public juce::Component
 {
 public:
-    EffectEditor (const model::Insert& insert, std::function<void (std::shared_ptr<const engine::InsertParams>, bool replace)> onChange)
-        : type (insert.type), params (insert.params != nullptr ? *insert.params : engine::Effect::defaultParams (insert.type)), apply (std::move (onChange))
+    EffectEditor (const model::Insert& insert, double sr, std::function<void (std::shared_ptr<const engine::InsertParams>, bool replace)> onChange)
+        : type (insert.type), sampleRate (sr), params (insert.params != nullptr ? *insert.params : engine::Effect::defaultParams (insert.type)), apply (std::move (onChange))
     {
         const auto& info = engine::Effect::paramInfo (type);
         for (size_t i = 0; i < info.size(); ++i)
@@ -25,6 +25,9 @@ public:
             if (info[i].skewMidpoint > info[i].min && info[i].skewMidpoint < info[i].max) s->setSkewFactorFromMidPoint (info[i].skewMidpoint);
             s->setNumDecimalPlacesToDisplay (info[i].max - info[i].min > 100.0f ? 0 : 1);
             s->setTextValueSuffix (info[i].suffix);
+            // Enumerated parameters (Type, Mode, Voices, Stages, on/off) step in whole numbers
+            const bool stepped = info[i].max - info[i].min <= 8.0f && info[i].suffix[0] == '\0';
+            if (stepped) s->setRange (info[i].min, info[i].max, 1.0);
             s->setValue (params.values[i], juce::dontSendNotification);
             s->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 64, 16);
             s->setColour (juce::Slider::rotarySliderFillColourId, theme::accent);
@@ -39,6 +42,7 @@ public:
                 const bool replace = gesture && changed;
                 if (gesture) changed = true;
                 apply (std::make_shared<const engine::InsertParams> (params), replace);
+                repaint();
             };
             addAndMakeVisible (s);
 
@@ -48,7 +52,9 @@ public:
             l->setFont (juce::FontOptions (11.0f));
             addAndMakeVisible (l);
         }
-        setSize (juce::jmax (1, sliders.size()) * 76 + 16, 110);
+        const int cols = juce::jmin (knobsPerRow, juce::jmax (1, sliders.size()));
+        const int rows = (sliders.size() + knobsPerRow - 1) / knobsPerRow;
+        setSize (cols * 76 + 16, 18 + rows * 92 + (type == engine::EffectType::eq ? responseHeight + 6 : 0) + 8);
     }
 
     void paint (juce::Graphics& g) override
@@ -57,21 +63,64 @@ public:
         g.setColour (theme::text);
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (engine::Effect::typeName (type), 8, 4, getWidth() - 16, 14, juce::Justification::centredLeft);
+
+        if (type == engine::EffectType::eq)
+        {
+            // Frequency response of the current settings, 20 Hz .. 20 kHz, +-18 dB
+            auto r = juce::Rectangle<int> (8, 18, getWidth() - 16, responseHeight).toFloat();
+            g.setColour (theme::background);
+            g.fillRoundedRectangle (r, 4.0f);
+            g.setColour (theme::grid);
+            for (double f : { 100.0, 1000.0, 10000.0 })
+            {
+                const float x = r.getX() + (float) (std::log10 (f / 20.0) / 3.0) * r.getWidth();
+                g.drawVerticalLine ((int) x, r.getY(), r.getBottom());
+            }
+            g.drawHorizontalLine ((int) r.getCentreY(), r.getX(), r.getRight());
+            for (int db : { -12, -6, 6, 12 })
+                g.drawHorizontalLine ((int) (r.getCentreY() - db / 18.0f * r.getHeight() * 0.5f), r.getX(), r.getRight());
+
+            const auto bands = engine::EqEffect::coefficientsFor (params, sampleRate);
+            const auto active = engine::EqEffect::activeBands (params);
+            juce::Path curve;
+            const int steps = (int) r.getWidth();
+            for (int i = 0; i <= steps; ++i)
+            {
+                const double f = 20.0 * std::pow (10.0, 3.0 * i / (double) steps);
+                double db = 0.0;
+                for (int b = 0; b < engine::EqEffect::numBands; ++b)
+                    if (active[(size_t) b]) db += engine::Biquad::magnitudeDb (bands[(size_t) b], sampleRate, f);
+                const float x = r.getX() + (float) i, y = r.getCentreY() - (float) juce::jlimit (-18.0, 18.0, db) / 18.0f * r.getHeight() * 0.5f;
+                if (i == 0) curve.startNewSubPath (x, y); else curve.lineTo (x, y);
+            }
+            g.setColour (theme::accent);
+            g.strokePath (curve, juce::PathStrokeType (1.6f));
+            g.setColour (theme::textDim);
+            g.setFont (juce::FontOptions (9.0f));
+            g.drawText ("100", (int) (r.getX() + (float) (std::log10 (5.0) / 3.0) * r.getWidth()) + 2, (int) r.getBottom() - 11, 30, 10, juce::Justification::left);
+            g.drawText ("1k",  (int) (r.getX() + (float) (std::log10 (50.0) / 3.0) * r.getWidth()) + 2, (int) r.getBottom() - 11, 30, 10, juce::Justification::left);
+            g.drawText ("10k", (int) (r.getX() + (float) (std::log10 (500.0) / 3.0) * r.getWidth()) + 2, (int) r.getBottom() - 11, 30, 10, juce::Justification::left);
+        }
     }
 
     void resized() override
     {
         auto area = getLocalBounds().reduced (8).withTrimmedTop (18);
+        if (type == engine::EffectType::eq) area.removeFromTop (responseHeight + 6);
+        juce::Rectangle<int> row;
         for (int i = 0; i < sliders.size(); ++i)
         {
-            auto col = area.removeFromLeft (76);
+            if (i % knobsPerRow == 0) row = area.removeFromTop (92);
+            auto col = row.removeFromLeft (76);
             labels[i]->setBounds (col.removeFromTop (14));
             sliders[i]->setBounds (col);
         }
     }
 
 private:
+    static constexpr int knobsPerRow = 8, responseHeight = 90;
     engine::EffectType type;
+    double sampleRate;
     engine::InsertParams params;
     std::function<void (std::shared_ptr<const engine::InsertParams>, bool)> apply;
     juce::OwnedArray<juce::Slider> sliders;
@@ -423,7 +472,7 @@ public:
         }
 
         // Edit the effect in a callout
-        auto editor = std::make_unique<EffectEditor> (ins, [this, slot] (std::shared_ptr<const engine::InsertParams> p, bool replace)
+        auto editor = std::make_unique<EffectEditor> (ins, mixer.sampleRate(), [this, slot] (std::shared_ptr<const engine::InsertParams> p, bool replace)
         {
             if (mixer.onCommand) mixer.onCommand (std::make_unique<model::SetInsertParamsCommand> (index, slot, std::move (p)), replace);
         });

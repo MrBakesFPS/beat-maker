@@ -13,7 +13,7 @@
 namespace beatmaker::engine
 {
 
-enum class EffectType { none, eq, compressor, delay, reverb, plugin };
+enum class EffectType { none, eq, compressor, limiter, gate, deesser, delay, reverb, chorus, flanger, phaser, saturation, ampSim, utility, plugin };
 
 struct ParamInfo
 {
@@ -26,7 +26,7 @@ struct ParamInfo
 struct InsertParams
 {
     EffectType type = EffectType::none;
-    std::array<float, 8> values {};
+    std::array<float, 24> values {};
 };
 
 class Effect
@@ -78,26 +78,38 @@ struct Biquad
     static Coefficients peak      (double sampleRate, double freq, double gainDb, double q) noexcept;
     static Coefficients highShelfQ (double sampleRate, double freq, double gainDb, double q) noexcept;
     static Coefficients highPass  (double sampleRate, double freq, double q) noexcept;
+    static Coefficients lowPass   (double sampleRate, double freq, double q) noexcept;
+
+    // |H(e^jw)| at `freq` in dB, for drawing responses.
+    static double magnitudeDb (const Coefficients&, double sampleRate, double freq) noexcept;
 
     static void process (const Coefficients&, State&, float* data, int numSamples) noexcept;
 };
 
 //==============================================================================
 
+// 7-band parametric: high-pass, low shelf, three peaks, high shelf, low-pass.
 class EqEffect final : public Effect
 {
 public:
-    enum Param { lowGain, lowFreq, midGain, midFreq, midQ, highGain, highFreq };
+    enum Param { hpFreq, lowGain, lowFreq, lmGain, lmFreq, lmQ, midGain, midFreq, midQ, hmGain, hmFreq, hmQ, highGain, highFreq, lpFreq };
+    static constexpr int numBands = 7;
     EqEffect() : Effect (EffectType::eq) {}
     void reset() override;
     void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+
+    // Coefficients for each band (for drawing the response); a band is
+    // inactive when its entry is a pass-through.
+    static std::array<Biquad::Coefficients, numBands> coefficientsFor (const InsertParams&, double sampleRate) noexcept;
+    static std::array<bool, numBands> activeBands (const InsertParams&) noexcept;
 protected:
     void prepareImpl (int) override {}
 private:
-    std::array<float, 8> cached {};
+    std::array<float, 24> cached {};
     bool coefficientsValid = false;
-    Biquad::Coefficients low, mid, high;
-    std::array<Biquad::State, 2> lowState, midState, highState;
+    std::array<Biquad::Coefficients, numBands> bands;
+    std::array<bool, numBands> active {};
+    std::array<std::array<Biquad::State, 2>, numBands> state;
 };
 
 class CompressorEffect final : public Effect
@@ -123,7 +135,7 @@ private:
 class DelayEffect final : public Effect
 {
 public:
-    enum Param { time, feedback, mix, highCut };
+    enum Param { time, feedback, mix, highCut, mode };   // mode: 0 digital, 1 tape, 2 ping-pong
     DelayEffect() : Effect (EffectType::delay) {}
     void reset() override;
     void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
@@ -134,6 +146,134 @@ private:
     std::array<std::vector<float>, 2> lines;
     int writePos = 0;
     std::array<float, 2> lpState {};
+};
+
+class LimiterEffect final : public Effect
+{
+public:
+    enum Param { ceiling, release, inputGain };
+    static constexpr float lookaheadMs = 2.0f;
+    LimiterEffect() : Effect (EffectType::limiter) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+    float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
+    int getLatencySamples (const InsertParams&) const noexcept override { return lookaheadSamples; }
+protected:
+    void prepareImpl (int) override;
+private:
+    std::array<std::vector<float>, 2> lines;
+    int writePos = 0, lookaheadSamples = 0;
+    float envelope = 0.0f;
+    std::atomic<float> gainReductionDb { 0.0f };
+};
+
+class GateEffect final : public Effect
+{
+public:
+    enum Param { threshold, ratio, attack, hold, release, range };
+    GateEffect() : Effect (EffectType::gate) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+    float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
+protected:
+    void prepareImpl (int) override {}
+private:
+    float envelope = 0.0f, gain = 1.0f;
+    int holdCounter = 0;
+    std::atomic<float> gainReductionDb { 0.0f };
+};
+
+// De-esser: a high-passed detector drives a dynamic high-shelf cut at the
+// same frequency (broadband/shelf style), so the full signal stays phase-coherent.
+class DeEsserEffect final : public Effect
+{
+public:
+    enum Param { frequency, threshold, range, release };
+    DeEsserEffect() : Effect (EffectType::deesser) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+    float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
+protected:
+    void prepareImpl (int) override {}
+private:
+    float cachedFreq = -1.0f, cachedShelfDb = 1.0e9f;
+    Biquad::Coefficients hp, shelf;
+    std::array<Biquad::State, 2> hpState, shelfState;
+    float envelope = 0.0f;
+    std::atomic<float> gainReductionDb { 0.0f };
+};
+
+// Modulated delay lines shared by chorus and flanger.
+class ModulatedDelayEffect final : public Effect
+{
+public:
+    enum Param { rate, depth, feedback, mix, voices };   // flanger ignores voices
+    explicit ModulatedDelayEffect (EffectType t) : Effect (t) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+protected:
+    void prepareImpl (int) override;
+private:
+    std::array<std::vector<float>, 2> lines;
+    int writePos = 0;
+    double phase = 0.0;
+    std::array<float, 2> feedbackState {};
+};
+
+class PhaserEffect final : public Effect
+{
+public:
+    enum Param { rate, depth, stages, feedback, mix };
+    static constexpr int maxStages = 8;
+    PhaserEffect() : Effect (EffectType::phaser) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+protected:
+    void prepareImpl (int) override {}
+private:
+    double phase = 0.0;
+    std::array<std::array<float, maxStages>, 2> allpassState {};
+    std::array<float, 2> feedbackState {};
+};
+
+class SaturationEffect final : public Effect
+{
+public:
+    enum Param { drive, type, tone, output };   // type: 0 soft, 1 hard, 2 tube
+    SaturationEffect() : Effect (EffectType::saturation) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+protected:
+    void prepareImpl (int) override {}
+private:
+    std::array<float, 2> lpState {};
+};
+
+class AmpSimEffect final : public Effect
+{
+public:
+    enum Param { gain, bass, mid, treble, presence, cabinet, master };
+    AmpSimEffect() : Effect (EffectType::ampSim) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+protected:
+    void prepareImpl (int) override {}
+private:
+    std::array<float, 24> cached {};
+    bool valid = false;
+    Biquad::Coefficients bassC, midC, trebleC, presenceC, cabC, cabHpC;
+    std::array<Biquad::State, 2> bassS, midS, trebleS, presenceS, cabS, cabHpS;
+};
+
+class UtilityEffect final : public Effect
+{
+public:
+    enum Param { gain, invertL, invertR, width, mono };
+    UtilityEffect() : Effect (EffectType::utility) {}
+    void reset() override {}
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+protected:
+    void prepareImpl (int) override {}
 };
 
 class ReverbEffect final : public Effect
