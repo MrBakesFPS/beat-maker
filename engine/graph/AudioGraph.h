@@ -3,7 +3,8 @@
 //   2. mixes audio clips that overlap the block,
 //   3. schedules step-sequencer hits into the DrumMachine voice pool,
 //   4. renders drum voices (also while stopped, for pad previews and tails),
-//   5. advances the transport, wrapping at the loop end when cycling.
+//   5. advances the transport, wrapping at the loop end when cycling,
+//   6. hands device input to the Recorder and mixes monitored inputs through.
 //
 // Snapshot handoff is lock-free:
 //   message thread  --incoming-->  audio thread  --retired-->  message thread
@@ -13,6 +14,7 @@
 
 #include "RenderSnapshot.h"
 #include "../dsp/DrumMachine.h"
+#include "../io/Recorder.h"
 #include "../transport/Transport.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -39,8 +41,16 @@ public:
     // active snapshot (that is what keeps it alive for the audio thread).
     void triggerPadPreview (const DrumKit* kit, int pad, float velocity);
 
+    // Optional recorder that receives every input block (message thread, before start).
+    void setRecorder (Recorder* r) noexcept { recorder = r; }
+
     // Offline rendering (tests, bounce). Same code path as the live callback.
-    void renderBlock (float* const* outputs, int numOutputs, int numSamples);
+    void renderBlock (const float* const* inputs, int numInputs,
+                      float* const* outputs, int numOutputs, int numSamples);
+    void renderBlock (float* const* outputs, int numOutputs, int numSamples)
+    {
+        renderBlock (nullptr, 0, outputs, numOutputs, numSamples);
+    }
 
     float getOutputPeak (int channel) const noexcept;
     int getNumActiveVoices() const noexcept { return drums.getNumActiveVoices(); }
@@ -57,6 +67,7 @@ private:
     static constexpr int maxOutputs = 32;
 
     void renderRange (float* const* outputs, int numOutputs, int numSamples);
+    void mixMonitoredInputs (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
     void mixClips (float* const* outputs, int numOutputs, juce::int64 rangeStart, int numSamples);
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
     void processPreviewEvents();
@@ -65,6 +76,7 @@ private:
 
     Transport& transport;
     DrumMachine drums;
+    Recorder* recorder = nullptr;
 
     RenderSnapshot* current = nullptr;                 // owned by the audio thread
     std::atomic<RenderSnapshot*> incoming { nullptr }; // message -> audio

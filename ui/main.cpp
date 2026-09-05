@@ -18,19 +18,35 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include <atomic>
+#include <csignal>
+
 namespace beatmaker
 {
 
+// SIGTERM/SIGINT request a normal quit so any recording in progress is
+// finalised. The handler only sets a flag; a timer on the message thread
+// does the actual work.
+static std::atomic<bool> terminationRequested { false };
+static void onTerminationSignal (int) { terminationRequested.store (true); }
+
 class MainComponent final : public juce::Component,
-                            private model::Session::Listener
+                            private model::Session::Listener,
+                            private juce::Timer
 {
 public:
     MainComponent()
     {
-        if (const auto error = engine.initialise (2); error.isNotEmpty())
+        if (const auto error = engine.initialise (2, 2); error.isNotEmpty())
             statusMessage = "Audio device error: " + error;
 
         session.addListener (this);
+        trackArea.setInputChannelNames (engine.getInputChannelNames());
+        trackArea.getRecordStartSeconds = [this]
+        {
+            const auto start = engine.getRecorder().getRecordStartSample();
+            return start < 0 ? -1.0 : (double) start / engine.getSampleRate();
+        };
 
         addAndMakeVisible (transportBar);
         addAndMakeVisible (trackArea);
@@ -41,6 +57,7 @@ public:
         updateStatus();
 
         transportBar.onOpenFile = [this] { openFileChooser(); };
+        transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
 
         trackArea.onFilesDropped = [this] (const juce::StringArray& files, int trackIndex, double seconds)
@@ -71,19 +88,41 @@ public:
         {
             session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::solo, on));
         };
+        trackArea.onArmChanged = [this] (int i, bool on)
+        {
+            session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::arm, on));
+        };
+        trackArea.onMonitorChanged = [this] (int i, bool on)
+        {
+            session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::monitor, on));
+        };
+        trackArea.onInputChanged = [this] (int i, int first, int count)
+        {
+            session.execute (std::make_unique<model::SetTrackInputCommand> (i, first, count));
+        };
 
         setWantsKeyboardFocus (true);
         setSize (1200, 720);
+        startTimerHz (20);
     }
 
     ~MainComponent() override
     {
+        stopTimer();
+        if (engine.getRecorder().isRecording())
+            finishRecording();
         session.removeListener (this);
     }
 
     // Command-line entry points (also handy for smoke tests and demos).
     void addDrumMachineTrackFromCommandLine() { addDrumMachineTrack(); }
     void startPlayback() { engine.getTransport().play(); }
+    void addArmedAudioTrackAndRecord()
+    {
+        const int index = addTrack ("Audio " + juce::String (countTracks (model::Track::Type::audio) + 1));
+        session.execute (std::make_unique<model::SetTrackFlagCommand> (index, model::SetTrackFlagCommand::Flag::arm, true));
+        startRecording();
+    }
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
 
     // Public so the application can open a file passed on the command line.
@@ -150,6 +189,7 @@ public:
          || key == juce::KeyPress ('y', juce::ModifierKeys::commandModifier, 0)) { session.redo(); return true; }
         if (key == juce::KeyPress ('o', juce::ModifierKeys::commandModifier, 0)) { openFileChooser(); return true; }
         if (key == juce::KeyPress ('c'))                      { transport.setLoopEnabled (! transport.isLoopEnabled()); return true; }
+        if (key == juce::KeyPress ('r'))                      { toggleRecord(); return true; }
         if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { addDrumMachineTrack(); return true; }
 
@@ -167,6 +207,111 @@ private:
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
         return raw->getTrackIndex();
+    }
+
+    //==========================================================================
+    // Recording
+
+    void toggleRecord()
+    {
+        if (engine.getRecorder().isRecording()) finishRecording();   // punch out, keep playing
+        else                                    startRecording();
+    }
+
+    void startRecording()
+    {
+        std::vector<engine::Recorder::Slot> slots;
+        const auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                             .getChildFile ("Beat Maker").getChildFile ("Audio Files");
+
+        for (const auto& track : session.getTracks())
+        {
+            if (! (track.isAudio() && track.armed)) continue;
+
+            engine::Recorder::Slot slot;
+            slot.trackId    = track.id;
+            slot.firstInput = track.firstInput;
+            slot.numInputs  = track.numInputs;
+            slot.file       = dir.getChildFile (juce::File::createLegalFileName (track.name) + "_01.wav").getNonexistentSibling (false);
+            slot.receiver   = &trackArea.createLiveThumbnail (track.id);
+            slots.push_back (std::move (slot));
+        }
+
+        if (slots.empty())
+        {
+            trackArea.clearLiveThumbnails();
+            statusMessage = "Arm an audio track (R button) before recording";
+            updateStatus();
+            return;
+        }
+
+        if (engine.getNumInputChannels() == 0)
+            statusMessage = "No audio inputs: recording silence";
+
+        if (const auto error = engine.getRecorder().start (slots, engine.getSampleRate()); error.isNotEmpty())
+        {
+            trackArea.clearLiveThumbnails();
+            statusMessage = error;
+            updateStatus();
+            return;
+        }
+
+        auto& transport = engine.getTransport();
+        loopWasEnabled = transport.isLoopEnabled();
+        transport.setLoopEnabled (false);          // linear takes only (loop recording comes later)
+        transport.setRecordEnabled (true);
+        if (! transport.isPlaying())
+            transport.play();
+
+        statusMessage = "Recording " + juce::String (slots.size()) + (slots.size() == 1 ? " track" : " tracks") + "...";
+        updateStatus();
+    }
+
+    void finishRecording()
+    {
+        auto& recorder = engine.getRecorder();
+        auto& transport = engine.getTransport();
+        const int dropouts = recorder.getDropoutCount();
+        const auto takes = recorder.stop();
+
+        transport.setRecordEnabled (false);
+        transport.setLoopEnabled (loopWasEnabled);
+        trackArea.clearLiveThumbnails();
+
+        int imported = 0;
+        for (const auto& take : takes)
+        {
+            const int trackIndex = session.indexOfTrackId (take.trackId);
+            if (trackIndex < 0) continue;
+
+            juce::String error;
+            const auto loaded = loader.load (take.file, engine.getSampleRate(), error);
+            if (! loaded) { statusMessage = error; continue; }
+
+            model::AudioClip clip;
+            clip.name          = take.file.getFileNameWithoutExtension();
+            clip.sourceFile    = take.file;
+            clip.audio         = loaded->audio;
+            clip.sampleRate    = loaded->sampleRate;
+            clip.timelineStart = take.startSample;
+            clip.length        = loaded->numSamples;
+            session.execute (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
+            ++imported;
+        }
+
+        if (imported > 0)
+            statusMessage = "Recorded " + juce::String (imported) + (imported == 1 ? " take" : " takes")
+                          + (dropouts > 0 ? "  (WARNING: " + juce::String (dropouts) + " disk dropouts)" : juce::String());
+        else if (takes.empty())
+            statusMessage = "Nothing recorded";
+        updateStatus();
+    }
+
+    void timerCallback() override
+    {
+        // Stopping the transport ends the take.
+        if (engine.getRecorder().isRecording() && ! engine.getTransport().isPlaying())
+            finishRecording();
     }
 
     void addDrumMachineTrack()
@@ -273,7 +418,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   Return: start   C: cycle   Ctrl+D: drum track   E: editor   Ctrl+O: open   Ctrl+wheel: zoom";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   Ctrl+D: drum track   E: editor   Ctrl+O: open   Ctrl+wheel: zoom";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -286,6 +431,7 @@ private:
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
     std::shared_ptr<const engine::DrumKit> defaultKit;
     bool editorVisible = true;
+    bool loopWasEnabled = false;
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -301,17 +447,22 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
+        std::signal (SIGTERM, onTerminationSignal);
+        std::signal (SIGINT,  onTerminationSignal);
+        quitPoller.startTimer (100);
+
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
 
         // Command line: audio files are imported; --drums adds a Drum Machine
-        // track with the starter beat; --cycle enables looping; --play starts
-        // the transport.
+        // track with the starter beat; --record adds an armed audio track and
+        // starts recording; --cycle enables looping; --play starts the transport.
         auto& main = mainWindow->getMainComponent();
         bool play = false;
 
         for (const auto& arg : juce::StringArray::fromTokens (commandLine, true))
         {
             if (arg == "--drums")       main.addDrumMachineTrackFromCommandLine();
+            else if (arg == "--record") main.addArmedAudioTrackAndRecord();
             else if (arg == "--cycle")  main.setCycleEnabled (true);
             else if (arg == "--play")   play = true;
             else if (const juce::File f (arg.unquoted()); f.existsAsFile())
@@ -322,10 +473,20 @@ public:
             main.startPlayback();
     }
 
-    void shutdown() override { mainWindow.reset(); }
+    void shutdown() override { quitPoller.stopTimer(); mainWindow.reset(); }
     void systemRequestedQuit() override { quit(); }
 
 private:
+    struct QuitPoller final : juce::Timer
+    {
+        void timerCallback() override
+        {
+            if (terminationRequested.exchange (false))
+                if (auto* app = juce::JUCEApplication::getInstance())
+                    app->systemRequestedQuit();
+        }
+    } quitPoller;
+
     class MainWindow final : public juce::DocumentWindow
     {
     public:

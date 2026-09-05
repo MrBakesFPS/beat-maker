@@ -83,11 +83,19 @@ void TrackArea::resized()
 {
     for (int i = 0; i < (int) trackControls.size(); ++i)
     {
+        auto& c = trackControls[(size_t) i];
         auto header = getHeaderBounds (i).reduced (10);
-        auto buttons = header.removeFromBottom (24);
-        trackControls[(size_t) i].mute->setBounds (buttons.removeFromLeft (30));
-        buttons.removeFromLeft (4);
-        trackControls[(size_t) i].solo->setBounds (buttons.removeFromLeft (30));
+        header.removeFromLeft (14); // colour chip
+
+        auto buttons = header.removeFromBottom (22);
+        c.mute->setBounds (buttons.removeFromLeft (28)); buttons.removeFromLeft (4);
+        c.solo->setBounds (buttons.removeFromLeft (28)); buttons.removeFromLeft (4);
+        if (c.arm)     { c.arm->setBounds (buttons.removeFromLeft (28));     buttons.removeFromLeft (4); }
+        if (c.monitor) { c.monitor->setBounds (buttons.removeFromLeft (28)); }
+
+        header.removeFromBottom (4);
+        if (c.input)
+            c.input->setBounds (header.removeFromBottom (20));
     }
 
     const int y = theme::rulerHeight + session.getNumTracks() * theme::trackHeight + 12;
@@ -119,10 +127,75 @@ void TrackArea::rebuildTrackControls()
 
         addAndMakeVisible (*c.mute);
         addAndMakeVisible (*c.solo);
+
+        if (track.isAudio())
+        {
+            c.arm = std::make_unique<juce::TextButton> ("R");
+            c.arm->setClickingTogglesState (true);
+            c.arm->setToggleState (track.armed, juce::dontSendNotification);
+            c.arm->setColour (juce::TextButton::buttonOnColourId, theme::record);
+            c.arm->setTooltip ("Record arm");
+            c.arm->onClick = [this, i, b = c.arm.get()] { if (onArmChanged) onArmChanged (i, b->getToggleState()); };
+            addAndMakeVisible (*c.arm);
+
+            c.monitor = std::make_unique<juce::TextButton> ("I");
+            c.monitor->setClickingTogglesState (true);
+            c.monitor->setToggleState (track.monitor, juce::dontSendNotification);
+            c.monitor->setColour (juce::TextButton::buttonOnColourId, theme::play.darker (0.2f));
+            c.monitor->setTooltip ("Input monitor: hear this track's input (watch for feedback with speakers)");
+            c.monitor->onClick = [this, i, b = c.monitor.get()] { if (onMonitorChanged) onMonitorChanged (i, b->getToggleState()); };
+            addAndMakeVisible (*c.monitor);
+
+            c.input = std::make_unique<juce::ComboBox>();
+            c.input->setTooltip ("Input channel");
+            if (inputNames.isEmpty())
+            {
+                c.input->addItem ("No inputs", 1);
+                c.input->setSelectedId (1, juce::dontSendNotification);
+                c.input->setEnabled (false);
+            }
+            else
+            {
+                for (int ch = 0; ch < inputNames.size(); ++ch)
+                    c.input->addItem ("In " + juce::String (ch + 1) + "  " + inputNames[ch], 1000 + ch);
+                for (int ch = 0; ch + 1 < inputNames.size(); ch += 2)
+                    c.input->addItem ("In " + juce::String (ch + 1) + "+" + juce::String (ch + 2) + "  stereo", 2000 + ch);
+
+                c.input->setSelectedId ((track.numInputs == 2 ? 2000 : 1000) + track.firstInput, juce::dontSendNotification);
+                c.input->onChange = [this, i, box = c.input.get()]
+                {
+                    const int id = box->getSelectedId();
+                    if (id >= 2000)      { if (onInputChanged) onInputChanged (i, id - 2000, 2); }
+                    else if (id >= 1000) { if (onInputChanged) onInputChanged (i, id - 1000, 1); }
+                };
+            }
+            addAndMakeVisible (*c.input);
+        }
+
         trackControls.push_back (std::move (c));
     }
 
     resized();
+}
+
+void TrackArea::setInputChannelNames (const juce::StringArray& names)
+{
+    inputNames = names;
+    rebuildTrackControls();
+}
+
+juce::AudioThumbnail& TrackArea::createLiveThumbnail (int trackId)
+{
+    auto thumb = std::make_unique<juce::AudioThumbnail> (256, formatManager, thumbnailCache);
+    auto& ref = *thumb;
+    liveThumbnails[trackId] = std::move (thumb);
+    return ref;
+}
+
+void TrackArea::clearLiveThumbnails()
+{
+    liveThumbnails.clear();
+    repaint();
 }
 
 void TrackArea::sessionChanged (model::Session&)
@@ -279,12 +352,12 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
 
     g.setColour (theme::text);
     g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
-    g.drawText (track.name, content.removeFromTop (22), juce::Justification::centredLeft, true);
+    g.drawText (track.name, content.removeFromTop (20), juce::Justification::centredLeft, true);
 
-    g.setColour (theme::textDim);
+    g.setColour (track.armed ? theme::record.brighter (0.2f) : theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText (juce::String (index + 1) + (track.isInstrument() ? "  Drum Machine" : "  Audio"),
-                content.removeFromTop (16), juce::Justification::centredLeft);
+    g.drawText (juce::String (index + 1) + (track.isInstrument() ? "  Drum Machine" : track.armed ? "  Audio  REC" : "  Audio"),
+                content.removeFromTop (14), juce::Justification::centredLeft);
 
     g.setColour (theme::grid);
     g.drawHorizontalLine (r.getBottom() - 1, (float) r.getX(), (float) r.getRight());
@@ -305,6 +378,38 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
 
     for (const auto& clip : track.clips)        paintAudioClip (g, track, clip, r);
     for (const auto& clip : track.patternClips) paintPatternClip (g, track, clip, r);
+    paintLiveRecording (g, track, r);
+}
+
+void TrackArea::paintLiveRecording (juce::Graphics& g, const model::Track& track, juce::Rectangle<int> r)
+{
+    auto it = liveThumbnails.find (track.id);
+    if (it == liveThumbnails.end() || ! getRecordStartSeconds) return;
+
+    const double start = getRecordStartSeconds();
+    const double end = transport.getPositionSeconds();
+    if (start < 0.0 || end <= start) return;
+
+    auto clipRect = clipRectFor (start, end, r);
+    if (clipRect.getRight() < r.getX() || clipRect.getX() > r.getRight()) return;
+
+    g.setColour (theme::record.withAlpha (0.55f));
+    g.fillRoundedRectangle (clipRect, 4.0f);
+
+    auto& thumb = *it->second;
+    if (thumb.getTotalLength() > 0.0)
+    {
+        g.setColour (theme::text.withAlpha (0.9f));
+        thumb.drawChannels (g, clipRect.reduced (1.0f).withTrimmedTop (16.0f).toNearestInt(), 0.0, thumb.getTotalLength(), 1.0f);
+    }
+
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.fillRoundedRectangle (clipRect.withHeight (16.0f), 4.0f);
+    g.setColour (theme::text);
+    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.drawText ("Recording...", clipRect.withHeight (16.0f).reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, true);
+    g.setColour (theme::record.brighter (0.4f));
+    g.drawRoundedRectangle (clipRect, 4.0f, 1.0f);
 }
 
 juce::Rectangle<float> TrackArea::clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> r) const

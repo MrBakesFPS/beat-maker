@@ -17,6 +17,7 @@ public:
     explicit TransportBar (engine::Transport& transport);
 
     std::function<void()> onOpenFile;
+    std::function<void()> onRecord;
     std::function<void (bool)> onEditorToggled;
 
     void setEditorVisible (bool visible) { editorButton.setToggleState (visible, juce::dontSendNotification); }
@@ -29,6 +30,8 @@ private:
     void updateDisplay();
 
     engine::Transport& transport;
+    bool blinkOn = false;
+    int blinkCounter = 0;
 
     juce::ShapeButton recordButton { "Record", theme::record, theme::record.brighter(), theme::record.darker() };
     juce::ShapeButton playButton   { "Play",   theme::play,   theme::play.brighter(),   theme::play.darker() };

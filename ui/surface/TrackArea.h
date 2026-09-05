@@ -29,6 +29,18 @@ public:
     std::function<void (const juce::StringArray&, int, double)> onFilesDropped;
     std::function<void (int trackIndex, bool mute)> onMuteChanged;
     std::function<void (int trackIndex, bool solo)> onSoloChanged;
+    std::function<void (int trackIndex, bool armed)> onArmChanged;
+    std::function<void (int trackIndex, bool monitor)> onMonitorChanged;
+    std::function<void (int trackIndex, int firstInput, int numInputs)> onInputChanged;
+
+    // Device inputs offered in each audio track's input selector.
+    void setInputChannelNames (const juce::StringArray& names);
+
+    // Live recording display: the recorder streams into the returned
+    // thumbnail; the lane draws it from `recordStartSeconds` to the playhead.
+    juce::AudioThumbnail& createLiveThumbnail (int trackId);
+    void clearLiveThumbnails();
+    std::function<double()> getRecordStartSeconds;   // -1 when not yet started
     std::function<void (model::Track::Type)> onAddTrack;
     std::function<void (int trackIndex)> onSelectionChanged;
 
@@ -48,7 +60,8 @@ public:
 private:
     struct TrackControls
     {
-        std::unique_ptr<juce::TextButton> mute, solo;
+        std::unique_ptr<juce::TextButton> mute, solo, arm, monitor;
+        std::unique_ptr<juce::ComboBox> input;
     };
 
     void timerCallback() override;
@@ -72,6 +85,7 @@ private:
     void paintLane (juce::Graphics&, const model::Track&, juce::Rectangle<int>);
     void paintAudioClip (juce::Graphics&, const model::Track&, const model::AudioClip&, juce::Rectangle<int> lane);
     void paintPatternClip (juce::Graphics&, const model::Track&, const model::PatternClip&, juce::Rectangle<int> lane);
+    void paintLiveRecording (juce::Graphics&, const model::Track&, juce::Rectangle<int> lane);
     juce::Rectangle<float> clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> lane) const;
     void paintClipFrame (juce::Graphics&, juce::Rectangle<float>, const model::Track&, const juce::String& name);
 
@@ -81,6 +95,8 @@ private:
     juce::AudioThumbnailCache thumbnailCache { 64 };
     std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
     std::vector<TrackControls> trackControls;
+    juce::StringArray inputNames;
+    std::map<int, std::unique_ptr<juce::AudioThumbnail>> liveThumbnails;
     juce::TextButton addTrackButton { "+ Track" };
 
     int selectedTrack = -1;

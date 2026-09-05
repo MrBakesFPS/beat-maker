@@ -42,16 +42,21 @@ Run the tests with `ctest --test-dir build`.
   starter beat, and a step-sequencer editor panel. Click a step to toggle it,
   Shift-click for a soft hit, drag to paint, click a pad name to audition it,
   drop an audio file on a pad row to replace its sample.
+- Recording: arm an audio track (R), pick its input, optionally enable input
+  monitoring (I), then press Record. Takes are written as 24-bit WAV to
+  `~/Music/Beat Maker/Audio Files` on a background thread and land on the
+  track at the exact sample where recording began. Stop ends the take; Record
+  again while playing punches out.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.
 
-Keys: Space play/stop, Return back to start, C cycle, E editor panel,
+Keys: Space play/stop, R record, Return back to start, C cycle, E editor panel,
 Ctrl+D new drum track, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 1: recording, the loop browser, piano roll, Smart
-Controls, bounce. See PLAN.md §5.
+Still to come in Phase 1: the loop browser, piano roll, Smart Controls,
+bounce. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -64,4 +69,7 @@ exchange; retired snapshots are freed back on the message thread. Step
 patterns and drum kits are immutable and replaced copy-on-write; the graph
 schedules pattern hits into a `DrumMachine` voice pool and kills any voice
 whose kit is no longer referenced by the active snapshot before that snapshot
-is retired.
+is retired. The `Recorder` receives every input block on the audio thread and
+pushes it into per-track lock-free ring buffers that a background thread
+flushes to WAV; start/stop hand the session across threads with an atomic
+pointer plus a busy flag so teardown never races the callback.

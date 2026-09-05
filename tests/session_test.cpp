@@ -152,3 +152,32 @@ TEST_CASE ("Replacing a pad sample creates a new kit and is undoable")
     s.undo();
     CHECK (s.getTracks()[0].drumKit == t.drumKit);
 }
+
+TEST_CASE ("Arm, monitor and input changes apply but are not undoable")
+{
+    Session s;
+    Track t; t.name = "Vox";
+    s.execute (std::make_unique<AddTrackCommand> (t));
+    CHECK (s.getHistory().canUndo());
+    CHECK (s.getHistory().getUndoName() == "Add Track");
+
+    s.execute (std::make_unique<SetTrackFlagCommand> (0, SetTrackFlagCommand::Flag::arm, true));
+    s.execute (std::make_unique<SetTrackFlagCommand> (0, SetTrackFlagCommand::Flag::monitor, true));
+    s.execute (std::make_unique<SetTrackInputCommand> (0, 3, 2));
+
+    const auto& track = s.getTracks()[0];
+    CHECK (track.armed);
+    CHECK (track.monitor);
+    CHECK (track.firstInput == 3);
+    CHECK (track.numInputs == 2);
+    CHECK (s.getHistory().getUndoName() == "Add Track");   // history untouched
+
+    auto snap = buildRenderSnapshot (s);
+    REQUIRE (snap->monitors.size() == 1);
+    CHECK (snap->monitors[0].firstInput == 3);
+    CHECK (snap->monitors[0].numInputs == 2);
+
+    s.execute (std::make_unique<SetTrackFlagCommand> (0, SetTrackFlagCommand::Flag::mute, true));
+    CHECK (buildRenderSnapshot (s)->monitors.empty());     // muted tracks don't monitor
+    CHECK (s.getHistory().getUndoName() == "Mute");
+}

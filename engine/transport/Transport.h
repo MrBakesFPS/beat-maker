@@ -30,6 +30,11 @@ public:
 
     void returnToStart() noexcept         { position.store (0, std::memory_order_release); }
 
+    // Transport record state (the "master" record button). Recording only
+    // happens while this is set and the transport is playing.
+    void setRecordEnabled (bool on) noexcept { recordEnabled.store (on, std::memory_order_release); }
+    bool isRecordEnabled() const noexcept    { return recordEnabled.load (std::memory_order_acquire); }
+
     // ---- Position ----
     juce::int64 getPositionSamples() const noexcept { return position.load (std::memory_order_acquire); }
     void setPositionSamples (juce::int64 samples) noexcept
@@ -96,6 +101,7 @@ public:
 
 private:
     std::atomic<bool> playing { false };
+    std::atomic<bool> recordEnabled { false };
     std::atomic<juce::int64> position { 0 };
     std::atomic<bool> loopEnabled { false };
     std::atomic<juce::int64> loopStart { 0 }, loopEnd { 0 };

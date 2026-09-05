@@ -35,10 +35,19 @@ struct RenderPattern
     float gain                = 1.0f;
 };
 
+// Pass a device input straight to the outputs (input monitoring).
+struct MonitorInput
+{
+    int firstInput = 0;
+    int numInputs  = 1;   // 1 = mono to all outputs, 2 = stereo pair
+    float gain     = 1.0f;
+};
+
 struct RenderSnapshot
 {
     std::vector<RenderClip> clips;
     std::vector<RenderPattern> patterns;
+    std::vector<MonitorInput> monitors;
     float masterGain = 1.0f;
 };
 

@@ -4,6 +4,7 @@
 
 #include "../graph/AudioGraph.h"
 #include "../transport/Transport.h"
+#include "Recorder.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_events/juce_events.h>
@@ -17,12 +18,16 @@ public:
     AudioEngine();
     ~AudioEngine() override;
 
-    // Opens the default output device. Returns an empty string on success or
-    // an error message from the device layer.
-    juce::String initialise (int numOutputChannels = 2);
+    // Opens the default devices, asking for inputs first and falling back to
+    // output-only. Returns an empty string on success or the device error.
+    juce::String initialise (int numInputChannels = 2, int numOutputChannels = 2);
 
     Transport&  getTransport() noexcept { return transport; }
     AudioGraph& getGraph() noexcept     { return graph; }
+    Recorder&   getRecorder() noexcept  { return recorder; }
+
+    juce::StringArray getInputChannelNames() const;   // active input channels
+    int getNumInputChannels() const { return getInputChannelNames().size(); }
     juce::AudioDeviceManager& getDeviceManager() noexcept { return deviceManager; }
 
     double getSampleRate() const noexcept { return transport.getSampleRate(); }
@@ -33,6 +38,7 @@ private:
     void timerCallback() override { graph.collectGarbage(); }
 
     Transport transport;
+    Recorder recorder { transport };
     AudioGraph graph { transport };
     juce::AudioDeviceManager deviceManager;
     bool callbackAdded = false;

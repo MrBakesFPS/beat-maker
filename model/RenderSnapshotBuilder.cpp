@@ -15,6 +15,9 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
     {
         const bool audible = ! track.mute && (! anySolo || track.solo);
 
+        if (track.isAudio() && track.monitor && audible)
+            snapshot->monitors.push_back ({ track.firstInput, track.numInputs, track.gain });
+
         for (const auto& clip : track.clips)
         {
             if (! audible || clip.audio == nullptr)

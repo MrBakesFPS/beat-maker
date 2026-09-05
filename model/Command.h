@@ -19,6 +19,11 @@ public:
     virtual juce::String getName() const = 0;
     virtual void execute (Session&) = 0;
     virtual void undo (Session&) = 0;
+
+    // Transient state such as record-arm and input monitoring is applied
+    // through commands (one mutation path) but kept out of the undo history,
+    // matching Pro Tools and GarageBand behaviour.
+    virtual bool isUndoable() const { return true; }
 };
 
 class CommandHistory
@@ -27,6 +32,8 @@ public:
     void execute (Session& session, std::unique_ptr<Command> command)
     {
         command->execute (session);
+        if (! command->isUndoable())
+            return;
         undoStack.push_back (std::move (command));
         redoStack.clear();
     }

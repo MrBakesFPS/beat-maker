@@ -24,8 +24,8 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
         addAndMakeVisible (b);
     }
 
-    recordButton.setEnabled (false); // recording arrives in Phase 1
-    recordButton.setTooltip ("Record (coming in Phase 1)");
+    recordButton.setTooltip ("Record (R): arm a track with its R button first");
+    recordButton.onClick = [this] { if (onRecord) onRecord(); };
     playButton.setTooltip ("Play (Space)");
     stopButton.setTooltip ("Stop (Space)");
     rtzButton.setTooltip ("Return to start (Return)");
@@ -106,6 +106,20 @@ void TransportBar::timerCallback()
     playButton.setColours (transport.isPlaying() ? theme::play.brighter (0.6f) : theme::play,
                            theme::play.brighter(), theme::play.darker());
     playButton.repaint();
+
+    // Blink while recording, steady when idle.
+    if (transport.isRecordEnabled())
+    {
+        if (++blinkCounter % 12 == 0) blinkOn = ! blinkOn;
+        recordButton.setColours (blinkOn ? theme::record.brighter (0.8f) : theme::record,
+                                 theme::record.brighter(), theme::record.darker());
+    }
+    else
+    {
+        blinkOn = false;
+        recordButton.setColours (theme::record, theme::record.brighter(), theme::record.darker());
+    }
+    recordButton.repaint();
 }
 
 void TransportBar::updateDisplay()

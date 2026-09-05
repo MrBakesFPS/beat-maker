@@ -190,7 +190,7 @@ beat-maker/
 - [x] **Milestone:** Play a WAV file on a single track with transport control. *(Done 2026-09-05)*
 
 ### Phase 1 — Surface MVP (Weeks 5–12)
-- [~] Audio & Instrument tracks; ~~record from input~~ (pending); clip display with waveforms. *(tracks + waveforms done)*
+- [x] Audio & Instrument tracks; record from input; clip display with waveforms. *(Recording done 2026-09-05: per-track arm, input select, input monitoring, threaded WAV writer, live waveform, punch-out)*
 - [ ] Loop browser with bundled loops; drag-to-track; tempo conform.
 - [x] Step sequencer + Drum Machine instrument. *(Done 2026-09-05: synthesised 16-pad kit, pattern clips, step editor, pad audition, per-pad sample load, Cycle mode)*
 - [ ] Piano roll editor.

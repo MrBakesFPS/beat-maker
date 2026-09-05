@@ -65,7 +65,14 @@ struct Track
     bool mute = false;
     bool solo = false;
 
+    // Recording (audio tracks)
+    bool armed = false;      // record-enabled
+    bool monitor = false;    // pass the input straight to the outputs
+    int firstInput = 0;      // device input channel
+    int numInputs = 1;       // 1 mono, 2 stereo pair
+
     bool isInstrument() const noexcept { return type == Type::instrument; }
+    bool isAudio() const noexcept      { return type == Type::audio; }
     bool hasContent() const noexcept   { return ! clips.empty() || ! patternClips.empty(); }
 };
 
@@ -109,6 +116,7 @@ private:
     friend class AddClipCommand;
     friend class RemoveClipCommand;
     friend class SetTrackFlagCommand;
+    friend class SetTrackInputCommand;
     friend class AddPatternClipCommand;
     friend class SetStepCommand;
     friend class SetPadSampleCommand;
@@ -194,14 +202,48 @@ private:
 class SetTrackFlagCommand final : public Command
 {
 public:
-    enum class Flag { mute, solo };
+    enum class Flag { mute, solo, arm, monitor };
     SetTrackFlagCommand (int trackIndex, Flag f, bool value) : index (trackIndex), flag (f), newValue (value) {}
-    juce::String getName() const override { return flag == Flag::mute ? "Mute" : "Solo"; }
+    juce::String getName() const override
+    {
+        switch (flag)
+        {
+            case Flag::mute:    return "Mute";
+            case Flag::solo:    return "Solo";
+            case Flag::arm:     return "Record Arm";
+            case Flag::monitor: return "Input Monitor";
+        }
+        return {};
+    }
+    bool isUndoable() const override { return flag == Flag::mute || flag == Flag::solo; }
     void execute (Session& s) override { auto& t = s.tracks[(size_t) index]; auto& v = ref (t); oldValue = v; v = newValue; }
     void undo (Session& s) override    { ref (s.tracks[(size_t) index]) = oldValue; }
 private:
-    bool& ref (Track& t) const noexcept { return flag == Flag::mute ? t.mute : t.solo; }
+    bool& ref (Track& t) const noexcept
+    {
+        switch (flag)
+        {
+            case Flag::mute:    return t.mute;
+            case Flag::solo:    return t.solo;
+            case Flag::arm:     return t.armed;
+            case Flag::monitor: return t.monitor;
+        }
+        return t.mute;
+    }
     int index; Flag flag; bool newValue, oldValue = false;
+};
+
+class SetTrackInputCommand final : public Command
+{
+public:
+    SetTrackInputCommand (int trackIndex, int firstInputChannel, int inputCount)
+        : index (trackIndex), first (firstInputChannel), count (juce::jlimit (1, 2, inputCount)) {}
+    juce::String getName() const override { return "Set Track Input"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { auto& t = s.tracks[(size_t) index]; t.firstInput = first; t.numInputs = count; }
+    void undo (Session&) override {}
+private:
+    int index, first, count;
 };
 
 class AddPatternClipCommand final : public Command

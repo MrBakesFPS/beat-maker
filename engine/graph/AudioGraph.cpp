@@ -223,9 +223,32 @@ void AudioGraph::renderRange (float* const* outputs, int numOutputs, int numSamp
         transport.advance (numSamples);
 }
 
-void AudioGraph::renderBlock (float* const* outputs, int numOutputs, int numSamples)
+void AudioGraph::mixMonitoredInputs (const float* const* inputs, int numInputs,
+                                     float* const* outputs, int numOutputs, int numSamples)
+{
+    if (current == nullptr || inputs == nullptr || numInputs <= 0)
+        return;
+
+    for (const auto& m : current->monitors)
+    {
+        for (int ch = 0; ch < numOutputs; ++ch)
+        {
+            if (outputs[ch] == nullptr) continue;
+            const int idx = m.firstInput + juce::jmin (ch, m.numInputs - 1);
+            if (idx < 0 || idx >= numInputs || inputs[idx] == nullptr) continue;
+            juce::FloatVectorOperations::addWithMultiply (outputs[ch], inputs[idx], m.gain, numSamples);
+        }
+    }
+}
+
+void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
+                              float* const* outputs, int numOutputs, int numSamples)
 {
     numOutputs = juce::jmin (numOutputs, maxOutputs);
+
+    // Capture first: the transport position is still the block start.
+    if (recorder != nullptr)
+        recorder->processInput (inputs, numInputs, numSamples);
     std::array<float*, maxOutputs> offsetOutputs {};
 
     int done = 0;
@@ -261,6 +284,8 @@ void AudioGraph::renderBlock (float* const* outputs, int numOutputs, int numSamp
         if (count <= 0)
             break;
     }
+
+    mixMonitoredInputs (inputs, numInputs, outputs, numOutputs, numSamples);
 }
 
 float AudioGraph::getOutputPeak (int channel) const noexcept
@@ -269,12 +294,12 @@ float AudioGraph::getOutputPeak (int channel) const noexcept
              ? outputPeak[(size_t) channel].load (std::memory_order_relaxed) : 0.0f;
 }
 
-void AudioGraph::audioDeviceIOCallbackWithContext (const float* const*, int,
+void AudioGraph::audioDeviceIOCallbackWithContext (const float* const* inputChannelData, int numInputChannels,
                                                    float* const* outputChannelData, int numOutputChannels,
                                                    int numSamples,
                                                    const juce::AudioIODeviceCallbackContext&)
 {
-    renderBlock (outputChannelData, numOutputChannels, numSamples);
+    renderBlock (inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
 }
 
 void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)
