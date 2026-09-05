@@ -65,6 +65,13 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     cycleButton.setTooltip ("Cycle: loop the whole arrangement (C)");
     cycleButton.onClick = [this] { transport.setLoopEnabled (cycleButton.getToggleState()); };
 
+    addAndMakeVisible (recordModeButton);
+    recordModeButton.setTooltip ("Record mode: Normal (punch at the selection), QuickPunch, TrackPunch, Loop");
+    recordModeButton.onClick = [this] { if (onRecordModeClicked) onRecordModeClicked (recordModeButton); };
+    addAndMakeVisible (rollButton);
+    rollButton.setTooltip ("Pre-roll / post-roll around the punch points");
+    rollButton.onClick = [this] { if (onRollClicked) onRollClicked (rollButton); };
+
     addAndMakeVisible (libraryButton);
     libraryButton.setClickingTogglesState (true);
     libraryButton.setToggleState (true, juce::dontSendNotification);
@@ -112,7 +119,9 @@ void TransportBar::resized()
     recordButton.setBounds (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (6);
     playButton.setBounds   (area.removeFromLeft (size).reduced (6)); area.removeFromLeft (6);
     stopButton.setBounds   (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (10);
-    cycleButton.setBounds  (area.removeFromLeft (60).reduced (0, 8)); area.removeFromLeft (16);
+    cycleButton.setBounds  (area.removeFromLeft (60).reduced (0, 8)); area.removeFromLeft (6);
+    recordModeButton.setBounds (area.removeFromLeft (112).reduced (0, 8)); area.removeFromLeft (6);
+    rollButton.setBounds (area.removeFromLeft (104).reduced (0, 8)); area.removeFromLeft (16);
 
     bounceButton.setBounds (area.removeFromRight (90).reduced (0, 6));
     area.removeFromRight (8);
@@ -145,7 +154,12 @@ void TransportBar::timerCallback()
     playButton.repaint();
 
     // Blink while recording, steady when idle.
-    if (transport.isRecordEnabled())
+    if (waitingForPunch && ! transport.isRecordEnabled())
+    {
+        const auto amber = juce::Colour (0xfff0a030);
+        recordButton.setColours (amber, amber.brighter(), amber.darker());
+    }
+    else if (transport.isRecordEnabled())
     {
         if (++blinkCounter % 12 == 0) blinkOn = ! blinkOn;
         recordButton.setColours (blinkOn ? theme::record.brighter (0.8f) : theme::record,

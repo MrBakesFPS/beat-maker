@@ -23,6 +23,12 @@ public:
     std::function<void (bool)> onLibraryToggled;
     std::function<void (bool)> onControlsToggled;
     std::function<void (bool)> onMixerToggled;
+    std::function<void (juce::TextButton&)> onRecordModeClicked;   // main shows the mode menu
+    std::function<void (juce::TextButton&)> onRollClicked;         // main shows the pre/post-roll menu
+    void setRecordModeText (const juce::String& t) { recordModeButton.setButtonText (t); }
+    void setRollText (const juce::String& t) { rollButton.setButtonText (t); }
+    // QuickPunch/TrackPunch: rolling with inputs captured but not punched in (record button shows amber).
+    void setWaitingForPunch (bool waiting) { waitingForPunch = waiting; }
     void setControlsVisible (bool visible) { controlsButton.setToggleState (visible, juce::dontSendNotification); }
     void setMixerVisible (bool visible) { mixerButton.setToggleState (visible, juce::dontSendNotification); }
 
@@ -37,7 +43,7 @@ private:
     void updateDisplay();
 
     engine::Transport& transport;
-    bool blinkOn = false;
+    bool blinkOn = false, waitingForPunch = false;
     int blinkCounter = 0;
 
     juce::ShapeButton recordButton { "Record", theme::record, theme::record.brighter(), theme::record.darker() };
@@ -50,6 +56,8 @@ private:
     juce::TextButton controlsButton { "Controls" };
     juce::TextButton mixerButton { "Mix" };
     juce::TextButton cycleButton { "Cycle" };
+    juce::TextButton recordModeButton { "Rec: Normal" };
+    juce::TextButton rollButton { "Pre/Post" };
     juce::TextButton editorButton { "Editor" };
     juce::TextButton openButton { "Open..." };
     juce::TextButton bounceButton { "Bounce..." };

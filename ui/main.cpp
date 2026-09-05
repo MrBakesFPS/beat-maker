@@ -192,7 +192,20 @@ public:
         trackArea.onOpenBeatDetective = [this] { showBeatDetective(); };
         trackArea.onMuteChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::mute, on)); };
         trackArea.onSoloChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on)); };
-        trackArea.onArmChanged  = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::arm, on)); };
+        trackArea.onArmChanged  = [this] (int i, bool on)
+        {
+            // TrackPunch while rolling: the R button punches the track in/out instead of disarming it.
+            auto* t = session.getTrack (i);
+            if (engine.getRecorder().isRecording() && session.getRecordSettings().mode == model::RecordMode::trackPunch && t != nullptr && t->armed)
+            {
+                setTrackPunched (i, ! t->punched);
+                return;
+            }
+            session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::arm, on));
+        };
+        transportBar.onRecordModeClicked = [this] (juce::TextButton& b) { showRecordModeMenu (b); };
+        transportBar.onRollClicked = [this] (juce::TextButton& b) { showRollMenu (b); };
+        refreshRecordSettingsDisplay();
         mixerView.onEditGroup = [this] (int groupId) { showGroupDialog (groupId); };
         trackArea.onMonitorChanged = [this] (int i, bool on)
         {
@@ -225,6 +238,24 @@ public:
     // Command-line entry points (also handy for smoke tests and demos).
     void addDrumMachineTrackFromCommandLine() { addDrumMachineTrack(); }
     void addSynthTrackFromCommandLine() { addInstrumentTrack (engine::InstrumentType::subtractive); }
+    void setRecordModeFromCommandLine (const juce::String& name)
+    {
+        auto rs = session.getRecordSettings();
+        for (auto m : { model::RecordMode::normal, model::RecordMode::quickPunch, model::RecordMode::trackPunch, model::RecordMode::loop })
+            if (juce::String (model::recordModeName (m)).equalsIgnoreCase (name)) rs.mode = m;
+        session.execute (std::make_unique<model::SetRecordSettingsCommand> (rs));
+        refreshRecordSettingsDisplay();
+    }
+    void setRollFromCommandLine (bool pre, double seconds)
+    {
+        auto rs = session.getRecordSettings();
+        if (pre) { rs.preRoll = seconds > 0.0; rs.preRollSeconds = seconds; } else { rs.postRoll = seconds > 0.0; rs.postRollSeconds = seconds; }
+        session.execute (std::make_unique<model::SetRecordSettingsCommand> (rs));
+        refreshRecordSettingsDisplay();
+    }
+    void setPunchRangeFromCommandLine (double start, double end) { trackArea.setTimeSelectionSeconds (start, end, 0); }
+    void punchFromCommandLine() { if (engine.getRecorder().isRecording()) punchAll (! engine.getRecorder().isPunched (-1)); }
+    void stopTransportFromCommandLine() { engine.getTransport().stop(); }
     void beatDetectiveDemoFromCommandLine() { beatDetectiveDemo(); }
     void addInstrumentTrackFromCommandLine (const juce::String& name)
     {
@@ -1200,8 +1231,95 @@ private:
 
     void toggleRecord()
     {
-        if (engine.getRecorder().isRecording()) finishRecording();   // punch out, keep playing
-        else                                    startRecording();
+        const auto mode = session.getRecordSettings().mode;
+        if (! engine.getRecorder().isRecording()) { startRecording(); return; }
+        if (mode == model::RecordMode::quickPunch || mode == model::RecordMode::trackPunch)
+            punchAll (! engine.getRecorder().isPunched (-1));   // the Record button punches in/out while rolling
+        else
+            finishRecording();                                  // punch out, keep playing
+    }
+
+    // QuickPunch: every recording track; TrackPunch: the master Record button drives all of them.
+    void punchAll (bool in)
+    {
+        auto& recorder = engine.getRecorder();
+        recorder.setPunch (-1, in);
+        for (int i = 0; i < session.getNumTracks(); ++i)
+            if (session.getTracks()[(size_t) i].armed) session.execute (std::make_unique<model::SetTrackPunchCommand> (i, in));
+        engine.getTransport().setRecordEnabled (in);
+        transportBar.setWaitingForPunch (! in);
+        statusMessage = in ? "Punched in" : "Punched out (still rolling: Record punches in again, Stop finishes)";
+        updateStatus();
+    }
+
+    void setTrackPunched (int trackIndex, bool in)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr) return;
+        engine.getRecorder().setPunch (t->id, in);
+        session.execute (std::make_unique<model::SetTrackPunchCommand> (trackIndex, in));
+        const bool any = engine.getRecorder().isPunched (-1) || in;
+        engine.getTransport().setRecordEnabled (any);
+        transportBar.setWaitingForPunch (! any);
+        statusMessage = t->name + (in ? ": punched in" : ": punched out");
+        updateStatus();
+    }
+
+    void refreshRecordSettingsDisplay()
+    {
+        const auto& rs = session.getRecordSettings();
+        transportBar.setRecordModeText ("Rec: " + juce::String (model::recordModeName (rs.mode)));
+        auto roll = [] (bool on, double seconds) { return on ? juce::String (seconds, 1) + "s" : juce::String ("off"); };
+        transportBar.setRollText ("Pre " + roll (rs.preRoll, rs.preRollSeconds) + " / Post " + roll (rs.postRoll, rs.postRollSeconds));
+    }
+
+    void showRecordModeMenu (juce::TextButton& button)
+    {
+        juce::PopupMenu menu;
+        const auto current = session.getRecordSettings().mode;
+        for (auto m : { model::RecordMode::normal, model::RecordMode::quickPunch, model::RecordMode::trackPunch, model::RecordMode::loop })
+            menu.addItem ((int) m + 1, model::recordModeName (m), ! engine.getRecorder().isRecording(), current == m);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (button), [this] (int result)
+        {
+            if (result == 0) return;
+            auto rs = session.getRecordSettings();
+            rs.mode = (model::RecordMode) (result - 1);
+            session.execute (std::make_unique<model::SetRecordSettingsCommand> (rs));
+            refreshRecordSettingsDisplay();
+            statusMessage = juce::String ("Record mode: ") + model::recordModeName (rs.mode)
+                          + (rs.mode == model::RecordMode::quickPunch ? "  (Record starts rolling; Record again punches in/out)"
+                             : rs.mode == model::RecordMode::trackPunch ? "  (arm tracks, Record starts rolling, each track's R punches it in/out)"
+                             : rs.mode == model::RecordMode::loop ? "  (Cycle range: every pass becomes a take)"
+                             : "  (a time selection sets the punch-in/out points)");
+            updateStatus();
+        });
+    }
+
+    void showRollMenu (juce::TextButton& button)
+    {
+        juce::PopupMenu menu, pre, post;
+        const auto& rs = session.getRecordSettings();
+        const double bar = engine.getTransport().beatsToSeconds (engine.getTransport().getBeatsPerBar());
+        struct Choice { int id; const char* name; double seconds; };
+        const Choice choices[] = { { 1, "Off", 0.0 }, { 2, "1 bar", bar }, { 3, "2 bars", 2 * bar }, { 4, "4 bars", 4 * bar }, { 5, "1 second", 1.0 }, { 6, "2 seconds", 2.0 } };
+        for (const auto& c : choices)
+        {
+            pre.addItem (100 + c.id, c.name, true, c.id == 1 ? ! rs.preRoll : rs.preRoll && std::abs (rs.preRollSeconds - c.seconds) < 0.01);
+            post.addItem (200 + c.id, c.name, true, c.id == 1 ? ! rs.postRoll : rs.postRoll && std::abs (rs.postRollSeconds - c.seconds) < 0.01);
+        }
+        menu.addSubMenu ("Pre-roll", pre);
+        menu.addSubMenu ("Post-roll", post);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (button), [this, choices] (int result)
+        {
+            if (result == 0) return;
+            auto settings = session.getRecordSettings();
+            const bool isPre = result < 200;
+            const auto& c = choices[(result % 100) - 1];
+            if (isPre) { settings.preRoll = c.seconds > 0.0; if (c.seconds > 0.0) settings.preRollSeconds = c.seconds; }
+            else       { settings.postRoll = c.seconds > 0.0; if (c.seconds > 0.0) settings.postRollSeconds = c.seconds; }
+            session.execute (std::make_unique<model::SetRecordSettingsCommand> (settings));
+            refreshRecordSettingsDisplay();
+        });
     }
 
     void startRecording()
@@ -1235,7 +1353,21 @@ private:
         if (engine.getNumInputChannels() == 0)
             statusMessage = "No audio inputs: recording silence";
 
-        if (const auto error = engine.getRecorder().start (slots, engine.getSampleRate()); error.isNotEmpty())
+        auto& transport = engine.getTransport();
+        const auto rs = session.getRecordSettings();
+        const bool manual = rs.mode == model::RecordMode::quickPunch || rs.mode == model::RecordMode::trackPunch;
+
+        // Punch points: the time selection (main lanes only).
+        const auto& sel = trackArea.getTimeSelection();
+        const bool hasRange = sel.isValid() && ! sel.isOnAlternate();
+        const juce::int64 punchIn = hasRange ? (juce::int64) std::llround (sel.start * engine.getSampleRate()) : -1;
+        const juce::int64 punchOut = hasRange ? (juce::int64) std::llround (sel.end * engine.getSampleRate()) : -1;
+
+        if (rs.mode == model::RecordMode::loop && hasRange) { transport.setLoopRange (punchIn, punchOut); transport.setLoopEnabled (true); }
+
+        if (const auto error = engine.getRecorder().start (slots, engine.getSampleRate(), 24,
+                                                           manual ? engine::Recorder::PunchMode::manual : engine::Recorder::PunchMode::whole);
+            error.isNotEmpty())
         {
             trackArea.clearLiveThumbnails();
             statusMessage = error;
@@ -1243,16 +1375,40 @@ private:
             return;
         }
 
-        auto& transport = engine.getTransport();
         // Loop recording: with Cycle on, every pass becomes a take (playlist).
-        loopRecording = transport.hasValidLoop();
+        loopRecording = transport.hasValidLoop() && ! manual;
         loopRecordStart = transport.getLoopStart();
         loopRecordEnd = transport.getLoopEnd();
-        transport.setRecordEnabled (true);
+        autoStopSample = -1;
+        for (int i = 0; i < session.getNumTracks(); ++i)
+            if (session.getTracks()[(size_t) i].punched) session.execute (std::make_unique<model::SetTrackPunchCommand> (i, false));
+
+        juce::String how;
+        if (rs.mode == model::RecordMode::normal && hasRange && ! loopRecording)
+        {
+            engine.getRecorder().setAutoPunch (punchIn, punchOut);
+            if (rs.postRoll) autoStopSample = punchOut + (juce::int64) std::llround (rs.postRollSeconds * engine.getSampleRate());
+            how = "punching " + juce::String (sel.start, 2) + " - " + juce::String (sel.end, 2) + " s";
+        }
+        // Pre-roll: start rolling before the punch-in point (or the cycle start).
+        if (! transport.isPlaying())
+        {
+            const juce::int64 anchor = hasRange ? punchIn : loopRecording ? loopRecordStart : -1;
+            if (anchor >= 0 && rs.preRoll)
+                transport.setPositionSamples (juce::jmax<juce::int64> (0, anchor - (juce::int64) std::llround (rs.preRollSeconds * engine.getSampleRate())));
+            else if (anchor >= 0 && ! manual)
+                transport.setPositionSamples (anchor);
+        }
+
+        transport.setRecordEnabled (! manual);
+        transportBar.setWaitingForPunch (manual);
         if (! transport.isPlaying())
             transport.play();
 
-        statusMessage = (loopRecording ? "Loop recording " : "Recording ") + juce::String (slots.size()) + (slots.size() == 1 ? " track" : " tracks") + "...";
+        statusMessage = (loopRecording ? "Loop recording " : manual ? juce::String (model::recordModeName (rs.mode)) + ": rolling, " : "Recording ")
+                      + juce::String (slots.size()) + (slots.size() == 1 ? " track" : " tracks")
+                      + (manual ? (rs.mode == model::RecordMode::quickPunch ? " - press Record to punch in" : " - click a track's R to punch it in") : "...")
+                      + (how.isNotEmpty() ? "  (" + how + ")" : juce::String());
         updateStatus();
     }
 
@@ -1264,7 +1420,12 @@ private:
         const auto takes = recorder.stop();
 
         transport.setRecordEnabled (false);
+        transportBar.setWaitingForPunch (false);
+        autoStopSample = -1;
         trackArea.clearLiveThumbnails();
+        for (int i = 0; i < session.getNumTracks(); ++i)
+            if (session.getTracks()[(size_t) i].punched) session.execute (std::make_unique<model::SetTrackPunchCommand> (i, false));
+        const bool punchMode = session.getRecordSettings().mode == model::RecordMode::quickPunch || session.getRecordSettings().mode == model::RecordMode::trackPunch;
 
         int imported = 0, passesTotal = 0;
         for (const auto& take : takes)
@@ -1276,11 +1437,15 @@ private:
             const auto loaded = loader.load (take.file, engine.getSampleRate(), error);
             if (! loaded) { statusMessage = error; continue; }
 
-            const auto passes = loopRecording
-                ? model::Playlists::loopPasses (take.startSample, loaded->numSamples, loopRecordStart, loopRecordEnd, (juce::int64) (0.1 * engine.getSampleRate()))
-                : std::vector<model::Playlists::Pass> { { 0, loaded->numSamples, take.startSample } };
+            // Loop record splits the whole take into passes; otherwise each punched range is a clip.
+            std::vector<model::Playlists::Pass> passes;
+            if (loopRecording)
+                passes = model::Playlists::loopPasses (take.startSample, loaded->numSamples, loopRecordStart, loopRecordEnd, (juce::int64) (0.1 * engine.getSampleRate()));
+            else
+                for (const auto& r : take.ranges) passes.push_back ({ r.fileOffset, r.length, r.timelineStart });
+            if (passes.empty()) continue;
 
-            auto compound = std::make_unique<model::CompoundCommand> (passes.size() > 1 ? "Loop Record" : "Record");
+            auto compound = std::make_unique<model::CompoundCommand> (loopRecording && passes.size() > 1 ? "Loop Record" : punchMode ? "Punch Record" : "Record");
             const auto* track = session.getTrack (trackIndex);
             const int existingTakes = (int) track->alternates.size();
 
@@ -1296,10 +1461,11 @@ private:
                 clip.length        = passes[p].length;
 
                 const bool last = p + 1 == passes.size();
-                if (last)
+                if (last || ! loopRecording)
                 {
+                    // Punch ranges all land on the main playlist as separate clips.
                     // The final pass lands on the main playlist (Pro Tools behaviour); earlier passes are alternates.
-                    if (passes.size() > 1) compound->add (std::make_unique<model::NewPlaylistCommand> (trackIndex, model::defaultPlaylistName (*track, existingTakes + (int) passes.size())));
+                    if (loopRecording && passes.size() > 1) compound->add (std::make_unique<model::NewPlaylistCommand> (trackIndex, model::defaultPlaylistName (*track, existingTakes + (int) passes.size())));
                     compound->add (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
                 }
                 else
@@ -1311,7 +1477,7 @@ private:
                 }
             }
             session.execute (std::move (compound));
-            if (passes.size() > 1) trackArea.setPlaylistsShown (trackIndex, true);
+            if (loopRecording && passes.size() > 1) trackArea.setPlaylistsShown (trackIndex, true);
             passesTotal += (int) passes.size();
             ++imported;
         }
@@ -1327,6 +1493,9 @@ private:
 
     void timerCallback() override
     {
+        // Post-roll reached: stop (the take is finished below).
+        if (engine.getRecorder().isRecording() && autoStopSample >= 0 && engine.getTransport().getPositionSamples() >= autoStopSample)
+            engine.getTransport().stop();
         // Stopping the transport ends the take.
         if (engine.getRecorder().isRecording() && ! engine.getTransport().isPlaying())
             finishRecording();
@@ -1556,6 +1725,7 @@ private:
     bool editorVisible = true;
     bool loopRecording = false;
     juce::int64 loopRecordStart = 0, loopRecordEnd = 0;
+    juce::int64 autoStopSample = -1;   // post-roll end while punch recording
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -1621,6 +1791,18 @@ public:
             else if (arg.startsWith ("--sample=")) main.loadSampleFromCommandLine (juce::File::getCurrentWorkingDirectory()
                                                                                        .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--record") main.addArmedAudioTrackAndRecord();
+            else if (arg.startsWith ("--record-mode=")) main.setRecordModeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--pre-roll=")) main.setRollFromCommandLine (true, arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue());
+            else if (arg.startsWith ("--post-roll=")) main.setRollFromCommandLine (false, arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue());
+            else if (arg.startsWith ("--punch="))
+            {
+                const auto parts = juce::StringArray::fromTokens (arg.fromFirstOccurrenceOf ("=", false, false), ",", {});
+                if (parts.size() == 2) main.setPunchRangeFromCommandLine (parts[0].getDoubleValue(), parts[1].getDoubleValue());
+            }
+            else if (arg.startsWith ("--stop-at="))    // seconds after launch: stop the transport (smoke tests)
+                juce::Timer::callAfterDelay (juce::roundToInt (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue() * 1000.0), [&main] { main.stopTransportFromCommandLine(); });
+            else if (arg.startsWith ("--punch-at="))   // seconds after launch: toggle punch (QuickPunch/TrackPunch smoke tests)
+                juce::Timer::callAfterDelay (juce::roundToInt (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue() * 1000.0), [&main] { main.punchFromCommandLine(); });
             else if (arg == "--cycle")  main.setCycleEnabled (true);
             else if (arg == "--play")   play = true;
             else if (arg.startsWith ("--bounce=")) bounceFile = juce::File::getCurrentWorkingDirectory()

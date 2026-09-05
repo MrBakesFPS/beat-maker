@@ -206,8 +206,10 @@ void TrackArea::rebuildTrackControls()
             c.arm = std::make_unique<juce::TextButton> ("R");
             c.arm->setClickingTogglesState (true);
             c.arm->setToggleState (track.armed, juce::dontSendNotification);
-            c.arm->setColour (juce::TextButton::buttonOnColourId, theme::record);
-            c.arm->setTooltip ("Record arm");
+            // TrackPunch: armed-but-waiting tracks show amber, punched-in tracks bright red.
+            const bool trackPunch = session.getRecordSettings().mode == model::RecordMode::trackPunch;
+            c.arm->setColour (juce::TextButton::buttonOnColourId, trackPunch ? (track.punched ? theme::record.brighter (0.4f) : juce::Colour (0xfff0a030)) : theme::record);
+            c.arm->setTooltip (trackPunch ? "Record arm (TrackPunch: while rolling, click to punch this track in or out)" : "Record arm");
             c.arm->onClick = [this, i, b = c.arm.get()] { if (onArmChanged) onArmChanged (i, b->getToggleState()); };
             addAndMakeVisible (*c.arm);
 
@@ -2345,6 +2347,15 @@ void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screen
             if (onOpenBeatDetective) onOpenBeatDetective();
         }
     });
+}
+
+void TrackArea::setTimeSelectionSeconds (double start, double end, int trackIndex)
+{
+    TimeSelection sel;
+    sel.start = start; sel.end = end;
+    sel.firstTrack = sel.lastTrack = trackIndex;
+    setTimeSelection (sel);
+    repaint();
 }
 
 std::vector<model::ClipRef> TrackArea::clipsForRhythmEditing() const

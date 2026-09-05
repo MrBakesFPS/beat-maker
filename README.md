@@ -41,6 +41,8 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --convolution-demo --bounce=cathedral.wav      # e-piano in a Cathedral IR
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pitch-demo --mixer                           # sharp bass line tuned back to A minor
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --beat-detective-demo                          # slice, swing-conform and crossfade a loop
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pre-roll=0.5 --post-roll=0.5 --punch=1,2 --record   # punch record 1-2 s
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --record-mode=QuickPunch --record --punch-at=1 --punch-at=2 --stop-at=3
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -243,6 +245,17 @@ Run the tests with `ctest --test-dir build`.
   `~/Music/Beat Maker/Audio Files` on a background thread and land on the
   track at the exact sample where recording began. Stop ends the take; Record
   again while playing punches out.
+- Record modes (the Rec button in the transport bar): Normal records until
+  Stop, or between the punch points when there is a time selection (the
+  transport rolls from the pre-roll, records exactly the selection, and stops
+  after the post-roll). QuickPunch rolls with the inputs captured and the
+  Record button punches in and out as often as you like; each punch becomes a
+  clip. TrackPunch does the same per track: arm the tracks, press Record to
+  roll, then each track's R button punches that track in or out (amber =
+  waiting, red = punched in). Loop makes every Cycle pass a take on its own
+  playlist. Pre/Post sets pre-roll and post-roll in bars or seconds. The
+  whole pass is always kept on disk, so punches are sample-accurate and never
+  lose audio.
 - Bounce to Disk (Ctrl+B): whole arrangement or the cycle range, to WAV, AIFF
   or FLAC at 16/24-bit or 32-bit float, with a configurable tail that lets
   drums ring out, trailing-silence trim, and optional normalisation. Renders

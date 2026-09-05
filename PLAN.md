@@ -215,7 +215,7 @@ beat-maker/
 - [x] **Milestone:** Third-party plugins run reliably; time-stretched vocals sound clean. *(Phase 3 complete 2026-09-06. Plugin reliability is covered by out-of-process scanning and the fake-plugin tests; a machine with real VST3/CLAP plugins is still needed for a hands-on pass.)*
 
 ### Phase 4 — Pro Workflows (Weeks 31–38)
-- [ ] Record modes (QuickPunch, TrackPunch, Loop), pre/post-roll.
+- [x] Record modes (QuickPunch, TrackPunch, Loop), pre/post-roll. *(Done 2026-09-06: Recorder captures the whole pass and keeps sample-accurate punch ranges; Normal punches at the time selection, QuickPunch punches with the Record button, TrackPunch with each track's R button, Loop makes every Cycle pass a take; pre/post-roll from the transport bar; flags --record-mode, --punch, --pre-roll, --post-roll, --punch-at, --stop-at.)*
 - [ ] MIDI Event List, real-time properties, sync (MTC/MIDI clock).
 - [ ] Memory locations, arrangement track, session templates.
 - [ ] Deep Preferences with search; Command Palette; keyboard focus mode.

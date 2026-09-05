@@ -178,6 +178,24 @@ struct Playlist
     std::vector<AudioClip> clips;
 };
 
+// Record modes (Pro Tools): Normal records between punch points (the time
+// selection) or until stop; QuickPunch rolls with the inputs captured and
+// the Record button punches in/out; TrackPunch punches per track with the
+// R buttons; Loop makes every Cycle pass a take.
+enum class RecordMode { normal, quickPunch, trackPunch, loop };
+inline const char* recordModeName (RecordMode m)
+{
+    switch (m) { case RecordMode::normal: return "Normal"; case RecordMode::quickPunch: return "QuickPunch"; case RecordMode::trackPunch: return "TrackPunch"; case RecordMode::loop: return "Loop"; }
+    return "";
+}
+
+struct RecordSettings
+{
+    RecordMode mode = RecordMode::normal;
+    bool preRoll = false, postRoll = false;
+    double preRollSeconds = 2.0, postRollSeconds = 2.0;
+};
+
 struct Track
 {
     enum class Type { audio, instrument, aux, master, vca };
@@ -237,6 +255,7 @@ struct Track
 
     // Recording (audio tracks)
     bool armed = false;      // record-enabled
+    bool punched = false;    // TrackPunch: currently punched in (transient, while recording)
     bool monitor = false;    // pass the input straight to the outputs
     int firstInput = 0;      // device input channel (resolved from inputPath when set)
     int numInputs = 1;       // 1 mono, 2 stereo pair
@@ -285,6 +304,7 @@ public:
     }
     juce::String busName (int bus) const { return io.busName (bus); }
     bool isDelayCompensationEnabled() const noexcept { return delayCompensation; }
+    const RecordSettings& getRecordSettings() const noexcept { return recordSettings; }
 
     // The device input channels a track records/monitors from.
     std::pair<int, int> resolveInput (const Track& t) const noexcept
@@ -331,6 +351,8 @@ private:
     friend class SetVolumeTrimCommand;
     friend class SetIOSetupCommand;
     friend class SetDelayCompensationCommand;
+    friend class SetRecordSettingsCommand;
+    friend class SetTrackPunchCommand;
     friend class CreateGroupCommand;
     friend class RemoveGroupCommand;
     friend class ReplaceGroupCommand;
@@ -350,6 +372,7 @@ private:
     Track master = [] { Track m; m.name = "Master"; m.type = Track::Type::master; m.colour = juce::Colour (0xffb0b8c4); return m; }();
     IOSetup io = IOSetup::createDefault (2, 2);
     bool delayCompensation = true;
+    RecordSettings recordSettings;
     std::vector<Group> groups;
     int nextGroupId = 1;
     int nextTrackId = 1;
@@ -916,6 +939,33 @@ public:
 private:
     IOSetup newSetup, old;
     std::vector<std::pair<int, int>> oldTrackPaths;
+};
+
+// Record mode and pre/post-roll: transport settings, not document edits.
+class SetRecordSettingsCommand final : public Command
+{
+public:
+    explicit SetRecordSettingsCommand (RecordSettings s) : settings (s) {}
+    juce::String getName() const override { return "Record Settings"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { s.recordSettings = settings; }
+    void undo (Session&) override {}
+private:
+    RecordSettings settings;
+};
+
+// TrackPunch state of a track (transient).
+class SetTrackPunchCommand final : public Command
+{
+public:
+    SetTrackPunchCommand (int trackIndex, bool on) : index (trackIndex), punched (on) {}
+    juce::String getName() const override { return punched ? "Punch In" : "Punch Out"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) s.tracks[(size_t) index].punched = punched; }
+    void undo (Session&) override {}
+private:
+    int index;
+    bool punched;
 };
 
 class SetDelayCompensationCommand final : public Command

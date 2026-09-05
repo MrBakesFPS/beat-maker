@@ -41,6 +41,7 @@ public:
         bool isOnAlternate() const noexcept { return playlistTrack >= 0 && playlistIndex >= 0; }
     };
     const TimeSelection& getTimeSelection() const noexcept { return timeSelection; }
+    void setTimeSelectionSeconds (double start, double end, int trackIndex);   // e.g. punch range from the command line
     const std::vector<model::ClipRef>& getSelectedClips() const noexcept { return selectedClips; }
     // Beat Detective target: the selected audio clips, else the selected track's clips inside the
     // time selection, else all of the selected track's audio clips.

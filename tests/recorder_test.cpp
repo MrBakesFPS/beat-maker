@@ -167,3 +167,98 @@ TEST_CASE ("Graph mixes monitored inputs to the outputs and feeds the recorder")
     graph.collectGarbage();
     file.deleteFile();
 }
+
+namespace
+{
+    struct PunchHarness
+    {
+        Transport transport;
+        Recorder recorder { transport };
+        juce::File file = juce::File::createTempFile (".wav");
+        static constexpr int block = 480;
+        std::vector<float> ones = std::vector<float> ((size_t) block, 1.0f);
+
+        PunchHarness() { transport.setSampleRate (48000.0); }
+        Recorder::Slot slot (int trackId) { Recorder::Slot s; s.trackId = trackId; s.firstInput = 0; s.numInputs = 1; s.file = trackId == 7 ? file : juce::File::createTempFile (".wav"); return s; }
+        void run (int blocks) { const float* in[1] = { ones.data() }; for (int b = 0; b < blocks; ++b) { recorder.processInput (in, 1, block); transport.advance (block); } }
+    };
+}
+
+TEST_CASE ("Whole-take recording reports one range covering the take; the auto punch range limits it sample-accurately")
+{
+    PunchHarness h;
+    REQUIRE (h.recorder.start ({ h.slot (7) }, 48000.0).isEmpty());
+    h.transport.setPositionSamples (48000);
+    h.transport.play();
+    h.run (10);
+    auto takes = h.recorder.stop();
+    REQUIRE (takes.size() == 1);
+    REQUIRE (takes[0].ranges.size() == 1);
+    CHECK (takes[0].ranges[0].timelineStart == 48000);
+    CHECK (takes[0].ranges[0].fileOffset == 0);
+    CHECK (takes[0].ranges[0].length == 4800);
+
+    // Auto punch: rolling from 48000, record only [49000, 51000)
+    REQUIRE (h.recorder.start ({ h.slot (7) }, 48000.0).isEmpty());
+    h.recorder.setAutoPunch (49000, 51000);
+    h.transport.setPositionSamples (48000);
+    h.run (10);
+    takes = h.recorder.stop();
+    REQUIRE (takes.size() == 1);
+    CHECK (takes[0].numSamples == 4800);              // the file holds the whole pass
+    REQUIRE (takes[0].ranges.size() == 1);
+    CHECK (takes[0].ranges[0].timelineStart == 49000);
+    CHECK (takes[0].ranges[0].fileOffset == 1000);
+    CHECK (takes[0].ranges[0].length == 2000);
+
+    // A range that is never reached leaves nothing (the file is deleted)
+    REQUIRE (h.recorder.start ({ h.slot (7) }, 48000.0).isEmpty());
+    h.recorder.setAutoPunch (900000, 950000);
+    h.run (4);
+    CHECK (h.recorder.stop().empty());
+    CHECK_FALSE (h.file.existsAsFile());
+    h.file.deleteFile();
+}
+
+TEST_CASE ("Manual punch (QuickPunch / TrackPunch) creates one range per punch, per track")
+{
+    PunchHarness h;
+    REQUIRE (h.recorder.start ({ h.slot (7), h.slot (8) }, 48000.0, 24, Recorder::PunchMode::manual).isEmpty());
+    h.transport.setPositionSamples (0);
+    h.transport.play();
+    h.run (2);                                   // 0..960: nothing punched
+    CHECK_FALSE (h.recorder.isPunched (-1));
+    h.recorder.setPunch (-1, true);              // both tracks in at 960
+    h.run (3);                                   // ..2400
+    CHECK (h.recorder.isPunched (7));
+    CHECK (h.recorder.isPunched (8));
+    h.recorder.setPunch (8, false);              // track 8 out at 2400
+    h.run (2);                                   // ..3360
+    CHECK (h.recorder.isPunched (7));
+    CHECK_FALSE (h.recorder.isPunched (8));
+    h.recorder.setPunch (-1, false);             // track 7 out at 3360
+    h.run (1);
+    h.recorder.setPunch (7, true);               // track 7 back in at 3840
+    h.run (2);                                   // ..4800, still punched at stop
+    auto takes = h.recorder.stop();
+    REQUIRE (takes.size() == 2);
+
+    const auto* t7 = takes[0].trackId == 7 ? &takes[0] : &takes[1];
+    const auto* t8 = takes[0].trackId == 8 ? &takes[0] : &takes[1];
+    REQUIRE (t7->ranges.size() == 2);
+    CHECK (t7->ranges[0].timelineStart == 960);
+    CHECK (t7->ranges[0].fileOffset == 960);
+    CHECK (t7->ranges[0].length == 2400);
+    CHECK (t7->ranges[1].timelineStart == 3840);
+    CHECK (t7->ranges[1].length == 960);     // closed by stop()
+    REQUIRE (t8->ranges.size() == 1);
+    CHECK (t8->ranges[0].timelineStart == 960);
+    CHECK (t8->ranges[0].length == 1440);
+    CHECK (t7->numSamples == 4800);
+    for (const auto& t : takes) t.file.deleteFile();
+
+    // Manual mode with no punch at all records nothing
+    REQUIRE (h.recorder.start ({ h.slot (7) }, 48000.0, 24, Recorder::PunchMode::manual).isEmpty());
+    h.run (3);
+    CHECK (h.recorder.stop().empty());
+}
