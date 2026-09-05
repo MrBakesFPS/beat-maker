@@ -18,6 +18,7 @@
 #include "surface/TransportBar.h"
 
 #include <AudioFileLoader.h>
+#include <AutomationRecorder.h>
 #include <LoopLibrary.h>
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
@@ -79,6 +80,15 @@ public:
             session.execute (std::move (cmd));
         };
         mixerView.onSelectTrack = [this] (int i) { trackArea.setSelectedTrack (i); };
+        mixerView.onParameterChanged = [this] (int t, const engine::ParamId& p, float v, bool g) { automation.parameterChanged (t, p, v, g); };
+        mixerView.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
+        mixerView.automatedValue = [this] (int t, const engine::ParamId& p) { return automation.displayedValue (t, p); };
+        smartControls.onParameterChanged = [this] (int t, const engine::ParamId& p, float v, bool g) { automation.parameterChanged (t, p, v, g); };
+        smartControls.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
+        trackArea.onAutomationModeChanged = [this] (int t, model::AutomationMode m)
+        {
+            session.execute (std::make_unique<model::SetAutomationModeCommand> (t, m));
+        };
         addAndMakeVisible (loopBrowser);
         addAndMakeVisible (statusLabel);
 
@@ -191,6 +201,22 @@ public:
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
     void showBounceDialog();
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
+
+    // --automation-demo: put a volume swell + pan sweep on track 1 and show the lane (smoke tests).
+    void automationDemoFromCommandLine()
+    {
+        if (session.getNumTracks() == 0) return;
+        const double sr = engine.getSampleRate();
+        auto vol = std::make_shared<engine::AutomationLane>();
+        vol->param = engine::ParamId::volume();
+        vol->points = { { 0, 0.1f }, { (juce::int64) (2.0 * sr), 1.0f }, { (juce::int64) (4.0 * sr), 0.3f }, { (juce::int64) (6.0 * sr), 1.2f } };
+        session.execute (std::make_unique<model::ReplaceAutomationLaneCommand> (0, vol, "Demo Automation"));
+        auto pan = std::make_shared<engine::AutomationLane>();
+        pan->param = engine::ParamId::pan();
+        pan->points = { { 0, -1.0f }, { (juce::int64) (8.0 * sr), 1.0f } };
+        session.execute (std::make_unique<model::ReplaceAutomationLaneCommand> (0, pan, "Demo Automation"));
+        trackArea.showAutomationLane (0, engine::ParamId::volume());
+    }
     void importLoopFromCommandLine (const juce::File& file) { importLoop (file, -1, engine.getTransport().getPositionSeconds()); }
 
     // --fades=<in ms>,<out ms>[,<gain dB>]: apply to every audio clip (smoke tests).
@@ -779,6 +805,8 @@ private:
         // Stopping the transport ends the take.
         if (engine.getRecorder().isRecording() && ! engine.getTransport().isPlaying())
             finishRecording();
+
+        automation.tick();
     }
 
     void addDrumMachineTrack()
@@ -958,6 +986,7 @@ private:
     ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
     ui::SmartControls smartControls { session };
     ui::MixerView mixerView { session, engine.getGraph(), [this] { return engine.getSampleRate(); } };
+    model::AutomationRecorder automation { session, engine.getTransport() };
     bool controlsVisible = true;
     bool mixerVisible = false;
     persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
@@ -1014,6 +1043,7 @@ public:
                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--bounce-dialog") main.showBounceDialog();
             else if (arg == "--mixer")  main.setMixerVisibleFromCommandLine (true);
+            else if (arg == "--automation-demo") main.automationDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()
                                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));

@@ -111,7 +111,7 @@ public:
                 s->setColour (juce::Slider::trackColourId, theme::accent.darker (0.4f));
                 s->setColour (juce::Slider::backgroundColourId, theme::background);
                 s->onDragStart = [this] { gesture = true; changed = false; };
-                s->onDragEnd = [this] { gesture = false; changed = false; };
+                s->onDragEnd = [this, i] { endGesture (engine::ParamId::send (i)); };
                 s->onValueChange = [this, i, s]
                 {
                     if (syncing) return;
@@ -120,6 +120,7 @@ public:
                         auto send = t->sends[(size_t) i];
                         send.gain = (float) s->getValue();
                         issue (std::make_unique<model::SetSendCommand> (index, i, send));
+                        report (engine::ParamId::send (i), send.gain);
                     }
                 };
                 addAndMakeVisible (s);
@@ -135,8 +136,16 @@ public:
             pan.setColour (juce::Slider::rotarySliderFillColourId, theme::accent);
             pan.setColour (juce::Slider::rotarySliderOutlineColourId, theme::gridStrong);
             pan.onDragStart = [this] { gesture = true; changed = false; };
-            pan.onDragEnd = [this] { gesture = false; changed = false; };
-            pan.onValueChange = [this] { if (! syncing) if (auto* t = track()) issue (std::make_unique<model::SetTrackMixCommand> (index, t->gain, (float) pan.getValue())); };
+            pan.onDragEnd = [this] { endGesture (engine::ParamId::pan()); };
+            pan.onValueChange = [this]
+            {
+                if (syncing) return;
+                if (auto* t = track())
+                {
+                    issue (std::make_unique<model::SetTrackMixCommand> (index, t->gain, (float) pan.getValue()));
+                    report (engine::ParamId::pan(), (float) pan.getValue());
+                }
+            };
         }
 
         addAndMakeVisible (fader);
@@ -149,8 +158,16 @@ public:
         fader.setColour (juce::Slider::backgroundColourId, theme::background);
         fader.setColour (juce::Slider::thumbColourId, theme::text);
         fader.onDragStart = [this] { gesture = true; changed = false; };
-        fader.onDragEnd = [this] { gesture = false; changed = false; };
-        fader.onValueChange = [this] { if (! syncing) if (auto* t = track()) issue (std::make_unique<model::SetTrackMixCommand> (index, (float) fader.getValue(), t->pan)); };
+        fader.onDragEnd = [this] { endGesture (engine::ParamId::volume()); };
+        fader.onValueChange = [this]
+        {
+            if (syncing) return;
+            if (auto* t = track())
+            {
+                issue (std::make_unique<model::SetTrackMixCommand> (index, (float) fader.getValue(), t->pan));
+                report (engine::ParamId::volume(), (float) fader.getValue());
+            }
+        };
 
         if (! isMaster())
         {
@@ -158,8 +175,25 @@ public:
             mute.setClickingTogglesState (true); solo.setClickingTogglesState (true);
             mute.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe67e22));
             solo.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xfff1c40f));
-            mute.onClick = [this] { if (! syncing) issue (std::make_unique<model::SetTrackFlagCommand> (index, model::SetTrackFlagCommand::Flag::mute, mute.getToggleState())); };
+            mute.onClick = [this]
+            {
+                if (syncing) return;
+                issue (std::make_unique<model::SetTrackFlagCommand> (index, model::SetTrackFlagCommand::Flag::mute, mute.getToggleState()));
+                report (engine::ParamId::mute(), mute.getToggleState() ? 1.0f : 0.0f);
+                endGesture (engine::ParamId::mute());
+            };
             solo.onClick = [this] { if (! syncing) issue (std::make_unique<model::SetTrackFlagCommand> (index, model::SetTrackFlagCommand::Flag::solo, solo.getToggleState())); };
+
+            addAndMakeVisible (autoMode);
+            int am = 1;
+            for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch, model::AutomationMode::write })
+                autoMode.addItem (model::automationModeName (m), am++);
+            autoMode.setTooltip ("Automation mode");
+            autoMode.onChange = [this]
+            {
+                if (! syncing && autoMode.getSelectedId() > 0)
+                    issue (std::make_unique<model::SetAutomationModeCommand> (index, (model::AutomationMode) (autoMode.getSelectedId() - 1)));
+            };
 
             addAndMakeVisible (output);
             output.addItem ("Main", 1);
@@ -182,6 +216,28 @@ public:
         const bool replace = gesture && changed;
         if (gesture) changed = true;
         if (mixer.onCommand) mixer.onCommand (std::move (cmd), replace);
+    }
+
+    void report (const engine::ParamId& p, float value)
+    {
+        if (! isMaster() && mixer.onParameterChanged) mixer.onParameterChanged (index, p, value, gesture);
+    }
+    void endGesture (const engine::ParamId& p)
+    {
+        gesture = false; changed = false;
+        if (! isMaster() && mixer.onGestureEnded) mixer.onGestureEnded (index, p);
+    }
+
+    // In Read mode the fader/pan/sends follow the automation lane.
+    void followAutomation()
+    {
+        if (isMaster() || gesture || ! mixer.automatedValue) return;
+        syncing = true;
+        if (auto v = mixer.automatedValue (index, engine::ParamId::volume())) fader.setValue (*v, juce::dontSendNotification);
+        if (auto v = mixer.automatedValue (index, engine::ParamId::pan()))    pan.setValue (*v, juce::dontSendNotification);
+        for (int i = 0; i < sendLevels.size(); ++i)
+            if (auto v = mixer.automatedValue (index, engine::ParamId::send (i))) sendLevels[i]->setValue (*v, juce::dontSendNotification);
+        syncing = false;
     }
 
     void sync()
@@ -211,6 +267,10 @@ public:
             mute.setToggleState (t->mute, juce::dontSendNotification);
             solo.setToggleState (t->solo, juce::dontSendNotification);
             output.setSelectedId (t->outputBus + 2, juce::dontSendNotification);
+            autoMode.setSelectedId ((int) t->automationMode + 1, juce::dontSendNotification);
+            const bool writing = ! t->writing.empty();
+            autoMode.setColour (juce::ComboBox::backgroundColourId, writing ? theme::record.darker (0.3f)
+                                : t->automationMode == model::AutomationMode::off ? theme::background : theme::accent.darker (0.65f));
         }
         fader.setValue (t->gain, juce::dontSendNotification);
         syncing = false;
@@ -361,10 +421,12 @@ public:
             pan.setBounds (panRow.withSizeKeepingCentre (34, 27));
         }
 
-        auto bottom = area.removeFromBottom (isMaster() ? 22 : 44);
+        auto bottom = area.removeFromBottom (isMaster() ? 22 : 66);
         if (! isMaster())
         {
             output.setBounds (bottom.removeFromBottom (20));
+            bottom.removeFromBottom (2);
+            autoMode.setBounds (bottom.removeFromBottom (20));
             bottom.removeFromBottom (2);
             auto ms = bottom.removeFromBottom (20);
             mute.setBounds (ms.removeFromLeft (ms.getWidth() / 2 - 1));
@@ -386,7 +448,7 @@ private:
     juce::OwnedArray<juce::Slider> sendLevels;
     juce::Slider pan, fader;
     juce::TextButton mute { "M" }, solo { "S" };
-    juce::ComboBox output;
+    juce::ComboBox output, autoMode;
     juce::Rectangle<int> meterBounds, dbBounds, panLabelBounds;
     int sendsY = 0;
     float heldL = 0.0f, heldR = 0.0f;
@@ -428,7 +490,7 @@ void MixerView::sessionChanged (model::Session&)
 void MixerView::timerCallback()
 {
     if (! isShowing()) return;
-    for (auto* s : strips) s->repaint();
+    for (auto* s : strips) { s->followAutomation(); s->repaint(); }
     masterStrip->repaint();
 }
 

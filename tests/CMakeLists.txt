@@ -19,6 +19,7 @@ target_sources(beatmaker_tests PRIVATE
     clip_edit_test.cpp
     fades_test.cpp
     mixer_test.cpp
+    automation_test.cpp
     recorder_test.cpp
     bounce_test.cpp
     loop_library_test.cpp

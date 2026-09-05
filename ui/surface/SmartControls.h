@@ -27,6 +27,8 @@ public:
     // (command, replacePrevious): replacePrevious is true for the second and
     // later values of one knob gesture so the whole drag undoes at once.
     std::function<void (std::unique_ptr<model::Command>, bool replacePrevious)> onCommand;
+    std::function<void (int, const engine::ParamId&, float, bool)> onParameterChanged;
+    std::function<void (int, const engine::ParamId&)> onGestureEnded;
 
     void paint (juce::Graphics&) override;
     void resized() override;

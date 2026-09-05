@@ -99,9 +99,14 @@ void TrackArea::resized()
         if (c.arm)     { c.arm->setBounds (buttons.removeFromLeft (28));     buttons.removeFromLeft (4); }
         if (c.monitor) { c.monitor->setBounds (buttons.removeFromLeft (28)); }
 
-        header.removeFromBottom (4);
+        header.removeFromBottom (3);
+        auto autoRow = header.removeFromBottom (19);
+        if (c.autoMode) { c.autoMode->setBounds (autoRow.removeFromLeft (64)); autoRow.removeFromLeft (3); }
+        if (c.autoView) c.autoView->setBounds (autoRow);
+
+        header.removeFromBottom (3);
         if (c.input)
-            c.input->setBounds (header.removeFromBottom (20));
+            c.input->setBounds (header.removeFromBottom (19));
     }
 
     const int y = theme::rulerHeight + session.getNumTracks() * theme::trackHeight + 12;
@@ -177,6 +182,54 @@ void TrackArea::rebuildTrackControls()
             }
             addAndMakeVisible (*c.input);
         }
+
+        // Automation mode + which lane the track shows
+        c.autoMode = std::make_unique<juce::ComboBox>();
+        c.autoMode->setTooltip ("Automation mode");
+        int id = 1;
+        for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch, model::AutomationMode::write })
+            c.autoMode->addItem (model::automationModeName (m), id++);
+        c.autoMode->setSelectedId ((int) track.automationMode + 1, juce::dontSendNotification);
+        c.autoMode->onChange = [this, i, box = c.autoMode.get()]
+        {
+            if (box->getSelectedId() > 0 && onAutomationModeChanged)
+                onAutomationModeChanged (i, (model::AutomationMode) (box->getSelectedId() - 1));
+        };
+        addAndMakeVisible (*c.autoMode);
+
+        c.autoView = std::make_unique<juce::ComboBox>();
+        c.autoView->setTooltip ("Track view: clips, or an automation lane");
+        c.autoView->addItem ("Clips", 1);
+        c.autoView->addItem ("Volume", 2);
+        c.autoView->addItem ("Pan", 3);
+        c.autoView->addItem ("Mute", 4);
+        for (int sIdx = 0; sIdx < model::Track::numSendSlots; ++sIdx)
+            c.autoView->addItem (engine::ParamId::send (sIdx).getName(), 5 + sIdx);
+        const auto shown = shownLane (track);
+        int viewId = 1;
+        if (shown)
+        {
+            switch (shown->type)
+            {
+                case engine::ParamId::Type::volume:    viewId = 2; break;
+                case engine::ParamId::Type::pan:       viewId = 3; break;
+                case engine::ParamId::Type::mute:      viewId = 4; break;
+                case engine::ParamId::Type::sendLevel: viewId = 5 + shown->index; break;
+                case engine::ParamId::Type::insertParam: viewId = 1; break;
+            }
+        }
+        c.autoView->setSelectedId (viewId, juce::dontSendNotification);
+        c.autoView->onChange = [this, trackId = track.id, box = c.autoView.get()]
+        {
+            const int sel = box->getSelectedId();
+            if (sel <= 1) automationView.erase (trackId);
+            else if (sel == 2) automationView[trackId] = engine::ParamId::volume();
+            else if (sel == 3) automationView[trackId] = engine::ParamId::pan();
+            else if (sel == 4) automationView[trackId] = engine::ParamId::mute();
+            else automationView[trackId] = engine::ParamId::send (sel - 5);
+            repaint();
+        };
+        addAndMakeVisible (*c.autoView);
 
         trackControls.push_back (std::move (c));
     }
@@ -399,6 +452,173 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
     for (const auto& clip : track.patternClips) paintPatternClip (g, track, clip, r);
     for (const auto& clip : track.midiClips)    paintMidiClip (g, track, clip, r);
     paintLiveRecording (g, track, r);
+
+    for (int i = 0; i < session.getNumTracks(); ++i)
+        if (&session.getTracks()[(size_t) i] == &track) { paintAutomationLane (g, track, i, r); break; }
+}
+
+//==============================================================================
+// Automation lanes
+
+void TrackArea::showAutomationLane (int trackIndex, const engine::ParamId& param)
+{
+    if (auto* t = session.getTrack (trackIndex))
+    {
+        automationView[t->id] = param;
+        rebuildTrackControls();
+        repaint();
+    }
+}
+
+std::optional<engine::ParamId> TrackArea::shownLane (const model::Track& track) const
+{
+    auto it = automationView.find (track.id);
+    return it != automationView.end() ? std::optional<engine::ParamId> (it->second) : std::nullopt;
+}
+
+float TrackArea::valueToY (const engine::ParamId& p, float value, juce::Rectangle<int> lane) const
+{
+    const float top = (float) lane.getY() + 6.0f, bottom = (float) lane.getBottom() - 6.0f;
+    float norm = 0.0f;
+    switch (p.type)
+    {
+        case engine::ParamId::Type::volume:
+        case engine::ParamId::Type::sendLevel:
+            norm = (juce::Decibels::gainToDecibels (value, -60.0f) + 60.0f) / 66.0f; break;   // -60..+6 dB
+        case engine::ParamId::Type::pan:  norm = (value + 1.0f) * 0.5f; break;
+        case engine::ParamId::Type::mute: norm = value >= 0.5f ? 1.0f : 0.0f; break;
+        case engine::ParamId::Type::insertParam: norm = value; break;
+    }
+    return bottom - juce::jlimit (0.0f, 1.0f, norm) * (bottom - top);
+}
+
+float TrackArea::yToValue (const engine::ParamId& p, int y, juce::Rectangle<int> lane) const
+{
+    const float top = (float) lane.getY() + 6.0f, bottom = (float) lane.getBottom() - 6.0f;
+    const float norm = juce::jlimit (0.0f, 1.0f, (bottom - (float) y) / (bottom - top));
+    switch (p.type)
+    {
+        case engine::ParamId::Type::volume:
+        case engine::ParamId::Type::sendLevel: return norm <= 0.001f ? 0.0f : juce::Decibels::decibelsToGain (norm * 66.0f - 60.0f);
+        case engine::ParamId::Type::pan:       return norm * 2.0f - 1.0f;
+        case engine::ParamId::Type::mute:      return norm >= 0.5f ? 1.0f : 0.0f;
+        case engine::ParamId::Type::insertParam: return norm;
+    }
+    return norm;
+}
+
+void TrackArea::paintAutomationLane (juce::Graphics& g, const model::Track& track, int trackIndex, juce::Rectangle<int> r)
+{
+    const auto shown = shownLane (track);
+    if (! shown) return;
+
+    // Dim the clips beneath
+    g.setColour (theme::background.withAlpha (0.55f));
+    g.fillRect (r);
+
+    const auto* lane = track.laneFor (*shown);
+    const float fallback = [&]
+    {
+        switch (shown->type)
+        {
+            case engine::ParamId::Type::volume: return track.gain;
+            case engine::ParamId::Type::pan: return track.pan;
+            case engine::ParamId::Type::mute: return track.mute ? 1.0f : 0.0f;
+            case engine::ParamId::Type::sendLevel: return juce::isPositiveAndBelow (shown->index, model::Track::numSendSlots) ? track.sends[(size_t) shown->index].gain : 0.0f;
+            case engine::ParamId::Type::insertParam: return 0.0f;
+        }
+        return 0.0f;
+    }();
+
+    const auto colour = track.automationMode == model::AutomationMode::off ? theme::textDim : theme::accent;
+    const double viewEnd = xToSeconds ((float) getWidth());
+    const double sr = transport.getSampleRate();
+
+    // Curve
+    juce::Path path;
+    const int steps = juce::jmax (2, r.getWidth() / 3);
+    for (int i = 0; i <= steps; ++i)
+    {
+        const double seconds = viewStartSeconds + (viewEnd - viewStartSeconds) * i / steps;
+        float v = fallback;
+        if (lane != nullptr && ! lane->isEmpty()) v = lane->valueAt ((juce::int64) std::llround (seconds * sr), fallback);
+        const float x = secondsToX (seconds), y = valueToY (*shown, v, r);
+        if (i == 0) path.startNewSubPath (x, y); else path.lineTo (x, y);
+    }
+    g.setColour (colour.withAlpha (lane != nullptr && ! lane->isEmpty() ? 0.95f : 0.45f));
+    g.strokePath (path, juce::PathStrokeType (lane != nullptr && ! lane->isEmpty() ? 1.6f : 1.0f));
+
+    // Points
+    if (lane != nullptr)
+        for (int i = 0; i < (int) lane->points.size(); ++i)
+        {
+            const auto& p = lane->points[(size_t) i];
+            const float x = secondsToX ((double) p.time / sr), y = valueToY (*shown, p.value, r);
+            if (x < r.getX() - 4 || x > r.getRight() + 4) continue;
+            const bool dragging = drag == Drag::automationPoint && dragClip.track == trackIndex && dragPointIndex == i;
+            g.setColour (dragging ? theme::text : colour);
+            g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
+        }
+
+    // Ghost point while dragging
+    if (drag == Drag::automationPoint && dragClip.track == trackIndex && dragMoved)
+    {
+        const float x = secondsToX ((double) ghostPoint.time / sr), y = valueToY (*shown, ghostPoint.value, r);
+        g.setColour (theme::text);
+        g.drawEllipse (x - 5.0f, y - 5.0f, 10.0f, 10.0f, 1.5f);
+        juce::String text;
+        switch (shown->type)
+        {
+            case engine::ParamId::Type::volume:
+            case engine::ParamId::Type::sendLevel: text = juce::String (juce::Decibels::gainToDecibels (ghostPoint.value, -60.0f), 1) + " dB"; break;
+            case engine::ParamId::Type::pan: { const int pc = juce::roundToInt (ghostPoint.value * 100.0f); text = pc == 0 ? "C" : pc < 0 ? "L" + juce::String (-pc) : "R" + juce::String (pc); break; }
+            case engine::ParamId::Type::mute: text = ghostPoint.value >= 0.5f ? "Muted" : "Unmuted"; break;
+            case engine::ParamId::Type::insertParam: text = juce::String (ghostPoint.value, 2); break;
+        }
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (text, (int) x + 8, (int) y - 8, 90, 16, juce::Justification::centredLeft);
+    }
+
+    // Label
+    g.setColour (colour);
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.drawText (shown->getName() + "  (" + model::automationModeName (track.automationMode) + ")",
+                r.getRight() - 206, r.getY() + 2, 200, 14, juce::Justification::centredRight);
+}
+
+int TrackArea::automationPointAt (int trackIndex, juce::Point<int> pt) const
+{
+    auto* track = session.getTrack (trackIndex);
+    if (track == nullptr) return -1;
+    const auto shown = shownLane (*track);
+    if (! shown) return -1;
+    const auto* lane = track->laneFor (*shown);
+    if (lane == nullptr) return -1;
+    const auto r = getLaneBounds (trackIndex);
+    const double sr = transport.getSampleRate();
+    for (int i = 0; i < (int) lane->points.size(); ++i)
+    {
+        const auto& p = lane->points[(size_t) i];
+        const float x = secondsToX ((double) p.time / sr), y = valueToY (*shown, p.value, r);
+        if (std::abs (x - pt.x) <= 6.0f && std::abs (y - pt.y) <= 6.0f) return i;
+    }
+    return -1;
+}
+
+void TrackArea::commitAutomationDrag()
+{
+    auto* track = session.getTrack (dragClip.track);
+    if (track == nullptr) return;
+    const auto shown = shownLane (*track);
+    if (! shown) return;
+
+    auto lane = std::make_shared<engine::AutomationLane>();
+    lane->param = *shown;
+    if (const auto* existing = track->laneFor (*shown)) lane->points = existing->points;
+    if (juce::isPositiveAndBelow (dragPointIndex, (int) lane->points.size()))
+        lane->points[(size_t) dragPointIndex] = ghostPoint;
+    lane->sortPoints();
+    session.execute (std::make_unique<model::ReplaceAutomationLaneCommand> (dragClip.track, lane, "Move Breakpoint"));
 }
 
 void TrackArea::paintMidiClip (juce::Graphics& g, const model::Track& track, const model::MidiClip& clip, juce::Rectangle<int> r)
@@ -699,12 +919,59 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
-    const auto hit = clipAtPoint (e.getPosition());
-    bool nearStart = false, nearEnd = false;
-    const auto tool = effectiveTool (e, hit, nearStart, nearEnd);
     dragStartPoint = e.getPosition();
     dragMoved = false;
     dragAnchorSeconds = xToSeconds ((float) e.x);
+
+    // Automation lane view: breakpoints instead of clips (Grabber/Smart/Trimmer tools)
+    if (auto* t = session.getTrack (track); t != nullptr && shownLane (*t) && edit.tool != EditSettings::Tool::selector
+        && edit.tool != EditSettings::Tool::zoomer)
+    {
+        const auto param = *shownLane (*t);
+        const auto lane = getLaneBounds (track);
+        const int hitPoint = automationPointAt (track, e.getPosition());
+
+        if (e.mods.isPopupMenu() || (e.mods.isAltDown() && hitPoint >= 0))
+        {
+            if (hitPoint >= 0)
+            {
+                auto updated = std::make_shared<engine::AutomationLane> (*t->laneFor (param));
+                updated->points.erase (updated->points.begin() + hitPoint);
+                session.execute (std::make_unique<model::ReplaceAutomationLaneCommand> (track, updated, "Delete Breakpoint"));
+            }
+            return;
+        }
+
+        if (hitPoint >= 0)
+        {
+            drag = Drag::automationPoint;
+            dragClip = { track, model::ClipRef::Kind::audio, -1 };
+            dragPointIndex = hitPoint;
+            ghostPoint = t->laneFor (param)->points[(size_t) hitPoint];
+            return;
+        }
+
+        // Add a point where clicked, then keep dragging it
+        auto updated = std::make_shared<engine::AutomationLane>();
+        updated->param = param;
+        if (const auto* existing = t->laneFor (param)) updated->points = existing->points;
+        engine::AutomationPoint np { toSamples (snapSeconds (dragAnchorSeconds)), yToValue (param, e.y, lane) };
+        updated->points.push_back (np);
+        updated->sortPoints();
+        session.execute (std::make_unique<model::ReplaceAutomationLaneCommand> (track, updated, "Add Breakpoint"));
+
+        if (const auto* fresh = session.getTrack (track)->laneFor (param))
+            for (int i = 0; i < (int) fresh->points.size(); ++i)
+                if (fresh->points[(size_t) i].time == np.time) { dragPointIndex = i; break; }
+        drag = Drag::automationPoint;
+        dragClip = { track, model::ClipRef::Kind::audio, -1 };
+        ghostPoint = np;
+        return;
+    }
+
+    const auto hit = clipAtPoint (e.getPosition());
+    bool nearStart = false, nearEnd = false;
+    const auto tool = effectiveTool (e, hit, nearStart, nearEnd);
 
     if (tool == EditSettings::Tool::zoomer)
     {
@@ -834,6 +1101,16 @@ void TrackArea::mouseDrag (const juce::MouseEvent& e)
             ghostFadeSeconds = edit.mode == EditSettings::Mode::grid ? snapDelta (len) : len;
             break;
         }
+        case Drag::automationPoint:
+        {
+            if (auto* t = session.getTrack (dragClip.track); t != nullptr && shownLane (*t))
+            {
+                const auto param = *shownLane (*t);
+                ghostPoint.time = toSamples (snapSeconds (now));
+                ghostPoint.value = yToValue (param, e.y, getLaneBounds (dragClip.track));
+            }
+            break;
+        }
         case Drag::clipGain:
         {
             const auto& clip = session.getTrack (dragClip.track)->clips[(size_t) dragClip.index];
@@ -909,6 +1186,11 @@ void TrackArea::mouseUp (const juce::MouseEvent& e)
         case Drag::clipGain:
             if (dragMoved)
                 session.execute (std::make_unique<model::SetClipGainCommand> (dragClip, juce::Decibels::decibelsToGain (ghostGainDb, -60.0f)));
+            break;
+
+        case Drag::automationPoint:
+            if (dragMoved) commitAutomationDrag();
+            dragPointIndex = -1;
             break;
 
         case Drag::none:

@@ -203,7 +203,7 @@ beat-maker/
 - [~] Clip gain, fades, nudge, tab-to-transient, playlists/takes/comping. *(2026-09-05: static clip gain with drag/keys, fade in/out with Standard/Equal Power/S-Curve, corner handles, Fades window with batch fades, nudge. Pending: clip gain breakpoints, tab-to-transient, playlists/comping.)*
 - [~] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups. *(2026-09-05: strip pipeline with 10 inserts (EQ/Compressor/Delay/Reverb built in), 5 sends pre/post to 8 buses, aux inputs, output routing, master strip with inserts, post-fader meters, Mix window. Pending: 10 sends, VCA, groups.)*
 - [ ] I/O Setup window; automatic delay compensation.
-- [ ] Automation: all modes, lanes for every parameter.
+- [~] Automation: all modes, lanes for every parameter. *(2026-09-05: Off/Read/Touch/Latch/Write with pass recording; lanes for volume (ramped), pan, mute (stepped), sends, insert params; breakpoint editing in the track area; controls follow in Read. Pending: Trim, Preview/Capture, master automation, thinning.)*
 - [ ] Metering suite (peak/RMS/K/LUFS).
 - **Milestone:** An engineer can mix a 48-track session with routing comparable to Pro Tools.
 

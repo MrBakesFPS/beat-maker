@@ -84,8 +84,10 @@ private:
 
     void renderRange (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
     void renderStripSources (int stripIndex, const float* const* inputs, int numInputs, juce::int64 pos, bool playing, int numSamples);
-    void processStrip (const RenderStrip&, int stripIndex, int numSamples);
-    void processInserts (const std::vector<RenderInsert>&, juce::AudioBuffer<float>&, int numSamples);
+    void processStrip (const RenderStrip&, int stripIndex, juce::int64 blockStart, int numSamples);
+    void processInserts (const std::vector<RenderInsert>&, juce::AudioBuffer<float>&, int numSamples,
+                         const RenderStrip* automationOwner = nullptr, juce::int64 blockStart = 0);
+    static const AutomationLane* laneFor (const RenderStrip&, const ParamId&) noexcept;
     void mixPreview (float* const* outputs, int numOutputs, int numSamples);
     void mixClips (int stripIndex, juce::int64 rangeStart, int numSamples);
     void mixMonitoredInputs (int stripIndex, const float* const* inputs, int numInputs, int numSamples);

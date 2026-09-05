@@ -95,13 +95,21 @@ void SmartControls::bindMix (const model::Track& track)
     addKnob ("Volume", 0.0, 2.0, track.gain, 1.0, {}, dbText, [this] (double v)
     {
         if (auto* t = session.getTrack (trackIndex))
+        {
             issue (std::make_unique<model::SetTrackMixCommand> (trackIndex, (float) v, t->pan));
+            if (onParameterChanged) onParameterChanged (trackIndex, engine::ParamId::volume(), (float) v, gestureActive);
+        }
     });
+    knobs.back().slider->onDragEnd = [this] { gestureActive = false; gestureChanged = false; if (onGestureEnded) onGestureEnded (trackIndex, engine::ParamId::volume()); };
     addKnob ("Pan", -1.0, 1.0, track.pan, 0.0, {}, panText, [this] (double v)
     {
         if (auto* t = session.getTrack (trackIndex))
+        {
             issue (std::make_unique<model::SetTrackMixCommand> (trackIndex, t->gain, (float) v));
+            if (onParameterChanged) onParameterChanged (trackIndex, engine::ParamId::pan(), (float) v, gestureActive);
+        }
     });
+    knobs.back().slider->onDragEnd = [this] { gestureActive = false; gestureChanged = false; if (onGestureEnded) onGestureEnded (trackIndex, engine::ParamId::pan()); };
 }
 
 void SmartControls::bindSynth (const model::Track& track)

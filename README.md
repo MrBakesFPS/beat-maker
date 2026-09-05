@@ -47,6 +47,14 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- Automation: every track has an automation mode (Off, Read, Touch, Latch,
+  Write) in its header and in the mixer strip. Lanes exist for volume, pan,
+  mute, send levels and insert parameters. Move a fader, pan or send while
+  playing in Touch/Latch/Write to record a pass (one undo step; Write drops to
+  Latch afterwards, as in Pro Tools). In Read the mixer controls follow the
+  lane. Switch a track's view from Clips to a lane to draw breakpoints: click
+  to add, drag to move, right-click or Alt-click to delete. Volume ramps
+  sample-accurately across each block.
 - Mixer (X): a Pro Tools-style Mix window with one channel strip per track
   plus a Master strip. Each strip has 10 insert slots (5 shown) hosting the
   built-in EQ, Compressor, Delay and Reverb (click to edit the knobs in a
@@ -106,9 +114,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 2: automation, VCA and groups, I/O Setup, delay
-compensation, metering modes, clip gain breakpoints, Scrubber and Pencil
-tools, playlists and comping. See PLAN.md §5.
+Still to come in Phase 2: Trim automation and master automation, VCA and
+groups, I/O Setup, delay compensation, metering modes, clip gain breakpoints,
+Scrubber and Pencil tools, playlists and comping. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

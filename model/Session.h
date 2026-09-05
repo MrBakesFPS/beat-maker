@@ -6,6 +6,7 @@
 
 #include "Command.h"
 
+#include <automation/Automation.h>
 #include <dsp/DrumKit.h>
 #include <dsp/Effects.h>
 #include <dsp/Fades.h>
@@ -98,6 +99,15 @@ struct Send
     bool isActive() const noexcept { return bus >= 0; }
 };
 
+enum class AutomationMode { off, read, touch, latch, write };
+
+inline const char* automationModeName (AutomationMode m)
+{
+    switch (m) { case AutomationMode::off: return "Off"; case AutomationMode::read: return "Read"; case AutomationMode::touch: return "Touch";
+                 case AutomationMode::latch: return "Latch"; case AutomationMode::write: return "Write"; }
+    return "";
+}
+
 struct Track
 {
     enum class Type { audio, instrument, aux, master };
@@ -129,6 +139,21 @@ struct Track
     std::array<Send, numSendSlots> sends;
     int outputBus = -1;      // -1 = main mix
     int inputBus = -1;       // aux tracks: which bus feeds this strip
+
+    // Automation
+    AutomationMode automationMode = AutomationMode::read;
+    std::vector<std::shared_ptr<const engine::AutomationLane>> automation;   // one lane per parameter
+    std::vector<engine::ParamId> writing;   // parameters in an active write pass (transient)
+
+    const engine::AutomationLane* laneFor (const engine::ParamId& p) const noexcept
+    {
+        for (const auto& l : automation) if (l != nullptr && l->param == p) return l.get();
+        return nullptr;
+    }
+    bool isWriting (const engine::ParamId& p) const noexcept
+    {
+        return std::find (writing.begin(), writing.end(), p) != writing.end();
+    }
 
     // Recording (audio tracks)
     bool armed = false;      // record-enabled
@@ -196,6 +221,9 @@ private:
     friend class SetSynthParamsCommand;
     friend class SetTrackMixCommand;
     friend class ReplaceDrumKitCommand;
+    friend class ReplaceAutomationLaneCommand;
+    friend class SetAutomationModeCommand;
+    friend class SetAutomationWritingCommand;
     friend struct EditAccess;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
@@ -433,6 +461,72 @@ private:
     int index;
     std::shared_ptr<const engine::DrumKit> newKit, oldKit;
     juce::String name;
+};
+
+// Copy-on-write replacement of one parameter's lane (add/move/delete points,
+// or a whole recorded pass). An empty lane removes it.
+class ReplaceAutomationLaneCommand final : public Command
+{
+public:
+    ReplaceAutomationLaneCommand (int trackIndex, std::shared_ptr<const engine::AutomationLane> lane, juce::String actionName = "Automation")
+        : index (trackIndex), newLane (std::move (lane)), name (std::move (actionName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || newLane == nullptr) return;
+        auto& lanes = t->automation;
+        auto it = std::find_if (lanes.begin(), lanes.end(), [&] (const auto& l) { return l != nullptr && l->param == newLane->param; });
+        oldLane = it != lanes.end() ? *it : nullptr;
+        if (it != lanes.end()) lanes.erase (it);
+        if (! newLane->isEmpty()) lanes.push_back (newLane);
+    }
+    void undo (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || newLane == nullptr) return;
+        auto& lanes = t->automation;
+        std::erase_if (lanes, [&] (const auto& l) { return l != nullptr && l->param == newLane->param; });
+        if (oldLane != nullptr) lanes.push_back (oldLane);
+    }
+private:
+    int index;
+    std::shared_ptr<const engine::AutomationLane> newLane, oldLane;
+    juce::String name;
+};
+
+class SetAutomationModeCommand final : public Command
+{
+public:
+    SetAutomationModeCommand (int trackIndex, AutomationMode m) : index (trackIndex), mode (m) {}
+    juce::String getName() const override { return "Automation Mode"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->automationMode = mode; }
+    void undo (Session&) override {}
+private:
+    int index;
+    AutomationMode mode;
+};
+
+// Marks a parameter as being written (the engine then follows the live value).
+class SetAutomationWritingCommand final : public Command
+{
+public:
+    SetAutomationWritingCommand (int trackIndex, engine::ParamId p, bool on) : index (trackIndex), param (p), writing (on) {}
+    juce::String getName() const override { return "Automation Write"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr) return;
+        std::erase (t->writing, param);
+        if (writing) t->writing.push_back (param);
+    }
+    void undo (Session&) override {}
+private:
+    int index;
+    engine::ParamId param;
+    bool writing;
 };
 
 class AddMidiClipCommand final : public Command

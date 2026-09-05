@@ -66,6 +66,9 @@ public:
     std::function<void (int trackIndex, bool armed)> onArmChanged;
     std::function<void (int trackIndex, bool monitor)> onMonitorChanged;
     std::function<void (int trackIndex, int firstInput, int numInputs)> onInputChanged;
+    std::function<void (int trackIndex, model::AutomationMode)> onAutomationModeChanged;
+    void showAutomationLane (int trackIndex, const engine::ParamId&);
+    std::function<double()> getPlayheadSeconds;   // for automation value readouts
 
     // Device inputs offered in each audio track's input selector.
     void setInputChannelNames (const juce::StringArray& names);
@@ -103,8 +106,17 @@ private:
     struct TrackControls
     {
         std::unique_ptr<juce::TextButton> mute, solo, arm, monitor;
-        std::unique_ptr<juce::ComboBox> input;
+        std::unique_ptr<juce::ComboBox> input, autoMode, autoView;
     };
+
+    // Automation display state per track id: which parameter lane is shown (nullopt = clips)
+    std::map<int, engine::ParamId> automationView;
+    std::optional<engine::ParamId> shownLane (const model::Track&) const;
+    void paintAutomationLane (juce::Graphics&, const model::Track&, int trackIndex, juce::Rectangle<int> lane);
+    float valueToY (const engine::ParamId&, float value, juce::Rectangle<int> lane) const;
+    float yToValue (const engine::ParamId&, int y, juce::Rectangle<int> lane) const;
+    int automationPointAt (int trackIndex, juce::Point<int>) const;   // -1 = none
+    void commitAutomationDrag();
 
     void timerCallback() override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
@@ -132,7 +144,7 @@ private:
     void paintEditOverlays (juce::Graphics&);
 
     // ---- Edit helpers ----
-    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain };
+    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain, automationPoint };
     EditSettings::Tool effectiveTool (const juce::MouseEvent&, const std::optional<model::ClipRef>& hit, bool& nearStart, bool& nearEnd) const;
     std::optional<model::ClipRef> clipAtPoint (juce::Point<int>) const;
     juce::Rectangle<float> rectForClip (const model::ClipRef&) const;
@@ -173,6 +185,8 @@ private:
     double ghostStart = 0.0, ghostLength = 0.0;   // seconds
     double ghostFadeSeconds = 0.0;
     float ghostGainDb = 0.0f;
+    int dragPointIndex = -1;
+    engine::AutomationPoint ghostPoint;
     bool dragMoved = false;
     double dragAnchorSeconds = 0.0;
 

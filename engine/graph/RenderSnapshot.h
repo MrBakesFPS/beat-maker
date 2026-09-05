@@ -5,6 +5,7 @@
 // thread.
 #pragma once
 
+#include "../automation/Automation.h"
 #include "../dsp/DrumKit.h"
 #include "../dsp/Effects.h"
 #include "../dsp/Fades.h"
@@ -94,6 +95,7 @@ struct RenderInsert
     std::shared_ptr<Effect> fx;                    // stateful instance owned by the model
     std::shared_ptr<const InsertParams> params;
     bool bypass = false;
+    int slot = 0;                                  // insert slot, for automation lookup
 };
 
 struct RenderSend
@@ -101,6 +103,13 @@ struct RenderSend
     int bus = -1;          // 0..numBuses-1
     float gain = 1.0f;     // linear
     bool preFader = false;
+    int slot = 0;          // send slot, for automation lookup
+};
+
+struct RenderAutomation
+{
+    std::shared_ptr<const AutomationLane> lane;
+    bool bypass = false;   // being written right now: follow the live value instead
 };
 
 // One channel strip: sources -> inserts -> (pre sends) -> fader/pan -> (post sends) -> output.
@@ -115,6 +124,8 @@ struct RenderStrip
     bool muted = false;    // after solo logic
     std::vector<RenderInsert> inserts;
     std::vector<RenderSend> sends;
+    std::vector<RenderAutomation> automation;   // read when automationRead is true
+    bool automationRead = false;
 };
 
 struct RenderMaster

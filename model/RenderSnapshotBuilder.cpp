@@ -8,9 +8,12 @@ namespace
     std::vector<engine::RenderInsert> renderInserts (const Track& t)
     {
         std::vector<engine::RenderInsert> out;
-        for (const auto& ins : t.inserts)
+        for (int slot = 0; slot < (int) t.inserts.size(); ++slot)
+        {
+            const auto& ins = t.inserts[(size_t) slot];
             if (! ins.isEmpty() && ins.params != nullptr)
-                out.push_back ({ ins.instance, ins.params, ins.bypass });
+                out.push_back ({ ins.instance, ins.params, ins.bypass, slot });
+        }
         return out;
     }
 }
@@ -39,9 +42,16 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
         strip.pan       = track.pan;
         strip.muted     = ! audible;
         strip.inserts   = renderInserts (track);
-        for (const auto& send : track.sends)
-            if (send.isActive() && send.gain > 0.0f)
-                strip.sends.push_back ({ send.bus, send.gain, send.preFader });
+        for (int slot = 0; slot < (int) track.sends.size(); ++slot)
+        {
+            const auto& send = track.sends[(size_t) slot];
+            if (send.isActive())
+                strip.sends.push_back ({ send.bus, send.gain, send.preFader, slot });
+        }
+        strip.automationRead = track.automationMode != AutomationMode::off;
+        for (const auto& lane : track.automation)
+            if (lane != nullptr && ! lane->isEmpty())
+                strip.automation.push_back ({ lane, track.isWriting (lane->param) });
         snapshot->strips.push_back (std::move (strip));
 
         // ---- Sources ----

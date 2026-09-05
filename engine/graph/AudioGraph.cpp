@@ -404,46 +404,96 @@ void AudioGraph::renderStripSources (int stripIndex, const float* const* inputs,
     mixMonitoredInputs (stripIndex, inputs, numInputs, numSamples);
 }
 
-void AudioGraph::processInserts (const std::vector<RenderInsert>& inserts, juce::AudioBuffer<float>& buffer, int numSamples)
+const AutomationLane* AudioGraph::laneFor (const RenderStrip& strip, const ParamId& param) noexcept
+{
+    if (! strip.automationRead) return nullptr;
+    for (const auto& a : strip.automation)
+        if (! a.bypass && a.lane != nullptr && a.lane->param == param && ! a.lane->isEmpty())
+            return a.lane.get();
+    return nullptr;
+}
+
+void AudioGraph::processInserts (const std::vector<RenderInsert>& inserts, juce::AudioBuffer<float>& buffer, int numSamples,
+                                 const RenderStrip* owner, juce::int64 blockStart)
 {
     for (const auto& ins : inserts)
     {
         if (ins.fx == nullptr || ins.params == nullptr || ins.bypass) continue;
         if (std::abs (ins.fx->getSampleRate() - transport.getSampleRate()) > 0.5) continue;   // prepared for another rate: skip
-        ins.fx->process (buffer, numSamples, *ins.params);
+
+        // Automated parameters override the stored values for this block.
+        bool automated = false;
+        InsertParams local;
+        if (owner != nullptr && owner->automationRead)
+            for (const auto& a : owner->automation)
+                if (! a.bypass && a.lane != nullptr && ! a.lane->isEmpty()
+                    && a.lane->param.type == ParamId::Type::insertParam && a.lane->param.index == ins.slot
+                    && juce::isPositiveAndBelow (a.lane->param.sub, (int) local.values.size()))
+                {
+                    if (! automated) { local = *ins.params; automated = true; }
+                    local.values[(size_t) a.lane->param.sub] = a.lane->valueAt (blockStart, local.values[(size_t) a.lane->param.sub]);
+                }
+
+        ins.fx->process (buffer, numSamples, automated ? local : *ins.params);
     }
 }
 
-void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, int numSamples)
+void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::int64 blockStart, int numSamples)
 {
-    processInserts (strip.inserts, stripBuffer, numSamples);
+    processInserts (strip.inserts, stripBuffer, numSamples, &strip, blockStart);
 
     auto& meter = stripMeters[(size_t) juce::jlimit (0, maxStrips - 1, stripIndex)];
 
-    if (strip.muted)
+    // Automation (block-rate; volume ramps across the block)
+    bool muted = strip.muted;
+    if (auto* lane = laneFor (strip, ParamId::mute()))
+        muted = muted || lane->valueAt (blockStart, 0.0f) >= 0.5f;
+
+    if (muted)
     {
         for (auto& p : meter.peak) p.store (0.0f, std::memory_order_relaxed);
         return;
     }
 
+    float gainStart = strip.gain, gainEnd = strip.gain;
+    if (auto* lane = laneFor (strip, ParamId::volume()))
+    {
+        gainStart = lane->valueAt (blockStart, strip.gain);
+        gainEnd   = lane->valueAt (blockStart + numSamples, strip.gain);
+    }
+    float pan = strip.pan;
+    if (auto* lane = laneFor (strip, ParamId::pan()))
+        pan = lane->valueAt (blockStart, strip.pan);
+
+    auto sendGain = [&] (const RenderSend& send)
+    {
+        if (auto* lane = laneFor (strip, ParamId::send (send.slot))) return lane->valueAt (blockStart, send.gain);
+        return send.gain;
+    };
+
     // Pre-fader sends
     for (const auto& send : strip.sends)
-        if (send.preFader && juce::isPositiveAndBelow (send.bus, numBuses) && send.gain > 0.0f)
-            for (int ch = 0; ch < 2; ++ch)
-                busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, send.gain);
+        if (send.preFader && juce::isPositiveAndBelow (send.bus, numBuses))
+            if (const float g = sendGain (send); g > 0.0f)
+                for (int ch = 0; ch < 2; ++ch)
+                    busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, g);
 
-    // Fader + pan
+    // Fader (ramped) + pan
     for (int ch = 0; ch < 2; ++ch)
-        stripBuffer.applyGain (ch, 0, numSamples, strip.gain * panGainForChannel (strip.pan, ch));
+    {
+        const float pg = panGainForChannel (pan, ch);
+        stripBuffer.applyGainRamp (ch, 0, numSamples, gainStart * pg, gainEnd * pg);
+    }
 
     for (int ch = 0; ch < 2; ++ch)
         meter.peak[(size_t) ch].store (stripBuffer.getMagnitude (ch, 0, numSamples), std::memory_order_relaxed);
 
     // Post-fader sends
     for (const auto& send : strip.sends)
-        if (! send.preFader && juce::isPositiveAndBelow (send.bus, numBuses) && send.gain > 0.0f)
-            for (int ch = 0; ch < 2; ++ch)
-                busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, send.gain);
+        if (! send.preFader && juce::isPositiveAndBelow (send.bus, numBuses))
+            if (const float g = sendGain (send); g > 0.0f)
+                for (int ch = 0; ch < 2; ++ch)
+                    busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, g);
 
     // Output
     auto& dest = juce::isPositiveAndBelow (strip.outputBus, numBuses) ? busBuffers[(size_t) strip.outputBus] : mainBuffer;
@@ -499,7 +549,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
                 else
                     renderStripSources (i, inputs, numInputs, pos, playing, numSamples);
 
-                processStrip (strip, i, numSamples);
+                processStrip (strip, i, pos, numSamples);
             }
 
         // Master
