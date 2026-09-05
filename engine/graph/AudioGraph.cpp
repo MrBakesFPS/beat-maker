@@ -528,6 +528,20 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
         gainStart = lane->valueAt (blockStart, strip.gain);
         gainEnd   = lane->valueAt (blockStart + numSamples, strip.gain);
     }
+
+    // VCA master: its fader (and volume automation) scales ours.
+    if (current != nullptr && juce::isPositiveAndBelow (strip.vcaStrip, (int) current->strips.size()))
+    {
+        const auto& vca = current->strips[(size_t) strip.vcaStrip];
+        float vStart = vca.gain, vEnd = vca.gain;
+        if (auto* lane = laneFor (vca, ParamId::volume()))
+        {
+            vStart = lane->valueAt (blockStart, vca.gain);
+            vEnd   = lane->valueAt (blockStart + numSamples, vca.gain);
+        }
+        gainStart *= vStart;
+        gainEnd   *= vEnd;
+    }
     float pan = strip.pan;
     if (auto* lane = laneFor (strip, ParamId::pan()))
         pan = lane->valueAt (blockStart, strip.pan);
@@ -617,6 +631,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
             {
                 const auto& strip = stripAt (i);
                 if (strip.isAux != (pass == 1)) continue;
+                if (strip.isVca) { stripMeters[(size_t) juce::jlimit (0, maxStrips - 1, i)].clear(); continue; }
 
                 if (strip.isAux)
                 {

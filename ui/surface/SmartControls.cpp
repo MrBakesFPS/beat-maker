@@ -251,7 +251,8 @@ void SmartControls::paint (juce::Graphics& g)
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
     g.drawText (track->isSynth() ? "Synth  -  " + (track->synthParams != nullptr ? track->synthParams->name : juce::String())
-              : track->isDrumMachine() ? "Drum Machine" : "Audio", title.removeFromTop (16), juce::Justification::centredLeft, true);
+              : track->isDrumMachine() ? "Drum Machine" : track->isVca() ? "VCA Master" : track->isAux() ? "Aux Input" : "Audio",
+                title.removeFromTop (16), juce::Justification::centredLeft, true);
     if (waveBox == nullptr)
         g.drawText ("Smart Controls", title.removeFromTop (16), juce::Justification::centredLeft, true);
 }

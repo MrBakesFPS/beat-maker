@@ -47,6 +47,15 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- Groups and VCA masters: Ctrl+G creates a group from the selected track
+  (Edit, Mix, or both; choose whether Volume, Mute, Solo, Pan and Record
+  follow). Mix groups move member faders relatively in dB and propagate mute
+  and solo; Edit groups extend time selections across members and apply clip
+  moves, trims and deletes to same-start clips on member tracks. Group badges
+  (a, b, c...) appear on strips and headers; click one to toggle, edit, leave
+  or delete the group. A VCA Master track (from the + Track menu) has a fader,
+  mute, solo and automation but no audio: assign tracks to it in their strip
+  and its fader (and volume automation) scales theirs.
 - Metering: right-click any strip meter to pick Sample Peak, RMS, Peak + RMS,
   VU (0 VU = -18 dBFS), or K-12 / K-14 / K-20 (RMS with 0 at -12/-14/-20
   dBFS). Meters have a clip indicator that holds until clicked, dynamics
@@ -130,9 +139,8 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 2: Trim automation and master automation, VCA and
-groups, clip gain breakpoints, Scrubber and Pencil tools, playlists and
-comping. See PLAN.md §5.
+Still to come in Phase 2: Trim automation and master automation, clip gain
+breakpoints, Scrubber and Pencil tools, playlists and comping. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

@@ -1,4 +1,5 @@
 #include "TrackArea.h"
+#include <GroupLogic.h>
 #include <dsp/Fades.h>
 
 namespace beatmaker::ui
@@ -17,10 +18,12 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormat
         menu.addItem (2, "Drum Machine Track");
         menu.addItem (3, "Synth Track");
         menu.addItem (4, "Aux Input");
+        menu.addItem (5, "VCA Master");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
                             [this] (int result)
                             {
-                                if (result == 4 && onAddTrack)      onAddTrack (model::Track::Type::aux, model::Track::InstrumentKind::none);
+                                if (result == 5 && onAddTrack)      onAddTrack (model::Track::Type::vca, model::Track::InstrumentKind::none);
+                                else if (result == 4 && onAddTrack) onAddTrack (model::Track::Type::aux, model::Track::InstrumentKind::none);
                                 else if (result == 1 && onAddTrack) onAddTrack (model::Track::Type::audio, model::Track::InstrumentKind::none);
                                 else if (result == 2 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::drumMachine);
                                 else if (result == 3 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::synth);
@@ -424,9 +427,11 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
 
     g.setColour (track.armed ? theme::record.brighter (0.2f) : theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth"
+    juce::String badges;
+    for (const auto* grp : model::GroupLogic::groupsOf (session, track.id)) badges += (grp->active ? " [" : " (") + grp->badge() + (grp->active ? "]" : ")");
+    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth" : track.isVca() ? "  VCA Master"
                                             : track.isAux() ? "  Aux  <- " + (track.inputBus >= 0 ? session.busName (track.inputBus) : juce::String ("no input"))
-                                            : track.armed ? "  Audio  REC" : "  Audio"),
+                                            : track.armed ? "  Audio  REC" : "  Audio") + badges,
                 content.removeFromTop (14), juce::Justification::centredLeft);
 
     g.setColour (theme::grid);
@@ -1060,6 +1065,8 @@ void TrackArea::mouseDrag (const juce::MouseEvent& e)
                 timeSelection.end = timeSelection.start + gridSeconds();
             const int t = trackIndexAtY (e.y);
             if (t >= 0) { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, t); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, t); }
+            for (int m : model::GroupLogic::editMembers (session, timeSelection.firstTrack))
+            { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, m); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, m); }
             break;
         }
         case Drag::move:
@@ -1219,9 +1226,9 @@ void TrackArea::commitDrag()
         const bool isMove = std::abs (ghostLength - (double) t->length / sr) < 1e-9;
         std::unique_ptr<model::Command> cmd;
         if (isMove)
-            cmd = std::make_unique<model::MoveClipCommand> (dragClip, dragTargetTrack, toSamples (ghostStart));
+            cmd = model::GroupLogic::moveCommand (session, dragClip, dragTargetTrack, toSamples (ghostStart));
         else
-            cmd = std::make_unique<model::TrimClipCommand> (dragClip, toSamples (ghostStart), toSamples (ghostLength));
+            cmd = model::GroupLogic::trimCommand (session, dragClip, toSamples (ghostStart), toSamples (ghostLength));
 
         selectedClips.clear();
         executeWithShuffle (std::move (cmd), isMove ? "Move Clip" : "Trim Clip", { dragClip.track, dragTargetTrack });
@@ -1316,8 +1323,12 @@ void TrackArea::deleteSelection()
     if (! selectedClips.empty())
     {
         auto compound = std::make_unique<model::CompoundCommand> ("Delete Clips");
-        // Remove highest indices first within each track so indices stay valid.
+        // Edit groups: same-start clips on member tracks go too.
         auto refs = selectedClips;
+        for (const auto& ref : selectedClips)
+            for (const auto& sib : model::GroupLogic::siblingsOf (session, ref))
+                if (std::find (refs.begin(), refs.end(), sib) == refs.end()) refs.push_back (sib);
+        // Remove highest indices first within each track so indices stay valid.
         std::sort (refs.begin(), refs.end(), [] (const model::ClipRef& a, const model::ClipRef& b)
                    { return a.track != b.track ? a.track > b.track : a.index > b.index; });
         std::vector<int> tracks;

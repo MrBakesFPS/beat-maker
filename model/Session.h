@@ -127,9 +127,30 @@ inline const char* automationModeName (AutomationMode m)
     return "";
 }
 
+// Pro Tools-style group: a set of tracks whose controls (Mix) and/or clip
+// edits and selections (Edit) follow each other.
+struct Group
+{
+    enum class Type { edit, mix, both };
+    struct Attributes { bool volume = true, mute = true, solo = true, pan = false, arm = false; };
+
+    int id = 0;                    // stable id; also drives the badge letter (a, b, c...)
+    juce::String name;
+    juce::Colour colour { 0xffe67e22 };
+    Type type = Type::both;
+    bool active = true;
+    std::vector<int> trackIds;
+    Attributes attributes;
+
+    bool contains (int trackId) const noexcept { return std::find (trackIds.begin(), trackIds.end(), trackId) != trackIds.end(); }
+    bool isEdit() const noexcept { return type != Type::mix; }
+    bool isMix() const noexcept  { return type != Type::edit; }
+    juce::String badge() const   { return juce::String::charToString ((juce::juce_wchar) ('a' + ((id - 1) % 26))); }
+};
+
 struct Track
 {
-    enum class Type { audio, instrument, aux, master };
+    enum class Type { audio, instrument, aux, master, vca };
     enum class InstrumentKind { none, drumMachine, synth };
     static constexpr int numInsertSlots = 10;
     static constexpr int numSendSlots = 5;
@@ -160,6 +181,7 @@ struct Track
     int inputBus = -1;       // aux tracks: which bus feeds this strip
 
     MeterType meterType = MeterType::samplePeak;
+    int vcaTrackId = -1;     // VCA master this track is assigned to (-1 = none)
 
     // Automation
     AutomationMode automationMode = AutomationMode::read;
@@ -193,6 +215,8 @@ struct Track
     bool isAudio() const noexcept       { return type == Type::audio; }
     bool isAux() const noexcept         { return type == Type::aux; }
     bool isMaster() const noexcept      { return type == Type::master; }
+    bool isVca() const noexcept         { return type == Type::vca; }
+    bool carriesAudio() const noexcept  { return type == Type::audio || type == Type::instrument || type == Type::aux; }
     bool hasContent() const noexcept    { return ! clips.empty() || ! patternClips.empty() || ! midiClips.empty(); }
 };
 
@@ -215,6 +239,12 @@ public:
     int indexOfTrackId (int id) const noexcept;
     const Track& getMaster() const noexcept { return master; }
     const IOSetup& getIO() const noexcept { return io; }
+    const std::vector<Group>& getGroups() const noexcept { return groups; }
+    const Group* getGroup (int groupId) const noexcept
+    {
+        for (const auto& g : groups) if (g.id == groupId) return &g;
+        return nullptr;
+    }
     juce::String busName (int bus) const { return io.busName (bus); }
     bool isDelayCompensationEnabled() const noexcept { return delayCompensation; }
 
@@ -261,6 +291,11 @@ private:
     friend class SetAutomationWritingCommand;
     friend class SetIOSetupCommand;
     friend class SetDelayCompensationCommand;
+    friend class CreateGroupCommand;
+    friend class RemoveGroupCommand;
+    friend class ReplaceGroupCommand;
+    friend class SetGroupActiveCommand;
+    friend class SetTrackVcaCommand;
     friend struct EditAccess;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
@@ -269,6 +304,8 @@ private:
     Track master = [] { Track m; m.name = "Master"; m.type = Track::Type::master; m.colour = juce::Colour (0xffb0b8c4); return m; }();
     IOSetup io = IOSetup::createDefault (2, 2);
     bool delayCompensation = true;
+    std::vector<Group> groups;
+    int nextGroupId = 1;
     int nextTrackId = 1;
     double bpm = 120.0;
     int beatsPerBar = 4;
@@ -566,6 +603,88 @@ private:
     int index;
     engine::ParamId param;
     bool writing;
+};
+
+//==============================================================================
+// Groups & VCA
+
+class CreateGroupCommand final : public Command
+{
+public:
+    explicit CreateGroupCommand (Group g) : group (std::move (g)) {}
+    juce::String getName() const override { return "Create Group"; }
+    void execute (Session& s) override
+    {
+        if (group.id == 0) group.id = s.nextGroupId++;
+        s.groups.push_back (group);
+    }
+    void undo (Session& s) override { std::erase_if (s.groups, [&] (const Group& g) { return g.id == group.id; }); }
+    int getGroupId() const noexcept { return group.id; }
+private:
+    Group group;
+};
+
+class RemoveGroupCommand final : public Command
+{
+public:
+    explicit RemoveGroupCommand (int groupId) : id (groupId) {}
+    juce::String getName() const override { return "Delete Group"; }
+    void execute (Session& s) override
+    {
+        auto it = std::find_if (s.groups.begin(), s.groups.end(), [&] (const Group& g) { return g.id == id; });
+        if (it != s.groups.end()) { removed = *it; index = (int) (it - s.groups.begin()); s.groups.erase (it); }
+    }
+    void undo (Session& s) override { if (index >= 0) s.groups.insert (s.groups.begin() + juce::jmin (index, (int) s.groups.size()), removed); }
+private:
+    int id, index = -1;
+    Group removed;
+};
+
+// Replace a group's name/type/attributes/membership wholesale.
+class ReplaceGroupCommand final : public Command
+{
+public:
+    explicit ReplaceGroupCommand (Group g) : group (std::move (g)) {}
+    juce::String getName() const override { return "Edit Group"; }
+    void execute (Session& s) override
+    {
+        for (auto& g : s.groups) if (g.id == group.id) { old = g; g = group; return; }
+    }
+    void undo (Session& s) override { for (auto& g : s.groups) if (g.id == group.id) g = old; }
+private:
+    Group group, old;
+};
+
+class SetGroupActiveCommand final : public Command
+{
+public:
+    SetGroupActiveCommand (int groupId, bool on) : id (groupId), active (on) {}
+    juce::String getName() const override { return "Group Enable"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { for (auto& g : s.groups) if (g.id == id) g.active = active; }
+    void undo (Session&) override {}
+private:
+    int id;
+    bool active;
+};
+
+class SetTrackVcaCommand final : public Command
+{
+public:
+    SetTrackVcaCommand (int trackIndex, int vcaTrackId) : index (trackIndex), vca (vcaTrackId) {}
+    juce::String getName() const override { return "Assign VCA"; }
+    void execute (Session& s) override
+    {
+        if (auto* t = EditAccess::trackOrMaster (s, index))
+        {
+            old = t->vcaTrackId;
+            const int vcaIndex = s.indexOfTrackId (vca);
+            t->vcaTrackId = (vcaIndex >= 0 && s.tracks[(size_t) vcaIndex].isVca() && ! t->isVca()) ? vca : -1;
+        }
+    }
+    void undo (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->vcaTrackId = old; }
+private:
+    int index, vca, old = -1;
 };
 
 class SetMeterTypeCommand final : public Command

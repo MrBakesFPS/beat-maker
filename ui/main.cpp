@@ -7,6 +7,7 @@
 #include "depth/BounceDialog.h"
 #include "depth/EditToolbar.h"
 #include "depth/FadesDialog.h"
+#include "depth/GroupDialog.h"
 #include "depth/IOSetupDialog.h"
 #include "depth/MixerView.h"
 #include "shared/EditSettings.h"
@@ -20,6 +21,7 @@
 
 #include <AudioFileLoader.h>
 #include <AutomationRecorder.h>
+#include <GroupLogic.h>
 #include <LoopLibrary.h>
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
@@ -136,7 +138,8 @@ public:
         };
         trackArea.onAddTrack = [this] (model::Track::Type type, model::Track::InstrumentKind kind)
         {
-            if (type == model::Track::Type::aux)                              addAuxTrack();
+            if (type == model::Track::Type::vca)                              addVcaTrack();
+            else if (type == model::Track::Type::aux)                         addAuxTrack();
             else if (type != model::Track::Type::instrument)                  addTrack ("Audio " + juce::String (session.getNumTracks() + 1));
             else if (kind == model::Track::InstrumentKind::synth)             addSynthTrack();
             else                                                              addDrumMachineTrack();
@@ -157,18 +160,10 @@ public:
         {
             session.execute (std::make_unique<model::SetSynthParamsCommand> (track, engine::SynthParams::preset (preset)));
         };
-        trackArea.onMuteChanged = [this] (int i, bool on)
-        {
-            session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::mute, on));
-        };
-        trackArea.onSoloChanged = [this] (int i, bool on)
-        {
-            session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::solo, on));
-        };
-        trackArea.onArmChanged = [this] (int i, bool on)
-        {
-            session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::arm, on));
-        };
+        trackArea.onMuteChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::mute, on)); };
+        trackArea.onSoloChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on)); };
+        trackArea.onArmChanged  = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::arm, on)); };
+        mixerView.onEditGroup = [this] (int groupId) { showGroupDialog (groupId); };
         trackArea.onMonitorChanged = [this] (int i, bool on)
         {
             session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::monitor, on));
@@ -211,6 +206,23 @@ public:
     void showBounceDialog();
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
+    void addVcaTrackFromCommandLine() { addVcaTrack(); }
+
+    // --group-demo: group all existing audio-carrying tracks (Edit+Mix), add a VCA and assign them to it.
+    void groupDemoFromCommandLine()
+    {
+        model::Group g;
+        g.name = "Rhythm";
+        g.colour = juce::Colour (0xffe67e22);
+        for (const auto& t : session.getTracks()) if (t.carriesAudio()) g.trackIds.push_back (t.id);
+        session.execute (std::make_unique<model::CreateGroupCommand> (g));
+
+        addVcaTrack();
+        const int vcaId = session.getTracks().back().id;
+        for (int i = 0; i < session.getNumTracks(); ++i)
+            if (session.getTracks()[(size_t) i].carriesAudio())
+                session.execute (std::make_unique<model::SetTrackVcaCommand> (i, vcaId));
+    }
 
     // --automation-demo: put a volume swell + pan sweep on track 1 and show the lane (smoke tests).
     void automationDemoFromCommandLine()
@@ -356,6 +368,7 @@ public:
         if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::smart;    editSettings.notify(); return true; }
         if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
         if (key == juce::KeyPress ('f', juce::ModifierKeys::commandModifier, 0)) { showFadesDialog(); return true; }
+        if (key == juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 0)) { showGroupDialog (-1); return true; }
         if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0)) { showIOSetupDialog(); return true; }
 
         // Clip edits reach the track area even when it doesn't have focus
@@ -514,6 +527,51 @@ private:
         transportBar.setMixerVisible (visible);
         updateSequencerTarget();
         resized();
+    }
+
+    void addVcaTrack()
+    {
+        model::Track track;
+        track.name   = "VCA " + juce::String (countTracks (model::Track::Type::vca) + 1);
+        track.type   = model::Track::Type::vca;
+        track.colour = juce::Colour (0xffb0b8c4);
+        auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
+        auto* raw = cmd.get();
+        session.execute (std::move (cmd));
+        trackArea.setSelectedTrack (raw->getTrackIndex());
+        setMixerVisible (true);
+    }
+
+    // groupId < 0 creates a new group seeded with the selected track
+    void showGroupDialog (int groupId)
+    {
+        model::Group initial;
+        if (auto* existing = session.getGroup (groupId)) initial = *existing;
+        else
+        {
+            initial.name = "Group " + juce::String (session.getGroups().size() + 1);
+            static const juce::Colour palette[] = { juce::Colour (0xffe67e22), juce::Colour (0xff9b59b6), juce::Colour (0xff1abc9c), juce::Colour (0xffe84393), juce::Colour (0xff3498db) };
+            initial.colour = palette[session.getGroups().size() % 5];
+            if (auto* t = session.getTrack (trackArea.getSelectedTrack())) initial.trackIds.push_back (t->id);
+        }
+
+        auto* dialog = new ui::GroupDialog (session, initial);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = groupId < 0 ? "New Group" : "Edit Group";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onApply = [this, window, isNew = groupId < 0] (const model::Group& g)
+        {
+            if (isNew) session.execute (std::make_unique<model::CreateGroupCommand> (g));
+            else       session.execute (std::make_unique<model::ReplaceGroupCommand> (g));
+            window->setVisible (false);
+        };
     }
 
     void addAuxTrack()
@@ -1085,6 +1143,8 @@ public:
             else if (arg == "--mixer")  main.setMixerVisibleFromCommandLine (true);
             else if (arg == "--automation-demo") main.automationDemoFromCommandLine();
             else if (arg == "--io-setup") main.showIOSetupDialogFromCommandLine();
+            else if (arg == "--vca") main.addVcaTrackFromCommandLine();
+            else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()
                                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));

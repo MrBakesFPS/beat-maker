@@ -129,6 +129,8 @@ struct RenderStrip
 
     int delaySamples = 0;      // delay compensation + user offset, applied after the inserts
     int outputChannel = -1;    // >= 0: direct to this device channel pair, bypassing the master
+    int vcaStrip = -1;         // strip index of the VCA master scaling this strip's fader (gain + volume automation)
+    bool isVca = false;        // VCA masters carry no audio
 };
 
 struct RenderMaster

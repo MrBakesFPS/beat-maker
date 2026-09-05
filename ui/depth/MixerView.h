@@ -4,6 +4,7 @@
 
 #include "../shared/Theme.h"
 #include <DelayCompensation.h>
+#include <GroupLogic.h>
 #include <MixerCommands.h>
 #include <Session.h>
 #include <graph/AudioGraph.h>
@@ -26,6 +27,7 @@ public:
     // (command, replacePrevious) - replacePrevious coalesces a fader gesture into one undo step
     std::function<void (std::unique_ptr<model::Command>, bool replacePrevious)> onCommand;
     std::function<void (int trackIndex)> onSelectTrack;
+    std::function<void (int groupId)> onEditGroup;   // open the group dialog
     // Automation hooks (track index, parameter, value, gestureActive)
     std::function<void (int, const engine::ParamId&, float, bool)> onParameterChanged;
     std::function<void (int, const engine::ParamId&)> onGestureEnded;

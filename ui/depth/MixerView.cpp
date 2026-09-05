@@ -142,7 +142,7 @@ public:
                 if (syncing) return;
                 if (auto* t = track())
                 {
-                    issue (std::make_unique<model::SetTrackMixCommand> (index, t->gain, (float) pan.getValue()));
+                    issue (model::GroupLogic::mixCommand (mixer.session, index, t->gain, (float) pan.getValue()));
                     report (engine::ParamId::pan(), (float) pan.getValue());
                 }
             };
@@ -164,7 +164,8 @@ public:
             if (syncing) return;
             if (auto* t = track())
             {
-                issue (std::make_unique<model::SetTrackMixCommand> (index, (float) fader.getValue(), t->pan));
+                if (isMaster()) issue (std::make_unique<model::SetTrackMixCommand> (index, (float) fader.getValue(), t->pan));
+                else            issue (model::GroupLogic::mixCommand (mixer.session, index, (float) fader.getValue(), t->pan));
                 report (engine::ParamId::volume(), (float) fader.getValue());
             }
         };
@@ -178,11 +179,20 @@ public:
             mute.onClick = [this]
             {
                 if (syncing) return;
-                issue (std::make_unique<model::SetTrackFlagCommand> (index, model::SetTrackFlagCommand::Flag::mute, mute.getToggleState()));
+                issue (model::GroupLogic::flagCommand (mixer.session, index, model::SetTrackFlagCommand::Flag::mute, mute.getToggleState()));
                 report (engine::ParamId::mute(), mute.getToggleState() ? 1.0f : 0.0f);
                 endGesture (engine::ParamId::mute());
             };
-            solo.onClick = [this] { if (! syncing) issue (std::make_unique<model::SetTrackFlagCommand> (index, model::SetTrackFlagCommand::Flag::solo, solo.getToggleState())); };
+            solo.onClick = [this] { if (! syncing) issue (model::GroupLogic::flagCommand (mixer.session, index, model::SetTrackFlagCommand::Flag::solo, solo.getToggleState())); };
+
+            addAndMakeVisible (vcaBox);
+            vcaBox.setTooltip ("VCA master this track follows");
+            rebuildVcaMenu();
+            vcaBox.onChange = [this]
+            {
+                if (syncing || vcaBox.getSelectedId() == 0) return;
+                issue (std::make_unique<model::SetTrackVcaCommand> (index, vcaBox.getSelectedId() == 1 ? -1 : vcaBox.getSelectedId() - 1000));
+            };
 
             addAndMakeVisible (autoMode);
             int am = 1;
@@ -215,6 +225,16 @@ public:
 
         sync();
     }
+
+    void rebuildVcaMenu()
+    {
+        vcaBox.clear (juce::dontSendNotification);
+        vcaBox.addItem ("No VCA", 1);
+        for (const auto& t : mixer.session.getTracks())
+            if (t.isVca()) vcaBox.addItem (t.name, 1000 + t.id);
+    }
+
+    bool isVca() const { auto* t = track(); return t != nullptr && t->isVca(); }
 
     void rebuildOutputMenu()
     {
@@ -284,6 +304,18 @@ public:
             solo.setToggleState (t->solo, juce::dontSendNotification);
             if (output.getNumItems() != (int) mixer.session.getIO().outputs.size() + model::Track::numBuses) rebuildOutputMenu();
             output.setSelectedId (t->outputBus >= 0 ? 1000 + t->outputBus : 2000 + juce::jmax (0, t->outputPath), juce::dontSendNotification);
+            int vcaCount = 1; for (const auto& tr : mixer.session.getTracks()) vcaCount += tr.isVca() ? 1 : 0;
+            if (vcaBox.getNumItems() != vcaCount) rebuildVcaMenu();
+            vcaBox.setSelectedId (t->vcaTrackId >= 0 ? 1000 + t->vcaTrackId : 1, juce::dontSendNotification);
+
+            // VCA masters: fader, mute, solo, automation only
+            const bool vca = t->isVca();
+            for (auto* b : insertButtons) b->setVisible (! vca);
+            for (auto* b : sendButtons) b->setVisible (! vca);
+            for (auto* sl : sendLevels) sl->setVisible (! vca);
+            pan.setVisible (! vca);
+            output.setVisible (! vca);
+            vcaBox.setVisible (! vca);
             autoMode.setSelectedId ((int) t->automationMode + 1, juce::dontSendNotification);
             const bool writing = ! t->writing.empty();
             autoMode.setColour (juce::ComboBox::backgroundColourId, writing ? theme::record.darker (0.3f)
@@ -383,6 +415,33 @@ public:
         if (isMaster()) return;
         if (mixer.onSelectTrack) mixer.onSelectTrack (index);
 
+        // Group badges: toggle, edit, leave, delete
+        if (e.y >= 2 && e.y < 20)
+            if (auto* t = track())
+            {
+                const auto groups = model::GroupLogic::groupsOf (mixer.session, t->id);
+                const int which = (e.x - 4) / 16;
+                if (juce::isPositiveAndBelow (which, (int) groups.size()))
+                {
+                    const auto grp = *groups[(size_t) which];
+                    juce::PopupMenu menu;
+                    menu.addItem (1, grp.name + "  (" + (grp.type == model::Group::Type::edit ? "Edit" : grp.type == model::Group::Type::mix ? "Mix" : "Edit+Mix") + ")", false);
+                    menu.addSeparator();
+                    menu.addItem (2, "Active", true, grp.active);
+                    menu.addItem (3, "Edit Group...");
+                    menu.addItem (4, "Remove this track from group");
+                    menu.addItem (5, "Delete Group");
+                    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, grp, trackId = t->id] (int r)
+                    {
+                        if (r == 2) issue (std::make_unique<model::SetGroupActiveCommand> (grp.id, ! grp.active));
+                        else if (r == 3) { if (mixer.onEditGroup) mixer.onEditGroup (grp.id); }
+                        else if (r == 4) { auto g = grp; std::erase (g.trackIds, trackId); issue (std::make_unique<model::ReplaceGroupCommand> (g)); }
+                        else if (r == 5) issue (std::make_unique<model::RemoveGroupCommand> (grp.id));
+                    });
+                    return;
+                }
+            }
+
         // Alt-click the dly readout to type a user offset
         if (e.mods.isAltDown() && e.y >= 22 && e.y < 34)
         {
@@ -416,11 +475,37 @@ public:
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (t->name, top.reduced (4, 0), juce::Justification::centred, true);
 
+        // Group badges (letters) next to the name
+        if (! isMaster())
+        {
+            int x = 4;
+            for (const auto* grp : model::GroupLogic::groupsOf (mixer.session, t->id))
+            {
+                auto badge = juce::Rectangle<int> (x, 4, 14, 14);
+                g.setColour (grp->active ? grp->colour : theme::gridStrong);
+                g.fillRoundedRectangle (badge.toFloat(), 3.0f);
+                g.setColour (theme::text);
+                g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+                g.drawText (grp->badge(), badge, juce::Justification::centred);
+                x += 16;
+            }
+        }
+
+        if (isVca())
+        {
+            g.setColour (theme::textDim);
+            g.setFont (juce::FontOptions (9.0f));
+            g.drawText ("VCA MASTER", 4, 24, getWidth() - 8, 10, juce::Justification::centredLeft);
+            int members = 0;
+            for (const auto& tr : mixer.session.getTracks()) members += tr.vcaTrackId == t->id ? 1 : 0;
+            g.drawText (juce::String (members) + (members == 1 ? " member" : " members"), 4, 36, getWidth() - 8, 10, juce::Justification::centredLeft);
+        }
+
         // Section labels + delay compensation readout (Pro Tools "dly")
         g.setColour (theme::textDim);
         g.setFont (juce::FontOptions (9.0f));
-        g.drawText ("INSERTS", 4, 24, getWidth() - 8, 10, juce::Justification::centredLeft);
-        if (! isMaster() && juce::isPositiveAndBelow (index, (int) mixer.delays.size()))
+        if (! isVca()) g.drawText ("INSERTS", 4, 24, getWidth() - 8, 10, juce::Justification::centredLeft);
+        if (! isMaster() && ! isVca() && juce::isPositiveAndBelow (index, (int) mixer.delays.size()))
         {
             const auto& d = mixer.delays[(size_t) index];
             const bool active = d.total() > 0 || d.insertLatency > 0;
@@ -428,7 +513,7 @@ public:
             g.drawText ("dly " + juce::String (d.total()) + (d.insertLatency > 0 ? "  (" + juce::String (d.insertLatency) + ")" : juce::String()),
                         4, 24, getWidth() - 8, 10, juce::Justification::centredRight);
         }
-        if (! isMaster()) g.drawText ("SENDS", 4, sendsY - 12, getWidth() - 8, 10, juce::Justification::centredLeft);
+        if (! isMaster() && ! isVca()) g.drawText ("SENDS", 4, sendsY - 12, getWidth() - 8, 10, juce::Justification::centredLeft);
 
         // Meters beside the fader, drawn per the track's meter type
         const auto type = t->meterType;
@@ -520,7 +605,7 @@ public:
         g.setColour (theme::accent);
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
         g.drawText (dbText (t->gain), dbBounds, juce::Justification::centred);
-        if (! isMaster())
+        if (! isMaster() && ! isVca())
         {
             g.setColour (theme::textDim);
             g.setFont (juce::FontOptions (10.0f));
@@ -552,10 +637,12 @@ public:
             pan.setBounds (panRow.withSizeKeepingCentre (34, 27));
         }
 
-        auto bottom = area.removeFromBottom (isMaster() ? 22 : 66);
+        auto bottom = area.removeFromBottom (isMaster() ? 22 : 88);
         if (! isMaster())
         {
             output.setBounds (bottom.removeFromBottom (20));
+            bottom.removeFromBottom (2);
+            vcaBox.setBounds (bottom.removeFromBottom (20));
             bottom.removeFromBottom (2);
             autoMode.setBounds (bottom.removeFromBottom (20));
             bottom.removeFromBottom (2);
@@ -587,7 +674,7 @@ private:
     juce::OwnedArray<juce::Slider> sendLevels;
     juce::Slider pan, fader;
     juce::TextButton mute { "M" }, solo { "S" };
-    juce::ComboBox output, autoMode;
+    juce::ComboBox output, autoMode, vcaBox;
     juce::Rectangle<int> meterBounds, dbBounds, panLabelBounds, clipBounds, loudnessBounds;
     int sendsY = 0;
     float heldL = 0.0f, heldR = 0.0f;

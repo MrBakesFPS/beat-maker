@@ -23,9 +23,17 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
 {
     auto snapshot = std::make_unique<engine::RenderSnapshot>();
 
+    const auto& all = session.getTracks();
+    auto vcaOf = [&] (const Track& t) -> const Track*
+    {
+        const int i = session.indexOfTrackId (t.vcaTrackId);
+        return (i >= 0 && all[(size_t) i].isVca()) ? &all[(size_t) i] : nullptr;
+    };
+
+    // Solo logic: a VCA's solo solos its members; a VCA's mute mutes them.
     bool anySolo = false;
-    for (const auto& t : session.getTracks())
-        anySolo = anySolo || t.solo;
+    for (const auto& t : all)
+        anySolo = anySolo || (t.solo && ! t.isVca()) || (t.isVca() && t.solo);
 
     const auto& tracks = session.getTracks();
     const auto delays = DelayCompensation::compute (session);
@@ -35,10 +43,15 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
     for (int i = 0; i < (int) tracks.size(); ++i)
     {
         const auto& track = tracks[(size_t) i];
-        const bool audible = ! track.mute && (! anySolo || track.solo);
+        const auto* vca = vcaOf (track);
+        const bool soloed = track.solo || (vca != nullptr && vca->solo);
+        const bool muted = track.mute || (vca != nullptr && vca->mute);
+        const bool audible = ! muted && (! anySolo || soloed) && ! track.isVca();
 
         // ---- Channel strip (one per track, same index) ----
         engine::RenderStrip strip;
+        strip.isVca     = track.isVca();
+        strip.vcaStrip  = vca != nullptr ? session.indexOfTrackId (vca->id) : -1;
         strip.trackId   = track.id;
         strip.isAux     = track.isAux();
         strip.inputBus  = track.inputBus;
