@@ -106,6 +106,8 @@ struct Insert
     std::shared_ptr<engine::Effect> instance;
     std::shared_ptr<const engine::InsertParams> params;
     bool bypass = false;
+    int keyBus = -1;                 // sidechain key input (bus index), -1 = internal
+    bool keyListen = false;
     juce::String pluginIdentifier;   // hosted plugins: PluginDescription::createIdentifierString()
     bool isEmpty() const noexcept { return type == engine::EffectType::none || instance == nullptr; }
     bool isPlugin() const noexcept { return type == engine::EffectType::plugin; }

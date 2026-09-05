@@ -12,7 +12,7 @@ const std::vector<EffectType>& Effect::availableTypes()
 {
     static const std::vector<EffectType> types { EffectType::eq, EffectType::compressor, EffectType::limiter, EffectType::gate, EffectType::deesser,
                                                  EffectType::delay, EffectType::reverb, EffectType::chorus, EffectType::flanger, EffectType::phaser,
-                                                 EffectType::saturation, EffectType::ampSim, EffectType::utility };
+                                                 EffectType::saturation, EffectType::ampSim, EffectType::utility, EffectType::convolution };
     return types;
 }
 
@@ -35,6 +35,7 @@ const char* Effect::typeName (EffectType t)
         case EffectType::ampSim:     return "Amp Sim";
         case EffectType::utility:    return "Utility";
         case EffectType::plugin:     return "Plugin";
+        case EffectType::convolution: return "Convolution Reverb";
     }
     return "";
 }
@@ -128,6 +129,14 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         { "Damping",    0.0f, 100.0f,  50.0f,  0.0f, " %" },
         { "Width",      0.0f, 100.0f, 100.0f,  0.0f, " %" },
         { "Mix",        0.0f, 100.0f,  25.0f,  0.0f, " %" } };
+    static const std::vector<ParamInfo> convolution {
+        { "Impulse",    0.0f, 6.0f,     0.0f,  0.0f, "" },        // hall, chamber, room, plate, ambience, cathedral, custom
+        { "Pre-delay",  0.0f, 250.0f,  10.0f, 40.0f, " ms" },
+        { "Decay",     10.0f, 100.0f, 100.0f,  0.0f, " %" },      // trims the response length
+        { "Low Cut",   20.0f, 2000.0f, 80.0f, 200.0f, " Hz" },
+        { "High Cut", 1000.0f, 20000.0f, 12000.0f, 5000.0f, " Hz" },
+        { "Width",      0.0f, 100.0f, 100.0f,  0.0f, " %" },
+        { "Mix",        0.0f, 100.0f,  30.0f,  0.0f, " %" } };
 
     switch (t)
     {
@@ -138,6 +147,7 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         case EffectType::deesser:    return deesser;
         case EffectType::delay:      return delay;
         case EffectType::reverb:     return reverb;
+        case EffectType::convolution: return convolution;
         case EffectType::chorus:     return chorus;
         case EffectType::flanger:    return flanger;
         case EffectType::phaser:     return phaser;
@@ -178,10 +188,12 @@ std::unique_ptr<Effect> Effect::create (EffectType t, double sampleRate, int max
         case EffectType::saturation: fx = std::make_unique<SaturationEffect>(); break;
         case EffectType::ampSim:     fx = std::make_unique<AmpSimEffect>(); break;
         case EffectType::utility:    fx = std::make_unique<UtilityEffect>(); break;
+        case EffectType::convolution: fx = std::make_unique<ConvolutionEffect>(); break;
         case EffectType::none:
         case EffectType::plugin:     return nullptr;   // plugins are created by the PluginManager
     }
     fx->prepare (sampleRate, maxBlockSize);
+    fx->paramsChanged (defaultParams (t));
     return fx;
 }
 
@@ -364,8 +376,7 @@ void CompressorEffect::process (juce::AudioBuffer<float>& buffer, int n, const I
 
     for (int i = 0; i < n; ++i)
     {
-        float level = 0.0f;
-        for (int ch = 0; ch < channels; ++ch) level = juce::jmax (level, std::abs (buffer.getSample (ch, i)));
+        const float level = detectorLevel (buffer, i, channels);
 
         envelope = level > envelope ? att * envelope + (1.0f - att) * level : rel * envelope + (1.0f - rel) * level;
         const float envDb = juce::Decibels::gainToDecibels (envelope, -100.0f);
@@ -511,8 +522,7 @@ void GateEffect::process (juce::AudioBuffer<float>& buffer, int n, const InsertP
 
     for (int i = 0; i < n; ++i)
     {
-        float level = 0.0f;
-        for (int ch = 0; ch < channels; ++ch) level = juce::jmax (level, std::abs (buffer.getSample (ch, i)));
+        const float level = detectorLevel (buffer, i, channels);
         // Fast detector so the gate opens quickly
         envelope = level > envelope ? 0.3f * envelope + 0.7f * level : 0.999f * envelope + 0.001f * level;
         const float envDb = juce::Decibels::gainToDecibels (envelope, -120.0f);
@@ -560,14 +570,22 @@ void DeEsserEffect::process (juce::AudioBuffer<float>& buffer, int n, const Inse
 
     for (int i = 0; i < n; ++i)
     {
-        // Detector: level of the band above the frequency
+        // Detector: level of the band above the frequency (of the key input when one is connected)
         float level = 0.0f;
-        for (int ch = 0; ch < channels; ++ch)
-        {
-            float x = buffer.getSample (ch, i);
-            Biquad::process (hp, hpState[(size_t) ch], &x, 1);
-            level = juce::jmax (level, std::abs (x));
-        }
+        if (hasSidechain())
+            for (int ch = 0; ch < juce::jmin (2, keyNumChannels); ++ch)
+            {
+                float x = keyChannels[ch][i];
+                Biquad::process (hp, keyState[(size_t) ch], &x, 1);
+                level = juce::jmax (level, std::abs (x));
+            }
+        else
+            for (int ch = 0; ch < channels; ++ch)
+            {
+                float x = buffer.getSample (ch, i);
+                Biquad::process (hp, hpState[(size_t) ch], &x, 1);
+                level = juce::jmax (level, std::abs (x));
+            }
         envelope = level > envelope ? level : rel * envelope + (1.0f - rel) * level;
         const float over = juce::Decibels::gainToDecibels (envelope, -120.0f) - thresholdDb;
         const float reductionDb = over > 0.0f ? juce::jmin (over, rangeDb) : 0.0f;
@@ -812,6 +830,208 @@ void ReverbEffect::process (juce::AudioBuffer<float>& buffer, int n, const Inser
         reverb.processStereo (buffer.getWritePointer (0), buffer.getWritePointer (1), n);
     else if (buffer.getNumChannels() == 1)
         reverb.processMono (buffer.getWritePointer (0), n);
+}
+
+} // namespace beatmaker::engine
+
+//==============================================================================
+// Convolution reverb
+
+namespace beatmaker::engine
+{
+
+const char* ConvolutionEffect::impulseName (int which)
+{
+    switch (which)
+    {
+        case hall:      return "Concert Hall";
+        case chamber:   return "Chamber";
+        case room:      return "Room";
+        case plate:     return "Plate";
+        case ambience:  return "Ambience";
+        case cathedral: return "Cathedral";
+        case custom:    return "Custom";
+        default:        return "";
+    }
+}
+
+juce::String ConvolutionEffect::getDisplayName() const
+{
+    return loadedImpulse == custom && customName.isNotEmpty() ? "Conv: " + customName
+         : loadedImpulse >= 0 ? "Conv: " + juce::String (impulseName (loadedImpulse)) : juce::String (typeName (getType()));
+}
+
+juce::AudioBuffer<float> ConvolutionEffect::generateImpulse (int which, double sr)
+{
+    // Each space: RT60, initial brightness (one-pole LP cutoff at t=0), how
+    // fast the highs die (cutoff at the end), early reflection taps, and a
+    // build-up time before the dense tail reaches full level.
+    struct Space { double rt60, cutoffStart, cutoffEnd, buildUp; std::vector<std::pair<double, float>> early; };
+    Space space;
+    switch (which)
+    {
+        case chamber:   space = { 1.6, 9000.0, 2500.0, 0.010, { { 0.007, 0.5f }, { 0.013, 0.35f }, { 0.021, 0.3f }, { 0.029, 0.2f } } }; break;
+        case room:      space = { 0.7, 8000.0, 3000.0, 0.004, { { 0.004, 0.6f }, { 0.009, 0.45f }, { 0.015, 0.3f }, { 0.022, 0.2f }, { 0.031, 0.12f } } }; break;
+        case plate:     space = { 2.4, 16000.0, 6000.0, 0.0, {} }; break;
+        case ambience:  space = { 0.35, 10000.0, 4000.0, 0.002, { { 0.003, 0.5f }, { 0.008, 0.3f } } }; break;
+        case cathedral: space = { 6.0, 5000.0, 1200.0, 0.060, { { 0.025, 0.3f }, { 0.048, 0.25f }, { 0.077, 0.2f } } }; break;
+        case hall:
+        default:        space = { 3.2, 7000.0, 2000.0, 0.030, { { 0.015, 0.4f }, { 0.024, 0.3f }, { 0.037, 0.25f }, { 0.051, 0.15f } } }; break;
+    }
+
+    const int length = (int) (space.rt60 * 1.1 * sr) + 1;
+    juce::AudioBuffer<float> ir (2, length);
+    ir.clear();
+    juce::Random rng (12345 + which);   // deterministic: the same space sounds the same every session
+
+    const double decayPerSample = std::exp (-6.9078 / (space.rt60 * sr));   // -60 dB at rt60
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        float* d = ir.getWritePointer (ch);
+        double env = 1.0, lpState = 0.0;
+        for (int i = 0; i < length; ++i)
+        {
+            const double t = i / sr;
+            const double progress = juce::jlimit (0.0, 1.0, t / space.rt60);
+            const double cutoff = space.cutoffStart * std::pow (space.cutoffEnd / space.cutoffStart, progress);
+            const double a = std::exp (-juce::MathConstants<double>::twoPi * cutoff / sr);
+            const double noise = rng.nextFloat() * 2.0f - 1.0f;
+            lpState = (1.0 - a) * noise + a * lpState;
+            const double build = space.buildUp > 0.0 ? juce::jlimit (0.0, 1.0, t / space.buildUp) : 1.0;
+            d[i] = (float) (lpState * env * build);
+            env *= decayPerSample;
+        }
+        // Early reflections (slightly different per channel for width)
+        for (const auto& [time, gain] : space.early)
+        {
+            const int at = (int) ((time + (ch == 1 ? 0.0007 : 0.0)) * sr);
+            if (at < length) d[at] += gain * (rng.nextBool() ? 1.0f : -1.0f);
+        }
+    }
+    if (which != plate) ir.setSample (0, 0, ir.getSample (0, 0) + 0.15f), ir.setSample (1, 0, ir.getSample (1, 0) + 0.15f);   // direct-ish onset
+    return ir;
+}
+
+void ConvolutionEffect::prepareImpl (int maxBlockSize)
+{
+    maxBlock = juce::jmax (16, maxBlockSize);
+    convolution.prepare ({ sampleRate, (juce::uint32) maxBlock, 2 });
+    wet.setSize (2, maxBlock);
+    for (auto& line : predelayLines) line.assign ((size_t) (maxPredelayMs * 0.001 * sampleRate) + 1, 0.0f);
+    predelayWrite = 0;
+    cachedLowCut = cachedHighCut = -1.0f;
+    loadedImpulse = -1;   // a rate change needs the response regenerated at the new rate
+}
+
+void ConvolutionEffect::reset()
+{
+    convolution.reset();
+    for (auto& line : predelayLines) std::fill (line.begin(), line.end(), 0.0f);
+    for (auto& s : lowCutState) s = {};
+    for (auto& s : highCutState) s = {};
+}
+
+void ConvolutionEffect::setCustomImpulse (std::shared_ptr<const juce::AudioBuffer<float>> buffer, double rate, juce::String name)
+{
+    customImpulse = std::move (buffer);
+    customRate = rate > 0.0 ? rate : sampleRate;
+    customName = std::move (name);
+    ++customGeneration;
+}
+
+void ConvolutionEffect::paramsChanged (const InsertParams& p)
+{
+    if (p.type != EffectType::convolution) return;
+    const int which = juce::jlimit (0, (int) numImpulses - 1, (int) std::lround (p.values[impulse]));
+    const float decayPercent = juce::jlimit (10.0f, 100.0f, p.values[decay]);
+    if (which == loadedImpulse && std::abs (decayPercent - loadedDecay) < 0.5f && (which != custom || customGeneration == loadedCustomGeneration)) return;
+    loadResponse (p);
+}
+
+void ConvolutionEffect::loadResponse (const InsertParams& p)
+{
+    const int which = juce::jlimit (0, (int) numImpulses - 1, (int) std::lround (p.values[impulse]));
+    const float decayPercent = juce::jlimit (10.0f, 100.0f, p.values[decay]);
+
+    juce::AudioBuffer<float> ir;
+    double irRate = sampleRate;
+    if (which == custom)
+    {
+        if (customImpulse == nullptr || customImpulse->getNumSamples() == 0) { ir.setSize (2, 1); ir.clear(); ir.setSample (0, 0, 1.0f); ir.setSample (1, 0, 1.0f); }
+        else { ir.makeCopyOf (*customImpulse); irRate = customRate; }
+    }
+    else
+        ir = generateImpulse (which, sampleRate);
+
+    // Decay % trims the tail with a short fade so it doesn't click.
+    const int fullLength = ir.getNumSamples();
+    const int keep = juce::jmax (1, (int) (fullLength * decayPercent * 0.01f));
+    if (keep < fullLength)
+    {
+        ir.setSize (ir.getNumChannels(), keep, true, false, true);
+        const int fade = juce::jmin (keep, (int) (0.02 * irRate));
+        if (fade > 1) ir.applyGainRamp (keep - fade, fade, 1.0f, 0.0f);
+    }
+
+    convolution.loadImpulseResponse (std::move (ir), irRate, juce::dsp::Convolution::Stereo::yes,
+                                     juce::dsp::Convolution::Trim::no, juce::dsp::Convolution::Normalise::yes);
+    loadedImpulse = which;
+    loadedDecay = decayPercent;
+    loadedCustomGeneration = customGeneration;
+}
+
+void ConvolutionEffect::process (juce::AudioBuffer<float>& buffer, int n, const InsertParams& p) noexcept
+{
+    const int channels = juce::jmin (2, buffer.getNumChannels());
+    if (channels == 0 || n > wet.getNumSamples()) return;
+
+    // Wet path input: the dry signal through the pre-delay line.
+    const int lineLen = (int) predelayLines[0].size();
+    const int predelaySamples = juce::jlimit (0, lineLen - 1, (int) (juce::jlimit (0.0f, maxPredelayMs, p.values[predelay]) * 0.001 * sampleRate));
+    for (int i = 0; i < n; ++i)
+    {
+        const int readPos = (predelayWrite - predelaySamples + lineLen) % lineLen;
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float in = buffer.getSample (juce::jmin (ch, channels - 1), i);
+            auto& line = predelayLines[(size_t) ch];
+            wet.setSample (ch, i, predelaySamples > 0 ? line[(size_t) readPos] : in);
+            line[(size_t) predelayWrite] = in;
+        }
+        predelayWrite = (predelayWrite + 1) % lineLen;
+    }
+
+    juce::dsp::AudioBlock<float> block (wet.getArrayOfWritePointers(), 2, 0, (size_t) n);
+    juce::dsp::ProcessContextReplacing<float> context (block);
+    convolution.process (context);
+
+    // Tone of the tail
+    if (std::abs (p.values[lowCut] - cachedLowCut) > 0.5f)  { cachedLowCut = p.values[lowCut];   lowCutCoefs  = Biquad::highPass (sampleRate, juce::jlimit (20.0f, 2000.0f, cachedLowCut), 0.7071); }
+    if (std::abs (p.values[highCut] - cachedHighCut) > 0.5f) { cachedHighCut = p.values[highCut]; highCutCoefs = Biquad::lowPass (sampleRate, juce::jlimit (1000.0f, 20000.0f, cachedHighCut), 0.7071); }
+    // The extremes of each control mean "off": no filter ringing on the tail.
+    const bool lowCutOn = cachedLowCut > 20.5f, highCutOn = cachedHighCut < 19999.5f;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        if (lowCutOn)  Biquad::process (lowCutCoefs, lowCutState[(size_t) ch], wet.getWritePointer (ch), n);
+        if (highCutOn) Biquad::process (highCutCoefs, highCutState[(size_t) ch], wet.getWritePointer (ch), n);
+    }
+
+    // Width (mid/side) and mix
+    const float w = juce::jlimit (0.0f, 1.0f, p.values[width] * 0.01f);
+    const float wetGain = juce::jlimit (0.0f, 1.0f, p.values[mix] * 0.01f), dryGain = 1.0f - wetGain;
+    for (int i = 0; i < n; ++i)
+    {
+        const float l = wet.getSample (0, i), r = wet.getSample (1, i);
+        const float mid = 0.5f * (l + r), side = 0.5f * (l - r) * w;
+        const float outL = mid + side, outR = mid - side;
+        if (channels >= 2)
+        {
+            buffer.setSample (0, i, buffer.getSample (0, i) * dryGain + outL * wetGain);
+            buffer.setSample (1, i, buffer.getSample (1, i) * dryGain + outR * wetGain);
+        }
+        else
+            buffer.setSample (0, i, buffer.getSample (0, i) * dryGain + mid * wetGain);
+    }
 }
 
 } // namespace beatmaker::engine

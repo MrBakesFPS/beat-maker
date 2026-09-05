@@ -14,9 +14,65 @@ namespace
 class EffectEditor final : public juce::Component
 {
 public:
-    EffectEditor (const model::Insert& insert, double sr, std::function<void (std::shared_ptr<const engine::InsertParams>, bool replace)> onChange)
-        : type (insert.type), sampleRate (sr), params (insert.params != nullptr ? *insert.params : engine::Effect::defaultParams (insert.type)), apply (std::move (onChange))
+    EffectEditor (const model::Insert& insert, double sr, const model::Session& session,
+                  std::function<void (std::shared_ptr<const engine::InsertParams>, bool replace)> onChange,
+                  std::function<void (int keyBus, bool listen)> onKey = {}, std::function<void()> onLoadIR = {})
+        : type (insert.type), sampleRate (sr), params (insert.params != nullptr ? *insert.params : engine::Effect::defaultParams (insert.type)),
+          apply (std::move (onChange)), applyKey (std::move (onKey)), loadImpulse (std::move (onLoadIR))
     {
+        // Dynamics effects: key input selector + key listen, in the header row.
+        if (insert.instance != nullptr && insert.instance->acceptsSidechain())
+        {
+            keyBox = std::make_unique<juce::ComboBox>();
+            keyBox->addItem ("Key: Internal", 1);
+            for (int b = 0; b < model::Track::numBuses; ++b) keyBox->addItem ("Key: " + session.busName (b), 100 + b);
+            keyBox->setSelectedId (insert.keyBus >= 0 ? 100 + insert.keyBus : 1, juce::dontSendNotification);
+            keyBox->setTooltip ("Sidechain key input: the detector listens to this bus instead of the audio (strips sending to the bus are processed first)");
+            keyBox->onChange = [this]
+            {
+                const int id = keyBox->getSelectedId();
+                if (id > 0 && applyKey) applyKey (id >= 100 ? id - 100 : -1, listenButton->getToggleState());
+            };
+            addAndMakeVisible (*keyBox);
+            listenButton = std::make_unique<juce::TextButton> ("Listen");
+            listenButton->setClickingTogglesState (true);
+            listenButton->setToggleState (insert.keyListen, juce::dontSendNotification);
+            listenButton->setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+            listenButton->setTooltip ("Key Listen: hear the key signal instead of the effect output");
+            listenButton->onClick = [this]
+            {
+                const int id = keyBox->getSelectedId();
+                if (applyKey) applyKey (id >= 100 ? id - 100 : -1, listenButton->getToggleState());
+            };
+            addAndMakeVisible (*listenButton);
+        }
+
+        // Convolution: the impulse is a menu (bundled spaces + the loaded file) and a Load button.
+        if (type == engine::EffectType::convolution)
+        {
+            impulseBox = std::make_unique<juce::ComboBox>();
+            for (int i = 0; i < engine::ConvolutionEffect::numImpulses; ++i)
+            {
+                juce::String name = engine::ConvolutionEffect::impulseName (i);
+                if (i == engine::ConvolutionEffect::custom)
+                    if (auto* conv = dynamic_cast<engine::ConvolutionEffect*> (insert.instance.get()); conv != nullptr && conv->getCustomImpulseName().isNotEmpty())
+                        name = "File: " + conv->getCustomImpulseName();
+                impulseBox->addItem (name, i + 1);
+            }
+            impulseBox->setSelectedId ((int) std::lround (params.values[engine::ConvolutionEffect::impulse]) + 1, juce::dontSendNotification);
+            impulseBox->onChange = [this]
+            {
+                if (impulseBox->getSelectedId() <= 0) return;
+                params.values[engine::ConvolutionEffect::impulse] = (float) (impulseBox->getSelectedId() - 1);
+                apply (std::make_shared<const engine::InsertParams> (params), false);
+            };
+            addAndMakeVisible (*impulseBox);
+            loadButton = std::make_unique<juce::TextButton> ("Load IR...");
+            loadButton->setTooltip ("Load an impulse response from an audio file");
+            loadButton->onClick = [this] { if (loadImpulse) loadImpulse(); };
+            addAndMakeVisible (*loadButton);
+        }
+
         const auto& info = engine::Effect::paramInfo (type);
         for (size_t i = 0; i < info.size(); ++i)
         {
@@ -51,10 +107,14 @@ public:
             l->setColour (juce::Label::textColourId, theme::textDim);
             l->setFont (juce::FontOptions (11.0f));
             addAndMakeVisible (l);
+
+            // The convolution's Impulse knob is replaced by the menu above.
+            if (type == engine::EffectType::convolution && i == engine::ConvolutionEffect::impulse) { s->setVisible (false); l->setVisible (false); }
         }
-        const int cols = juce::jmin (knobsPerRow, juce::jmax (1, sliders.size()));
-        const int rows = (sliders.size() + knobsPerRow - 1) / knobsPerRow;
-        setSize (cols * 76 + 16, 18 + rows * 92 + (type == engine::EffectType::eq ? responseHeight + 6 : 0) + 8);
+        const int visibleKnobs = sliders.size() - (type == engine::EffectType::convolution ? 1 : 0);
+        const int cols = juce::jmin (knobsPerRow, juce::jmax (keyBox != nullptr || impulseBox != nullptr ? 4 : 1, visibleKnobs));
+        const int rows = (visibleKnobs + knobsPerRow - 1) / knobsPerRow;
+        setSize (cols * 76 + 16, 18 + rows * 92 + (type == engine::EffectType::eq ? responseHeight + 6 : 0) + (keyBox != nullptr || impulseBox != nullptr ? 26 : 0) + 8);
     }
 
     void paint (juce::Graphics& g) override
@@ -107,13 +167,23 @@ public:
     {
         auto area = getLocalBounds().reduced (8).withTrimmedTop (18);
         if (type == engine::EffectType::eq) area.removeFromTop (responseHeight + 6);
+        if (keyBox != nullptr || impulseBox != nullptr)
+        {
+            auto header = area.removeFromTop (22);
+            if (keyBox != nullptr)     { keyBox->setBounds (header.removeFromLeft (150)); header.removeFromLeft (4); listenButton->setBounds (header.removeFromLeft (56)); }
+            if (impulseBox != nullptr) { impulseBox->setBounds (header.removeFromLeft (170)); header.removeFromLeft (4); loadButton->setBounds (header.removeFromLeft (76)); }
+            area.removeFromTop (4);
+        }
         juce::Rectangle<int> row;
+        int placed = 0;
         for (int i = 0; i < sliders.size(); ++i)
         {
-            if (i % knobsPerRow == 0) row = area.removeFromTop (92);
+            if (! sliders[i]->isVisible()) continue;
+            if (placed % knobsPerRow == 0) row = area.removeFromTop (92);
             auto col = row.removeFromLeft (76);
             labels[i]->setBounds (col.removeFromTop (14));
             sliders[i]->setBounds (col);
+            ++placed;
         }
     }
 
@@ -123,8 +193,12 @@ private:
     double sampleRate;
     engine::InsertParams params;
     std::function<void (std::shared_ptr<const engine::InsertParams>, bool)> apply;
+    std::function<void (int, bool)> applyKey;
+    std::function<void()> loadImpulse;
     juce::OwnedArray<juce::Slider> sliders;
     juce::OwnedArray<juce::Label> labels;
+    std::unique_ptr<juce::ComboBox> keyBox, impulseBox;
+    std::unique_ptr<juce::TextButton> listenButton, loadButton;
     bool gesture = false, changed = false;
 };
 
@@ -365,7 +439,7 @@ public:
         for (int i = 0; i < insertButtons.size(); ++i)
         {
             const auto& ins = t->inserts[(size_t) i];
-            insertButtons[i]->setButtonText (ins.isEmpty() ? "-" : ins.displayName());
+            insertButtons[i]->setButtonText (ins.isEmpty() ? "-" : ins.displayName() + (ins.keyBus >= 0 ? (ins.keyListen ? " [key!]" : " [key]") : juce::String()));
             insertButtons[i]->setColour (juce::TextButton::buttonColourId, ins.isEmpty() ? theme::background : ins.bypass ? theme::panelDark
                                          : ins.isPlugin() ? juce::Colour (0xff5b6ea8) : theme::accent.darker (0.55f));
             insertButtons[i]->setTooltip (ins.isEmpty() ? "Click to add an insert (built-in or plugin)" : ins.displayName() + (ins.bypass ? " (bypassed)" : "")
@@ -472,10 +546,13 @@ public:
         }
 
         // Edit the effect in a callout
-        auto editor = std::make_unique<EffectEditor> (ins, mixer.sampleRate(), [this, slot] (std::shared_ptr<const engine::InsertParams> p, bool replace)
-        {
-            if (mixer.onCommand) mixer.onCommand (std::make_unique<model::SetInsertParamsCommand> (index, slot, std::move (p)), replace);
-        });
+        auto editor = std::make_unique<EffectEditor> (ins, mixer.sampleRate(), mixer.session,
+            [this, slot] (std::shared_ptr<const engine::InsertParams> p, bool replace)
+            {
+                if (mixer.onCommand) mixer.onCommand (std::make_unique<model::SetInsertParamsCommand> (index, slot, std::move (p)), replace);
+            },
+            [this, slot] (int keyBus, bool listen) { issue (std::make_unique<model::SetInsertKeyCommand> (index, slot, keyBus, listen)); },
+            [this, slot] { if (mixer.onLoadImpulse) mixer.onLoadImpulse (index, slot); });
         juce::CallOutBox::launchAsynchronously (std::move (editor), insertButtons[slot]->getScreenBounds(), nullptr);
     }
 

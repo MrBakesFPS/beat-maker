@@ -37,6 +37,8 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --bounce=beat.wav # batch render, no UI interaction
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--loop=assets/loops/Hip Hop Beat 90.wav"  # stretched to 120, pitch kept
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --elastic-demo --bounce=elastic.wav          # conform, quantize, pitch shift, TCE
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --sidechain-demo --mixer                       # kick-keyed compressor on a pad
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --convolution-demo --bounce=cathedral.wav      # e-piano in a Cathedral IR
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -125,13 +127,23 @@ Run the tests with `ctest --test-dir build`.
   lane. Trim faders spring back and show the offset while you hold them.
 - Mixer (X): a Pro Tools-style Mix window with one channel strip per track
   plus a Master strip. Each strip has 10 insert slots (5 shown) hosting the
-  built-in EQ, Compressor, Delay and Reverb (click to edit the knobs in a
+  built-in effects or hosted plugins (click to edit the knobs in a
   callout, right-click to bypass, replace or remove), 5 sends to 8 stereo
   buses with pre/post-fader switching and level, a pan knob, a fader with a
   post-fader meter, mute/solo and output routing (Main or a bus). Aux Input
   tracks read a bus and can carry inserts and sends of their own. Every
   knob and fader gesture is one undo step, and the same strip pipeline runs
   live and in Bounce.
+- Sidechain routing: the Compressor, Gate/Expander and De-esser editors have
+  a Key input menu (Internal or any of the 8 buses) and a Key Listen button.
+  Send the kick pre-fader to a bus, key the pad's compressor from that bus,
+  and it pumps. Strips that feed a key bus are always processed before the
+  strips they key, so the sidechain has no latency; a keyed insert shows
+  [key] on its slot.
+- Convolution Reverb: six bundled spaces (Concert Hall, Chamber, Room, Plate,
+  Ambience, Cathedral) or Load IR... for any audio file, with pre-delay,
+  decay trim, low/high cut, width and mix. Responses are (re)built on the
+  message thread and swapped in without touching the audio thread.
 - Clip gain breakpoints: switch a track's view to Clip Gain to see each
   clip's gain line. Click to add a breakpoint, drag to move it (dB readout),
   right-click or Alt-click to delete. Breakpoint times live in the audio's own
@@ -213,9 +225,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: convolution reverb and pitch correction, sidechain
-routing, Beat Detective clip conform and edit smoothing, background rendering
-of long stretches, CLAP hosting. See PLAN.md §5.
+Still to come in Phase 3: pitch correction, Beat Detective clip conform and
+edit smoothing, background rendering of long stretches, CLAP hosting, and
+sidechain inputs for hosted plugins. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

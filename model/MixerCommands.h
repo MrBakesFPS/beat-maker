@@ -56,6 +56,38 @@ private:
     std::shared_ptr<const engine::InsertParams> params, old;
 };
 
+// Sidechain key input of an insert (dynamics effects): bus index or -1 for internal.
+class SetInsertKeyCommand final : public Command
+{
+public:
+    SetInsertKeyCommand (int trackIndex, int slotIndex, int bus, bool listen) : index (trackIndex), slot (slotIndex), keyBus (bus), keyListen (listen) {}
+    juce::String getName() const override { return "Set Key Input"; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    int index, slot, keyBus;
+    bool keyListen;
+    int oldBus = -1;
+    bool oldListen = false;
+};
+
+// Custom impulse response for a Convolution Reverb insert.
+class SetInsertImpulseCommand final : public Command
+{
+public:
+    SetInsertImpulseCommand (int trackIndex, int slotIndex, std::shared_ptr<const juce::AudioBuffer<float>> ir, double irSampleRate, juce::String irName)
+        : index (trackIndex), slot (slotIndex), impulse (std::move (ir)), sampleRate (irSampleRate), name (std::move (irName)) {}
+    juce::String getName() const override { return "Load Impulse Response"; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    int index, slot;
+    std::shared_ptr<const juce::AudioBuffer<float>> impulse, oldImpulse;
+    std::shared_ptr<const engine::InsertParams> oldParams;
+    double sampleRate, oldSampleRate = 44100.0;
+    juce::String name, oldName;
+};
+
 class SetInsertBypassCommand final : public Command
 {
 public:

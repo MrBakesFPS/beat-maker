@@ -16,6 +16,7 @@ target_sources(beatmaker_tests PRIVATE
     sequencer_test.cpp
     instruments_test.cpp
     time_stretch_test.cpp
+    sidechain_convolution_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp

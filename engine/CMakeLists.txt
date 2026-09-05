@@ -19,9 +19,15 @@ target_sources(beatmaker_engine INTERFACE
 
 target_include_directories(beatmaker_engine INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# juce_dsp's SIMDRegister<int64> does not compile with this GCC/glibc combination
+# (juce::int64 is long long, the native-ops specialisation is for int64_t = long);
+# the convolution engine does not need it.
+target_compile_definitions(beatmaker_engine INTERFACE JUCE_USE_SIMD=0)
+
 target_link_libraries(beatmaker_engine INTERFACE
     rubberband
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
+    juce::juce_dsp
     juce::juce_events)

@@ -13,10 +13,49 @@ namespace
         {
             const auto& ins = t.inserts[(size_t) slot];
             if (! ins.isEmpty() && ins.params != nullptr)
-                out.push_back ({ ins.instance, ins.params, ins.bypass, slot });
+                out.push_back ({ ins.instance, ins.params, ins.bypass, slot, ins.keyBus, ins.keyListen });
         }
         return out;
     }
+}
+
+std::vector<int> computeStripOrder (const std::vector<engine::RenderStrip>& strips)
+{
+    const int n = (int) strips.size();
+    // feeds[i] = buses strip i sends to (sends, or its output); keyed[j] = buses strip j's inserts are keyed from
+    auto feedsBus = [&] (int i, int bus)
+    {
+        const auto& s = strips[(size_t) i];
+        if (s.outputBus == bus) return true;
+        for (const auto& send : s.sends) if (send.bus == bus) return true;
+        return false;
+    };
+    std::vector<std::vector<int>> dependsOn ((size_t) n);   // j depends on i: i must run first
+    for (int j = 0; j < n; ++j)
+        for (const auto& ins : strips[(size_t) j].inserts)
+            if (ins.keyBus >= 0 && ins.fx != nullptr && ins.fx->acceptsSidechain())
+                for (int i = 0; i < n; ++i)
+                    if (i != j && strips[(size_t) i].isAux == strips[(size_t) j].isAux && feedsBus (i, ins.keyBus))
+                        dependsOn[(size_t) j].push_back (i);
+
+    // Kahn's algorithm, stable: among ready strips the lowest index goes first.
+    std::vector<int> order, indegree ((size_t) n, 0);
+    std::vector<bool> placed ((size_t) n, false);
+    for (int j = 0; j < n; ++j) indegree[(size_t) j] = (int) dependsOn[(size_t) j].size();
+    for (int placedCount = 0; placedCount < n; )
+    {
+        int pick = -1;
+        for (int j = 0; j < n; ++j) if (! placed[(size_t) j] && indegree[(size_t) j] == 0) { pick = j; break; }
+        if (pick < 0)   // cycle: fall back to the first unplaced strip (its key sees the previous state)
+            for (int j = 0; j < n; ++j) if (! placed[(size_t) j]) { pick = j; break; }
+        placed[(size_t) pick] = true;
+        order.push_back (pick);
+        ++placedCount;
+        for (int j = 0; j < n; ++j)
+            if (! placed[(size_t) j])
+                for (int dep : dependsOn[(size_t) j]) if (dep == pick) --indegree[(size_t) j];
+    }
+    return order;
 }
 
 std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& session)
@@ -139,6 +178,9 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             }
         }
     }
+
+    // ---- Strip order: sidechain senders before the strips they key ----
+    snapshot->stripOrder = computeStripOrder (snapshot->strips);
 
     // ---- Master ----
     const auto& master = session.getMaster();

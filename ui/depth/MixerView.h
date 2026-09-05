@@ -39,6 +39,7 @@ public:
     std::function<void (int trackIndex, int slot, const juce::PluginDescription&)> onInsertPlugin;
     std::function<void (int trackIndex, int slot)> onOpenPluginEditor;
     std::function<void()> onScanPlugins;
+    std::function<void (int trackIndex, int slot)> onLoadImpulse;   // Convolution Reverb: pick an IR file
     std::function<std::optional<float> (int, const engine::ParamId&)> automatedValue;   // value to display when reading
 
     void paint (juce::Graphics&) override;

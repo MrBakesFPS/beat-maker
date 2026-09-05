@@ -560,7 +560,24 @@ void AudioGraph::processInserts (const std::vector<RenderInsert>& inserts, juce:
                     }
                 }
 
+        // Sidechain: the key is what the bus holds so far this block (the
+        // snapshot orders strips so senders come first).
+        const bool keyed = juce::isPositiveAndBelow (ins.keyBus, numBuses) && ins.fx->acceptsSidechain();
+        const float* key[2] = { nullptr, nullptr };
+        if (keyed)
+        {
+            key[0] = busBuffers[(size_t) ins.keyBus].getReadPointer (0);
+            key[1] = busBuffers[(size_t) ins.keyBus].getReadPointer (1);
+            ins.fx->setSidechain (key, 2);
+        }
         ins.fx->process (buffer, numSamples, automated ? local : *ins.params);
+        if (keyed)
+        {
+            ins.fx->clearSidechain();
+            if (ins.keyListen)
+                for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
+                    buffer.copyFrom (ch, 0, key[ch], numSamples);
+        }
     }
 }
 
@@ -716,10 +733,13 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
         const int numStrips = useDefault ? 1 : (int) current->strips.size();
         auto stripAt = [&] (int i) -> const RenderStrip& { return useDefault ? defaultStrip : current->strips[(size_t) i]; };
 
-        // Source strips first, then aux strips (which read the buses the others filled).
+        // Source strips first, then aux strips (which read the buses the others filled),
+        // each pass in the snapshot's order so sidechain keys see their senders.
+        const bool ordered = ! useDefault && (int) current->stripOrder.size() == numStrips;
         for (int pass = 0; pass < 2; ++pass)
-            for (int i = 0; i < numStrips; ++i)
+            for (int k = 0; k < numStrips; ++k)
             {
+                const int i = ordered ? juce::jlimit (0, numStrips - 1, current->stripOrder[(size_t) k]) : k;
                 const auto& strip = stripAt (i);
                 if (strip.isAux != (pass == 1)) continue;
                 if (strip.isVca) { stripMeters[(size_t) juce::jlimit (0, maxStrips - 1, i)].clear(); continue; }

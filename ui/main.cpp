@@ -98,6 +98,7 @@ public:
         mixerView.onScanPlugins = [this] { scanPlugins(); };
         mixerView.onInsertPlugin = [this] (int track, int slot, const juce::PluginDescription& desc) { insertPlugin (track, slot, desc); };
         mixerView.onOpenPluginEditor = [this] (int track, int slot) { openPluginEditor (track, slot); };
+        mixerView.onLoadImpulse = [this] (int track, int slot) { chooseImpulseResponse (track, slot); };
         smartControls.onParameterChanged = [this] (int t, const engine::ParamId& p, float v, bool g) { automation.parameterChanged (t, p, v, g); };
         smartControls.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
         trackArea.onAutomationModeChanged = [this] (int t, model::AutomationMode m)
@@ -250,6 +251,69 @@ public:
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
     void scanPluginsFromCommandLine() { scanPlugins(); }
+
+    // Convolution Reverb: pick an impulse response file for an insert.
+    void chooseImpulseResponse (int trackIndex, int slot)
+    {
+        fileChooser = std::make_unique<juce::FileChooser> ("Load Impulse Response", juce::File::getSpecialLocation (juce::File::userHomeDirectory), loader.getWildcard());
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this, trackIndex, slot] (const juce::FileChooser& fc)
+        {
+            const auto file = fc.getResult();
+            if (file == juce::File()) return;
+            loadImpulseResponse (trackIndex, slot, file);
+        });
+    }
+
+    void loadImpulseResponse (int trackIndex, int slot, const juce::File& file)
+    {
+        juce::String error;
+        const auto loaded = loader.load (file, engine.getSampleRate(), error);
+        if (! loaded) { statusMessage = error; updateStatus(); return; }
+        session.execute (std::make_unique<model::SetInsertImpulseCommand> (trackIndex, slot, loaded->audio, loaded->sampleRate, file.getFileNameWithoutExtension()));
+        statusMessage = "Loaded impulse response " + file.getFileName() + "  (" + juce::String (loaded->numSamples / loaded->sampleRate, 2) + " s)";
+        updateStatus();
+    }
+
+    // --sidechain-demo: a drum track sends pre-fader to Bus 1-2; a pad's
+    // compressor is keyed from that bus so it pumps with the kick.
+    void sidechainDemoFromCommandLine()
+    {
+        const double sr = engine.getSampleRate();
+        addDrumMachineTrack();
+        addInstrumentTrack (engine::InstrumentType::wavetable);
+        const int drums = session.getNumTracks() - 2, pad = session.getNumTracks() - 1;
+        if (drums < 0) return;
+        const auto presets = engine::Instrument::presets (engine::InstrumentType::wavetable);
+        for (const auto& p : presets) if (p.presetName == "WT Pad") session.execute (std::make_unique<model::SetInstrumentParamsCommand> (pad, std::make_shared<const engine::InstrumentParams> (p)));
+
+        model::Send send; send.bus = 0; send.gain = 1.0f; send.preFader = true;
+        session.execute (std::make_unique<model::SetSendCommand> (drums, 0, send));
+        session.execute (std::make_unique<model::SetInsertCommand> (pad, 0, engine::EffectType::compressor, sr));
+        auto p = std::make_shared<engine::InsertParams> (engine::Effect::defaultParams (engine::EffectType::compressor));
+        p->values[engine::CompressorEffect::threshold] = -35.0f;
+        p->values[engine::CompressorEffect::ratio] = 10.0f;
+        p->values[engine::CompressorEffect::attack] = 1.0f;
+        p->values[engine::CompressorEffect::release] = 120.0f;
+        session.execute (std::make_unique<model::SetInsertParamsCommand> (pad, 0, std::move (p)));
+        session.execute (std::make_unique<model::SetInsertKeyCommand> (pad, 0, 0, false));
+        statusMessage = "Sidechain demo: the pad's compressor is keyed from Bus 1-2, fed pre-fader by the drums";
+        updateStatus();
+    }
+
+    // --convolution-demo: an electric piano through a Cathedral convolution reverb.
+    void convolutionDemoFromCommandLine()
+    {
+        const double sr = engine.getSampleRate();
+        addInstrumentTrack (engine::InstrumentType::electricPiano);
+        const int track = session.getNumTracks() - 1;
+        session.execute (std::make_unique<model::SetInsertCommand> (track, 0, engine::EffectType::convolution, sr));
+        auto p = std::make_shared<engine::InsertParams> (engine::Effect::defaultParams (engine::EffectType::convolution));
+        p->values[engine::ConvolutionEffect::impulse] = (float) engine::ConvolutionEffect::cathedral;
+        p->values[engine::ConvolutionEffect::mix] = 45.0f;
+        session.execute (std::make_unique<model::SetInsertParamsCommand> (track, 0, std::move (p)));
+        statusMessage = "Convolution demo: Electric Piano into a Cathedral impulse response";
+        updateStatus();
+    }
 
     void insertDemoFromCommandLine()
     {
@@ -1426,6 +1490,8 @@ public:
             else if (arg == "--scan-plugins") main.scanPluginsFromCommandLine();
             else if (arg == "--insert-demo") main.insertDemoFromCommandLine();
             else if (arg == "--elastic-demo") main.elasticDemoFromCommandLine();
+            else if (arg == "--sidechain-demo") main.sidechainDemoFromCommandLine();
+            else if (arg == "--convolution-demo") main.convolutionDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

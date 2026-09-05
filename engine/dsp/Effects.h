@@ -5,6 +5,7 @@
 #pragma once
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_dsp/juce_dsp.h>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -13,7 +14,7 @@
 namespace beatmaker::engine
 {
 
-enum class EffectType { none, eq, compressor, limiter, gate, deesser, delay, reverb, chorus, flanger, phaser, saturation, ampSim, utility, plugin };
+enum class EffectType { none, eq, compressor, limiter, gate, deesser, delay, reverb, chorus, flanger, phaser, saturation, ampSim, utility, plugin, convolution };
 
 struct ParamInfo
 {
@@ -52,6 +53,18 @@ public:
     virtual void setAutomatedParameter (int /*index*/, float /*normalised*/) noexcept {}
     virtual juce::String getDisplayName() const { return typeName (getType()); }
 
+    // Sidechain (key input). The graph hands the key signal for the current
+    // block to effects that accept one just before process() and clears it
+    // after. Pointers only: RT-safe.
+    virtual bool acceptsSidechain() const noexcept { return false; }
+    void setSidechain (const float* const* key, int numChannels) noexcept { keyChannels = key; keyNumChannels = numChannels; }
+    void clearSidechain() noexcept { keyChannels = nullptr; keyNumChannels = 0; }
+
+    // Message-thread hook: the stored parameters changed (or the effect was
+    // just created). Effects with non-RT-safe reconfiguration (loading an
+    // impulse response) do it here; the audio thread keeps using the old state.
+    virtual void paramsChanged (const InsertParams&) {}
+
     static std::unique_ptr<Effect> create (EffectType, double sampleRate, int maxBlockSize = 8192);
     static const std::vector<ParamInfo>& paramInfo (EffectType);
     static InsertParams defaultParams (EffectType);
@@ -61,6 +74,20 @@ public:
 protected:
     virtual void prepareImpl (int maxBlockSize) = 0;
     double sampleRate = 44100.0;
+
+    // Detector level for sample i: the key input when one is connected, else the audio itself.
+    float detectorLevel (const juce::AudioBuffer<float>& buffer, int i, int channels) const noexcept
+    {
+        float level = 0.0f;
+        if (keyChannels != nullptr)
+            for (int ch = 0; ch < keyNumChannels; ++ch) level = juce::jmax (level, std::abs (keyChannels[ch][i]));
+        else
+            for (int ch = 0; ch < channels; ++ch) level = juce::jmax (level, std::abs (buffer.getSample (ch, i)));
+        return level;
+    }
+    bool hasSidechain() const noexcept { return keyChannels != nullptr && keyNumChannels > 0; }
+    const float* const* keyChannels = nullptr;
+    int keyNumChannels = 0;
 
 private:
     EffectType type;
@@ -118,6 +145,7 @@ public:
     enum Param { threshold, ratio, attack, release, makeup, lookahead };
     static constexpr float maxLookaheadMs = 10.0f;
     CompressorEffect() : Effect (EffectType::compressor) {}
+    bool acceptsSidechain() const noexcept override { return true; }
     void reset() override;
     void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
     float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
@@ -172,6 +200,7 @@ class GateEffect final : public Effect
 public:
     enum Param { threshold, ratio, attack, hold, release, range };
     GateEffect() : Effect (EffectType::gate) {}
+    bool acceptsSidechain() const noexcept override { return true; }
     void reset() override;
     void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
     float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
@@ -190,6 +219,7 @@ class DeEsserEffect final : public Effect
 public:
     enum Param { frequency, threshold, range, release };
     DeEsserEffect() : Effect (EffectType::deesser) {}
+    bool acceptsSidechain() const noexcept override { return true; }
     void reset() override;
     void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
     float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
@@ -198,7 +228,7 @@ protected:
 private:
     float cachedFreq = -1.0f, cachedShelfDb = 1.0e9f;
     Biquad::Coefficients hp, shelf;
-    std::array<Biquad::State, 2> hpState, shelfState;
+    std::array<Biquad::State, 2> hpState, shelfState, keyState;
     float envelope = 0.0f;
     std::atomic<float> gainReductionDb { 0.0f };
 };
@@ -287,6 +317,57 @@ protected:
     void prepareImpl (int) override;
 private:
     juce::Reverb reverb;
+};
+
+// Convolution reverb: bundled synthetic spaces or a user impulse response,
+// through JUCE's partitioned FFT convolution. Impulse (re)loading happens on
+// the message thread in paramsChanged(); the audio thread crossfades to the
+// new response when it is ready.
+class ConvolutionEffect final : public Effect
+{
+public:
+    enum Param { impulse, predelay, decay, lowCut, highCut, width, mix };
+    enum Impulse { hall, chamber, room, plate, ambience, cathedral, custom, numImpulses };
+    static constexpr float maxPredelayMs = 250.0f;
+
+    ConvolutionEffect() : Effect (EffectType::convolution) {}
+    void reset() override;
+    void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
+    void paramsChanged (const InsertParams&) override;
+    juce::String getDisplayName() const override;
+
+    static const char* impulseName (int);
+    // Deterministic synthetic response for a bundled space, stereo, at `sampleRate`.
+    static juce::AudioBuffer<float> generateImpulse (int which, double sampleRate);
+
+    // Custom impulse (message thread). `sampleRate` is that of the buffer.
+    void setCustomImpulse (std::shared_ptr<const juce::AudioBuffer<float>>, double sampleRate, juce::String name);
+    std::shared_ptr<const juce::AudioBuffer<float>> getCustomImpulse() const { return customImpulse; }
+    double getCustomImpulseRate() const noexcept { return customRate; }
+    juce::String getCustomImpulseName() const { return customName; }
+    bool isResponseLoaded() const noexcept { return loadedImpulse >= 0; }
+
+protected:
+    void prepareImpl (int maxBlockSize) override;
+
+private:
+    void loadResponse (const InsertParams&);
+
+    juce::dsp::Convolution convolution;
+    int maxBlock = 8192;
+    int loadedImpulse = -1;
+    float loadedDecay = -1.0f;
+    std::shared_ptr<const juce::AudioBuffer<float>> customImpulse;
+    double customRate = 44100.0;
+    juce::String customName;
+    int customGeneration = 0, loadedCustomGeneration = -1;
+
+    juce::AudioBuffer<float> wet { 2, 8192 };
+    std::array<std::vector<float>, 2> predelayLines;
+    int predelayWrite = 0;
+    float cachedLowCut = -1.0f, cachedHighCut = -1.0f;
+    Biquad::Coefficients lowCutCoefs, highCutCoefs;
+    std::array<Biquad::State, 2> lowCutState, highCutState;
 };
 
 } // namespace beatmaker::engine

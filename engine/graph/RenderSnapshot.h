@@ -100,6 +100,8 @@ struct RenderInsert
     std::shared_ptr<const InsertParams> params;
     bool bypass = false;
     int slot = 0;                                  // insert slot, for automation lookup
+    int keyBus = -1;                               // sidechain key input: bus index, -1 = internal
+    bool keyListen = false;                        // audition the key signal instead of the effect output
 };
 
 struct RenderSend
@@ -157,6 +159,10 @@ struct RenderSnapshot
 
     // Channel strips in track order; empty = a single pass-through strip.
     std::vector<RenderStrip> strips;
+    // Processing order of the strips (indices into `strips`); empty = natural
+    // order. Built so a strip whose insert is keyed from a bus comes after
+    // the strips that send to that bus, giving zero-latency sidechains.
+    std::vector<int> stripOrder;
     RenderMaster master;
     int mainOutputChannel = 0;   // first device channel of the Main output path
 
