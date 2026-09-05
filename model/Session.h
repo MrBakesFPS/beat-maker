@@ -7,6 +7,7 @@
 #include "Command.h"
 
 #include <dsp/DrumKit.h>
+#include <dsp/Fades.h>
 #include <dsp/SynthParams.h>
 #include <sequencer/MidiSequence.h>
 #include <sequencer/StepPattern.h>
@@ -28,7 +29,17 @@ struct AudioClip
     juce::int64 timelineStart = 0;   // samples at `sampleRate`
     juce::int64 sourceOffset  = 0;
     juce::int64 length        = 0;
-    float gain = 1.0f;
+    float gain = 1.0f;               // clip gain, linear (shown in dB)
+
+    juce::int64 fadeIn = 0, fadeOut = 0;   // samples
+    engine::FadeShape fadeInShape = engine::FadeShape::linear, fadeOutShape = engine::FadeShape::linear;
+
+    // Fades can never overlap or exceed the clip.
+    void clampFades() noexcept
+    {
+        fadeIn = juce::jlimit<juce::int64> (0, length, fadeIn);
+        fadeOut = juce::jlimit<juce::int64> (0, length - fadeIn, fadeOut);
+    }
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }

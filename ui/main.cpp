@@ -6,6 +6,7 @@
 
 #include "depth/BounceDialog.h"
 #include "depth/EditToolbar.h"
+#include "depth/FadesDialog.h"
 #include "shared/EditSettings.h"
 #include "shared/Theme.h"
 #include "surface/LoopBrowser.h"
@@ -179,6 +180,20 @@ public:
     void showBounceDialog();
     void importLoopFromCommandLine (const juce::File& file) { importLoop (file, -1, engine.getTransport().getPositionSeconds()); }
 
+    // --fades=<in ms>,<out ms>[,<gain dB>]: apply to every audio clip (smoke tests).
+    void applyFadesFromCommandLine (const juce::String& spec)
+    {
+        const auto parts = juce::StringArray::fromTokens (spec, ",", {});
+        ui::TrackArea::FadeValues v;
+        v.fadeInMs = parts.size() > 0 ? parts[0].getDoubleValue() : 0.0;
+        v.fadeOutMs = parts.size() > 1 ? parts[1].getDoubleValue() : 0.0;
+        v.gainDb = parts.size() > 2 ? parts[2].getFloatValue() : 0.0f;
+        v.inShape = engine::FadeShape::sCurve;
+        v.outShape = engine::FadeShape::equalPower;
+        trackArea.keyPressed (juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0));   // select all
+        trackArea.applyFadesToSelection (v);
+    }
+
     // Synchronous whole-arrangement bounce for command-line use. Returns an
     // exit message for stdout.
     juce::String bounceArrangementToFile (const juce::File& file)
@@ -285,6 +300,7 @@ public:
         if (key == juce::KeyPress::F8Key) { editSettings.tool = Tool::grabber;  editSettings.notify(); return true; }
         if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::smart;    editSettings.notify(); return true; }
         if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
+        if (key == juce::KeyPress ('f', juce::ModifierKeys::commandModifier, 0)) { showFadesDialog(); return true; }
 
         // Clip edits reach the track area even when it doesn't have focus
         if (trackArea.keyPressed (key)) return true;
@@ -450,6 +466,43 @@ private:
         transportBar.setLibraryVisible (visible);
         if (! visible) loopBrowser.stopPreview();
         resized();
+    }
+
+    //==========================================================================
+    // Fades window
+
+    void showFadesDialog()
+    {
+        const auto values = trackArea.currentFadeValues();
+        if (! values)
+        {
+            statusMessage = "Select one or more audio clips first (Fades applies to the selection)";
+            updateStatus();
+            return;
+        }
+
+        ui::FadesDialog::Values initial;
+        initial.fadeInMs = values->fadeInMs; initial.fadeOutMs = values->fadeOutMs;
+        initial.inShape = values->inShape; initial.outShape = values->outShape; initial.gainDb = values->gainDb;
+
+        auto* dialog = new ui::FadesDialog (initial, trackArea.numSelectedAudioClips());
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Fades";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onApply = [this, window] (const ui::FadesDialog::Values& v)
+        {
+            ui::TrackArea::FadeValues fv;
+            fv.fadeInMs = v.fadeInMs; fv.fadeOutMs = v.fadeOutMs; fv.inShape = v.inShape; fv.outShape = v.outShape; fv.gainDb = v.gainDb;
+            trackArea.applyFadesToSelection (fv);
+            window->setVisible (false);
+        };
     }
 
     //==========================================================================
@@ -916,6 +969,7 @@ public:
             else if (arg.startsWith ("--bounce=")) bounceFile = juce::File::getCurrentWorkingDirectory()
                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--bounce-dialog") main.showBounceDialog();
+            else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()
                                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (arg); f.existsAsFile())

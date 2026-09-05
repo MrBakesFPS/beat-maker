@@ -16,7 +16,8 @@ target_sources(BeatMaker PRIVATE
     surface/PianoRoll.cpp
     surface/SmartControls.cpp
     depth/BounceDialog.cpp
-    depth/EditToolbar.cpp)
+    depth/EditToolbar.cpp
+    depth/FadesDialog.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     BEATMAKER_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"

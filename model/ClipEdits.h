@@ -93,6 +93,7 @@ private:
     ClipRef ref;
     juce::int64 newStart, newLength;
     ClipTiming old;
+    juce::int64 oldFadeIn = 0, oldFadeOut = 0;
 };
 
 class RemoveAnyClipCommand final : public Command
@@ -122,7 +123,7 @@ public:
 private:
     ClipRef ref, second;
     juce::int64 at;
-    juce::int64 oldLength = 0;
+    juce::int64 oldLength = 0, oldFadeOut = 0;
     bool didSplit = false;
 };
 
@@ -137,6 +138,35 @@ public:
     ClipRef getCopy() const noexcept { return copy; }
 private:
     ClipRef ref, copy;
+};
+
+// Audio clips only: set fade lengths (samples) and shapes. Lengths are
+// clamped so the fades fit the clip.
+class SetClipFadesCommand final : public Command
+{
+public:
+    SetClipFadesCommand (ClipRef r, juce::int64 fadeIn, engine::FadeShape newInShape, juce::int64 fadeOut, engine::FadeShape newOutShape)
+        : ref (r), in (fadeIn), out (fadeOut), inShape (newInShape), outShape (newOutShape) {}
+    juce::String getName() const override { return "Fades"; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    ClipRef ref;
+    juce::int64 in, out, oldIn = 0, oldOut = 0;
+    engine::FadeShape inShape, outShape, oldInShape = engine::FadeShape::linear, oldOutShape = engine::FadeShape::linear;
+};
+
+// Audio clips only: static clip gain (linear, clamped to -inf..+12 dB).
+class SetClipGainCommand final : public Command
+{
+public:
+    SetClipGainCommand (ClipRef r, float linearGain) : ref (r), gain (juce::jlimit (0.0f, 4.0f, linearGain)) {}
+    juce::String getName() const override { return "Clip Gain"; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    ClipRef ref;
+    float gain, oldGain = 1.0f;
 };
 
 // Shuffle mode: lay a track's clips end to end in start order, keeping the

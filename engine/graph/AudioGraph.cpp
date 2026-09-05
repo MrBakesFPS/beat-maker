@@ -206,6 +206,12 @@ void AudioGraph::mixClips (float* const* outputs, int numOutputs, juce::int64 bl
         const int srcChannels = clip.audio->getNumChannels();
         const float gain = clip.gain * current->masterGain;
 
+        // Does this segment touch a fade region?
+        const juce::int64 relStart = from - clip.timelineStart;
+        const juce::int64 relEnd = relStart + count;
+        const bool inFade = (clip.fadeIn > 0 && relStart < clip.fadeIn)
+                         || (clip.fadeOut > 0 && relEnd > clip.length - clip.fadeOut);
+
         for (int ch = 0; ch < numOutputs; ++ch)
         {
             if (outputs[ch] == nullptr)
@@ -214,9 +220,20 @@ void AudioGraph::mixClips (float* const* outputs, int numOutputs, juce::int64 bl
             // Mono sources feed every output; multichannel sources map 1:1
             // and the last channel repeats for any extra outputs.
             const int srcCh = juce::jmin (ch, srcChannels - 1);
-            juce::FloatVectorOperations::addWithMultiply (outputs[ch] + outOffset,
-                                                          clip.audio->getReadPointer (srcCh, (int) srcStart),
-                                                          gain * panGainForChannel (clip.pan, ch), count);
+            const float* src = clip.audio->getReadPointer (srcCh, (int) srcStart);
+            float* dst = outputs[ch] + outOffset;
+            const float chGain = gain * panGainForChannel (clip.pan, ch);
+
+            if (! inFade)
+            {
+                juce::FloatVectorOperations::addWithMultiply (dst, src, chGain, count);
+            }
+            else
+            {
+                for (int i = 0; i < count; ++i)
+                    dst[i] += src[i] * chGain * clipEnvelopeAt (relStart + i, clip.length, clip.fadeIn, clip.fadeInShape,
+                                                                clip.fadeOut, clip.fadeOutShape);
+            }
         }
     }
 }

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../dsp/DrumKit.h"
+#include "../dsp/Fades.h"
 #include "../dsp/SynthParams.h"
 #include "../sequencer/MidiSequence.h"
 #include "../sequencer/StepPattern.h"
@@ -37,6 +38,10 @@ struct RenderClip
     juce::int64 length        = 0;   // samples to play
     float gain                = 1.0f; // clip gain * track gain, linear
     float pan                 = 0.0f; // -1..1
+    juce::int64 fadeIn        = 0;   // samples, from the clip start
+    juce::int64 fadeOut       = 0;   // samples, to the clip end
+    FadeShape fadeInShape     = FadeShape::linear;
+    FadeShape fadeOutShape    = FadeShape::linear;
 };
 
 // A pattern clip: the step pattern loops for `length` samples starting at

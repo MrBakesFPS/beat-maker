@@ -46,7 +46,14 @@ public:
     void separateAtPlayhead();
     void duplicateSelectedClips();
     void nudgeSelectedClips (int direction);
+    void nudgeClipGain (float deltaDb);
     void zoomToFit();
+
+    // Fades window support
+    struct FadeValues { double fadeInMs = 0.0, fadeOutMs = 0.0; engine::FadeShape inShape = engine::FadeShape::linear, outShape = engine::FadeShape::linear; float gainDb = 0.0f; };
+    std::optional<FadeValues> currentFadeValues() const;           // from the first selected audio clip
+    void applyFadesToSelection (const FadeValues&);
+    int numSelectedAudioClips() const;
 
     bool keyPressed (const juce::KeyPress&) override;
 
@@ -125,7 +132,7 @@ private:
     void paintEditOverlays (juce::Graphics&);
 
     // ---- Edit helpers ----
-    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange };
+    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain };
     EditSettings::Tool effectiveTool (const juce::MouseEvent&, const std::optional<model::ClipRef>& hit, bool& nearStart, bool& nearEnd) const;
     std::optional<model::ClipRef> clipAtPoint (juce::Point<int>) const;
     juce::Rectangle<float> rectForClip (const model::ClipRef&) const;
@@ -164,6 +171,8 @@ private:
     juce::Point<int> dragStartPoint;
     int dragTargetTrack = -1;
     double ghostStart = 0.0, ghostLength = 0.0;   // seconds
+    double ghostFadeSeconds = 0.0;
+    float ghostGainDb = 0.0f;
     bool dragMoved = false;
     double dragAnchorSeconds = 0.0;
 

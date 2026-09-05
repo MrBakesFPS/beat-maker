@@ -47,6 +47,13 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- Fades and clip gain on audio clips: drag the top corners of a clip with the
+  Smart Tool to set fade in/out, Ctrl+drag a clip vertically for clip gain
+  (or Ctrl+Shift+Up/Down in 0.5 dB steps), and Ctrl+F opens the Fades window
+  to set length, shape (Standard, Equal Power, S-Curve) and gain for every
+  selected clip at once (batch fades). Fades render in the same code path as
+  live playback and bounce; separating a clip makes the cut hard on both
+  sides; trims clamp the fades.
 
 - Audio tracks: import files (open dialog, drag-and-drop, command line), shown
   as waveform clips on colour-coded tracks.
@@ -90,7 +97,7 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 2: fades and clip gain, Scrubber and Pencil tools,
+Still to come in Phase 2: clip gain breakpoints, Scrubber and Pencil tools,
 the full mixer with inserts, sends, buses and automation, I/O Setup and delay
 compensation. See PLAN.md §5.
 

@@ -1,4 +1,5 @@
 #include "TrackArea.h"
+#include <dsp/Fades.h>
 
 namespace beatmaker::ui
 {
@@ -501,9 +502,37 @@ void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, co
     g.setColour (track.colour.contrasting (0.9f).withAlpha (0.85f));
     thumbnailFor (clip).drawChannels (g, waveArea.toNearestInt(),
                                       (double) clip.sourceOffset / clip.sampleRate,
-                                      (double) (clip.sourceOffset + clip.length) / clip.sampleRate, 1.0f);
+                                      (double) (clip.sourceOffset + clip.length) / clip.sampleRate,
+                                      juce::jlimit (0.05f, 4.0f, clip.gain));
 
-    paintClipFrame (g, clipRect, track, clip.name);
+    // Fade curves: shaded region above the curve, like Pro Tools.
+    auto drawFade = [&] (juce::int64 samples, engine::FadeShape shape, bool in)
+    {
+        if (samples <= 0) return;
+        const float w = juce::jmin (waveArea.getWidth(), (float) (samples / clip.sampleRate * pixelsPerSecond));
+        auto fr = in ? waveArea.withWidth (w) : waveArea.withLeft (waveArea.getRight() - w);
+        juce::Path curve;
+        curve.startNewSubPath (fr.getX(), fr.getY());
+        for (int i = 0; i <= 24; ++i)
+        {
+            const double t = i / 24.0;
+            const float gain = engine::fadeGain (shape, in ? t : 1.0 - t);
+            curve.lineTo (fr.getX() + (float) t * fr.getWidth(), fr.getBottom() - gain * fr.getHeight());
+        }
+        curve.lineTo (fr.getRight(), fr.getY());
+        curve.closeSubPath();
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillPath (curve);
+        g.setColour (theme::text.withAlpha (0.9f));
+        g.strokePath (curve, juce::PathStrokeType (1.0f));
+    };
+    drawFade (clip.fadeIn, clip.fadeInShape, true);
+    drawFade (clip.fadeOut, clip.fadeOutShape, false);
+
+    juce::String label = clip.name;
+    if (std::abs (clip.gain - 1.0f) > 1.0e-4f)
+        label += "   " + juce::String (juce::Decibels::gainToDecibels (clip.gain), 1) + " dB";
+    paintClipFrame (g, clipRect, track, label);
 }
 
 void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, const model::PatternClip& clip, juce::Rectangle<int> r)
@@ -708,6 +737,28 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
     ghostLength = (double) dragOriginal.length / dragOriginal.sampleRate;
     timeSelection = {};
 
+    if (hit->kind == model::ClipRef::Kind::audio)
+    {
+        const auto r = rectForClip (*hit);
+        const bool topZone = e.y < r.getY() + 16.0f + 14.0f && e.y >= r.getY() + 16.0f;   // just under the name bar
+        const auto& clip = session.getTrack (hit->track)->clips[(size_t) hit->index];
+
+        // Smart Tool corners: fade handles.
+        if (edit.tool == EditSettings::Tool::smart && topZone && (nearStart || nearEnd))
+        {
+            drag = nearStart ? Drag::fadeIn : Drag::fadeOut;
+            ghostFadeSeconds = (double) (nearStart ? clip.fadeIn : clip.fadeOut) / clip.sampleRate;
+            return;
+        }
+        // Ctrl+drag vertically: clip gain.
+        if (e.mods.isCtrlDown() && tool == EditSettings::Tool::grabber)
+        {
+            drag = Drag::clipGain;
+            ghostGainDb = juce::Decibels::gainToDecibels (clip.gain, -60.0f);
+            return;
+        }
+    }
+
     if (tool == EditSettings::Tool::trimmer)
         drag = nearStart || (! nearEnd && e.x < rectForClip (*hit).getCentreX()) ? Drag::trimStart : Drag::trimEnd;
     else
@@ -767,6 +818,25 @@ void TrackArea::mouseDrag (const juce::MouseEvent& e)
             ghostLength = newEnd - origStart;
             break;
         }
+        case Drag::fadeIn:
+        {
+            const double len = juce::jlimit (0.0, origLen, now - origStart);
+            ghostFadeSeconds = edit.mode == EditSettings::Mode::grid ? snapDelta (len) : len;
+            break;
+        }
+        case Drag::fadeOut:
+        {
+            const double len = juce::jlimit (0.0, origLen, origStart + origLen - now);
+            ghostFadeSeconds = edit.mode == EditSettings::Mode::grid ? snapDelta (len) : len;
+            break;
+        }
+        case Drag::clipGain:
+        {
+            const auto& clip = session.getTrack (dragClip.track)->clips[(size_t) dragClip.index];
+            const float startDb = juce::Decibels::gainToDecibels (clip.gain, -60.0f);
+            ghostGainDb = juce::jlimit (-60.0f, 12.0f, startDb + (float) (dragStartPoint.y - e.y) * 0.1f);   // 10 px per dB
+            break;
+        }
         case Drag::zoomRange:
         case Drag::none:
             break;
@@ -819,6 +889,24 @@ void TrackArea::mouseUp (const juce::MouseEvent& e)
             if (dragMoved) commitDrag();
             break;
 
+        case Drag::fadeIn:
+        case Drag::fadeOut:
+            if (dragMoved)
+                if (auto* t = session.getTrack (dragClip.track); t != nullptr && dragClip.index < (int) t->clips.size())
+                {
+                    const auto& c = t->clips[(size_t) dragClip.index];
+                    const auto samples = (juce::int64) std::llround (ghostFadeSeconds * c.sampleRate);
+                    session.execute (std::make_unique<model::SetClipFadesCommand> (dragClip,
+                        finished == Drag::fadeIn ? samples : c.fadeIn, c.fadeInShape,
+                        finished == Drag::fadeOut ? samples : c.fadeOut, c.fadeOutShape));
+                }
+            break;
+
+        case Drag::clipGain:
+            if (dragMoved)
+                session.execute (std::make_unique<model::SetClipGainCommand> (dragClip, juce::Decibels::decibelsToGain (ghostGainDb, -60.0f)));
+            break;
+
         case Drag::none:
             break;
     }
@@ -861,7 +949,13 @@ void TrackArea::updateCursor (const juce::MouseEvent& e)
     if (e.x < theme::trackHeaderWidth || e.y < theme::rulerHeight) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }
     const auto hit = clipAtPoint (e.getPosition());
     bool ns = false, ne = false;
-    switch (effectiveTool (e, hit, ns, ne))
+    const auto tool = effectiveTool (e, hit, ns, ne);
+    if (hit && hit->kind == model::ClipRef::Kind::audio && edit.tool == EditSettings::Tool::smart && (ns || ne))
+    {
+        const auto r = rectForClip (*hit);
+        if (e.y >= r.getY() + 16.0f && e.y < r.getY() + 30.0f) { setMouseCursor (juce::MouseCursor::UpDownLeftRightResizeCursor); return; }
+    }
+    switch (tool)
     {
         case EditSettings::Tool::zoomer:   setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
         case EditSettings::Tool::trimmer:  setMouseCursor (hit ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor); break;
@@ -1037,6 +1131,58 @@ void TrackArea::nudgeSelectedClips (int direction)
     session.execute (std::move (compound));
 }
 
+void TrackArea::nudgeClipGain (float deltaDb)
+{
+    auto compound = std::make_unique<model::CompoundCommand> ("Clip Gain");
+    for (const auto& ref : selectedClips)
+        if (ref.kind == model::ClipRef::Kind::audio)
+            if (auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+            {
+                const float db = juce::Decibels::gainToDecibels (t->clips[(size_t) ref.index].gain, -60.0f) + deltaDb;
+                compound->add (std::make_unique<model::SetClipGainCommand> (ref, juce::Decibels::decibelsToGain (juce::jlimit (-60.0f, 12.0f, db), -60.0f)));
+            }
+    if (! compound->isEmpty()) session.execute (std::move (compound));
+}
+
+int TrackArea::numSelectedAudioClips() const
+{
+    int n = 0;
+    for (const auto& r : selectedClips) n += r.kind == model::ClipRef::Kind::audio ? 1 : 0;
+    return n;
+}
+
+std::optional<TrackArea::FadeValues> TrackArea::currentFadeValues() const
+{
+    for (const auto& ref : selectedClips)
+        if (ref.kind == model::ClipRef::Kind::audio)
+            if (auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+            {
+                const auto& c = t->clips[(size_t) ref.index];
+                FadeValues v;
+                v.fadeInMs = c.fadeIn * 1000.0 / c.sampleRate;
+                v.fadeOutMs = c.fadeOut * 1000.0 / c.sampleRate;
+                v.inShape = c.fadeInShape; v.outShape = c.fadeOutShape;
+                v.gainDb = juce::Decibels::gainToDecibels (c.gain, -60.0f);
+                return v;
+            }
+    return std::nullopt;
+}
+
+void TrackArea::applyFadesToSelection (const FadeValues& v)
+{
+    auto compound = std::make_unique<model::CompoundCommand> (numSelectedAudioClips() > 1 ? "Batch Fades" : "Fades");
+    for (const auto& ref : selectedClips)
+        if (ref.kind == model::ClipRef::Kind::audio)
+            if (auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+            {
+                const double sr = t->clips[(size_t) ref.index].sampleRate;
+                compound->add (std::make_unique<model::SetClipFadesCommand> (ref, (juce::int64) std::llround (v.fadeInMs * sr / 1000.0), v.inShape,
+                                                                           (juce::int64) std::llround (v.fadeOutMs * sr / 1000.0), v.outShape));
+                compound->add (std::make_unique<model::SetClipGainCommand> (ref, juce::Decibels::decibelsToGain (v.gainDb, -60.0f)));
+            }
+    if (! compound->isEmpty()) session.execute (std::move (compound));
+}
+
 void TrackArea::zoomToFit()
 {
     const double len = juce::jmax (4.0, session.getLengthSeconds() * 1.05);
@@ -1051,6 +1197,8 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress::escapeKey)                                        { clearSelection(); return true; }
     if (key == juce::KeyPress ('e', juce::ModifierKeys::commandModifier, 0))    { separateAtPlayhead(); return true; }
     if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))    { duplicateSelectedClips(); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::upKey,   juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { nudgeClipGain (0.5f); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::downKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { nudgeClipGain (-0.5f); return true; }
     if (key == juce::KeyPress (','))                                             { nudgeSelectedClips (-1); return true; }
     if (key == juce::KeyPress ('.'))                                             { nudgeSelectedClips (1); return true; }
     if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0))
@@ -1100,6 +1248,31 @@ void TrackArea::paintEditOverlays (juce::Graphics& g)
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
         g.drawText (juce::String (bb.bar) + "|" + juce::String (bb.beat) + "|" + juce::String (bb.tick).paddedLeft ('0', 3),
                     r.withHeight (16.0f).translated (0.0f, -18.0f).toNearestInt(), juce::Justification::centredLeft);
+    }
+
+    // Fade handle ghost
+    if ((drag == Drag::fadeIn || drag == Drag::fadeOut) && dragMoved)
+    {
+        auto r = rectForClip (dragClip);
+        const float w = (float) (ghostFadeSeconds * pixelsPerSecond);
+        auto fr = drag == Drag::fadeIn ? r.withWidth (w) : r.withLeft (r.getRight() - w);
+        g.setColour (theme::accent.withAlpha (0.25f));
+        g.fillRect (fr);
+        g.setColour (theme::accent);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (juce::String (juce::roundToInt (ghostFadeSeconds * 1000.0)) + " ms",
+                    r.withHeight (16.0f).translated (0.0f, -18.0f).toNearestInt(),
+                    drag == Drag::fadeIn ? juce::Justification::centredLeft : juce::Justification::centredRight);
+    }
+
+    // Clip gain ghost
+    if (drag == Drag::clipGain && dragMoved)
+    {
+        auto r = rectForClip (dragClip);
+        g.setColour (theme::accent);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("Clip gain " + juce::String (ghostGainDb, 1) + " dB", r.withHeight (16.0f).translated (0.0f, -18.0f).toNearestInt(),
+                    juce::Justification::centredLeft);
     }
 
     // Zoom range

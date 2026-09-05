@@ -68,7 +68,7 @@ void EditToolbar::refresh()
     relativeButton.setEnabled (settings.mode == EditSettings::Mode::grid);
 
     juce::String h = juce::String (EditSettings::modeName (settings.mode)) + "  |  " + EditSettings::toolName (settings.tool)
-                   + "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   , . : nudge   Esc: deselect";
+                   + "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Ctrl+Shift+Up/Down: clip gain";
     hint.setText (h, juce::dontSendNotification);
 }
 

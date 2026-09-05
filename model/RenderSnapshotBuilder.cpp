@@ -30,6 +30,10 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rc.length        = clip.length;
             rc.gain          = clip.gain * track.gain;
             rc.pan           = track.pan;
+            rc.fadeIn        = clip.fadeIn;
+            rc.fadeOut       = clip.fadeOut;
+            rc.fadeInShape   = clip.fadeInShape;
+            rc.fadeOutShape  = clip.fadeOutShape;
             snapshot->clips.push_back (std::move (rc));
         }
 
