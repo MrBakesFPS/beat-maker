@@ -37,6 +37,11 @@ struct AudioClip
     juce::int64 fadeIn = 0, fadeOut = 0;   // samples
     engine::FadeShape fadeInShape = engine::FadeShape::linear, fadeOutShape = engine::FadeShape::linear;
 
+    // Clip gain line: breakpoint times are source-sample positions, so the
+    // line stays glued to the audio through trims, splits and moves.
+    std::shared_ptr<const engine::AutomationLane> gainLane;
+    bool audioModified = false;   // pencil edits: `audio` no longer matches sourceFile
+
     // Fades can never overlap or exceed the clip.
     void clampFades() noexcept
     {

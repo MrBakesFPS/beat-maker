@@ -11,7 +11,7 @@ namespace beatmaker::ui
 struct EditSettings
 {
     enum class Mode { shuffle, slip, spot, grid };
-    enum class Tool { zoomer, trimmer, selector, grabber, smart };
+    enum class Tool { zoomer, trimmer, selector, grabber, scrubber, pencil, smart };
 
     Mode mode = Mode::grid;
     Tool tool = Tool::smart;
@@ -29,7 +29,8 @@ struct EditSettings
     static const char* toolName (Tool t)
     {
         switch (t) { case Tool::zoomer: return "Zoomer"; case Tool::trimmer: return "Trimmer"; case Tool::selector: return "Selector";
-                     case Tool::grabber: return "Grabber"; case Tool::smart: return "Smart Tool"; }
+                     case Tool::grabber: return "Grabber"; case Tool::scrubber: return "Scrubber"; case Tool::pencil: return "Pencil";
+                     case Tool::smart: return "Smart Tool"; }
         return "";
     }
 };

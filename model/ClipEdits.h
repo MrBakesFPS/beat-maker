@@ -169,6 +169,37 @@ private:
     float gain, oldGain = 1.0f;
 };
 
+// Audio clips only: replace the clip gain line (copy-on-write).
+class SetClipGainLaneCommand final : public Command
+{
+public:
+    SetClipGainLaneCommand (ClipRef r, std::shared_ptr<const engine::AutomationLane> lane, juce::String actionName = "Clip Gain")
+        : ref (r), newLane (std::move (lane)), name (std::move (actionName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    ClipRef ref;
+    std::shared_ptr<const engine::AutomationLane> newLane, oldLane;
+    juce::String name;
+};
+
+// Audio clips only: replace the audio data (pencil edits). Non-destructive:
+// the file on disk is untouched, the clip points at an edited copy.
+class ReplaceClipAudioCommand final : public Command
+{
+public:
+    ReplaceClipAudioCommand (ClipRef r, std::shared_ptr<const juce::AudioBuffer<float>> audio)
+        : ref (r), newAudio (std::move (audio)) {}
+    juce::String getName() const override { return "Pencil"; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    ClipRef ref;
+    std::shared_ptr<const juce::AudioBuffer<float>> newAudio, oldAudio;
+    bool oldModified = false;
+};
+
 // Shuffle mode: lay a track's clips end to end in start order, keeping the
 // earliest clip where it is.
 class RepackTrackCommand final : public Command

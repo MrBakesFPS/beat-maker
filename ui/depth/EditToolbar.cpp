@@ -29,7 +29,9 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
     makeButton (toolButtons, "Trim",   2002, "Trimmer (F6): drag clip edges",                             [this] { settings.tool = Tool::trimmer; });
     makeButton (toolButtons, "Select", 2002, "Selector (F7): drag a time selection",                      [this] { settings.tool = Tool::selector; });
     makeButton (toolButtons, "Grab",   2002, "Grabber (F8): move clips",                                  [this] { settings.tool = Tool::grabber; });
-    makeButton (toolButtons, "Smart",  2002, "Smart Tool (F9): edges trim, lower half grabs, upper half selects", [this] { settings.tool = Tool::smart; });
+    makeButton (toolButtons, "Scrub",  2002, "Scrubber (F9): drag to hear the audio under the cursor",     [this] { settings.tool = Tool::scrubber; });
+    makeButton (toolButtons, "Pencil", 2002, "Pencil (F10): redraw waveform samples (zoom in until samples are visible)", [this] { settings.tool = Tool::pencil; });
+    makeButton (toolButtons, "Smart",  2002, "Smart Tool (F11): edges trim, lower half grabs, upper half selects", [this] { settings.tool = Tool::smart; });
 
     addAndMakeVisible (gridBox);
     gridBox.addItem ("Bar", 1);
@@ -88,7 +90,7 @@ void EditToolbar::resized()
     auto area = getLocalBounds().reduced (8, 4);
     for (auto* b : modeButtons) { b->setBounds (area.removeFromLeft (58)); area.removeFromLeft (2); }
     area.removeFromLeft (12);
-    for (auto* b : toolButtons) { b->setBounds (area.removeFromLeft (54)); area.removeFromLeft (2); }
+    for (auto* b : toolButtons) { b->setBounds (area.removeFromLeft (50)); area.removeFromLeft (2); }
     area.removeFromLeft (12);
     gridBox.setBounds (area.removeFromLeft (64));
     area.removeFromLeft (4);

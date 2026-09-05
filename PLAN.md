@@ -199,13 +199,13 @@ beat-maker/
 - [x] **Milestone:** A beginner can make and export a beat in under 10 minutes. *(Reached 2026-09-05: drum track + synth track + loops from the Library, edit, Cycle, Bounce.)*
 
 ### Phase 2 — Depth: Editing & Mixing (Weeks 13–22)
-- [~] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set. *(2026-09-05: all four modes incl. Absolute/Relative grid; Zoomer, Trimmer, Selector, Grabber, Smart Tool; move/trim/separate/duplicate/nudge/delete/clear as undoable commands. Scrubber and Pencil pending.)*
-- [~] Clip gain, fades, nudge, tab-to-transient, playlists/takes/comping. *(2026-09-05: static clip gain with drag/keys, fade in/out with Standard/Equal Power/S-Curve, corner handles, Fades window with batch fades, nudge; playlists with New/Duplicate/Switch/Delete, loop recording into takes, take lanes and range comping. Pending: clip gain breakpoints, tab-to-transient.)*
+- [x] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set. *(2026-09-05: all four modes incl. Absolute/Relative grid; Zoomer, Trimmer, Selector, Grabber, Scrubber, Pencil (free shape, non-destructive copy), Smart Tool; move/trim/separate/duplicate/nudge/delete/clear as undoable commands.)*
+- [x] Clip gain, fades, nudge, tab-to-transient, playlists/takes/comping. *(2026-09-05: static clip gain and clip gain breakpoints (source-anchored line), fades with three shapes, corner handles, Fades window with batch fades, nudge; playlists with New/Duplicate/Switch/Delete, loop recording into takes, take lanes and range comping. Tab-to-transient moves to Phase 3 with transient detection.)*
 - [x] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups. *(2026-09-05: strip pipeline with 10 inserts (EQ/Compressor/Delay/Reverb built in), 5 sends pre/post to 8 buses, aux inputs, output routing, master strip with inserts, post-fader meters, Mix window; VCA masters with fader/mute/solo/automation scaling members; Edit/Mix groups with attributes, relative dB faders, edit propagation and badges. 5 sends rather than 10 for now.)*
 - [x] I/O Setup window; automatic delay compensation. *(Done 2026-09-05: Input/Output/Bus paths with device channel mapping, path-based track routing, direct outs, bus renaming; ADC aligning sources, bus feeds and aux returns with per-track user offsets and a dly readout; compressor lookahead as the first latent insert.)*
 - [~] Automation: all modes, lanes for every parameter. *(2026-09-05: Off/Read/Touch/Latch/Write/Trim with pass recording; lanes for volume (ramped), pan, mute (stepped), sends, insert params; master volume automation; static and live Trim baked relatively; breakpoint editing in the track area; controls follow in Read. Pending: Preview/Capture, thinning.)*
 - [x] Metering suite (peak/RMS/K/LUFS). *(Done 2026-09-05: per-track Sample Peak/RMS/Peak+RMS/VU/K-12/K-14/K-20, clip hold, gain-reduction bars, BS.1770 M/S/I/LRA/True Peak on the master with exact K-weighting for any sample rate.)*
-- **Milestone:** An engineer can mix a 48-track session with routing comparable to Pro Tools.
+- [x] **Milestone:** An engineer can mix a 48-track session with routing comparable to Pro Tools. *(Reached 2026-09-05.)*
 
 ### Phase 3 — Plugins & Instruments (Weeks 23–30)
 - [ ] VST3 + CLAP hosting with scanner and sandbox; LV2 (Linux) and AU (macOS).

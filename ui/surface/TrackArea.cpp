@@ -6,8 +6,8 @@
 namespace beatmaker::ui
 {
 
-TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormatManager& fm, EditSettings& es)
-    : session (s), transport (t), formatManager (fm), edit (es)
+TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGraph& g, juce::AudioFormatManager& fm, EditSettings& es)
+    : session (s), transport (t), formatManager (fm), graph (g), edit (es)
 {
     session.addListener (this);
     setWantsKeyboardFocus (true);
@@ -283,13 +283,14 @@ void TrackArea::rebuildTrackControls()
         c.autoView = std::make_unique<juce::ComboBox>();
         c.autoView->setTooltip ("Track view: clips, or an automation lane");
         c.autoView->addItem ("Clips", 1);
+        if (track.isAudio()) c.autoView->addItem ("Clip Gain", 100);
         c.autoView->addItem ("Volume", 2);
         c.autoView->addItem ("Pan", 3);
         c.autoView->addItem ("Mute", 4);
         for (int sIdx = 0; sIdx < model::Track::numSendSlots; ++sIdx)
             c.autoView->addItem (engine::ParamId::send (sIdx).getName(), 5 + sIdx);
         const auto shown = shownLane (track);
-        int viewId = 1;
+        int viewId = showsClipGain (track) ? 100 : 1;
         if (shown)
         {
             switch (shown->type)
@@ -305,7 +306,9 @@ void TrackArea::rebuildTrackControls()
         c.autoView->onChange = [this, trackId = track.id, box = c.autoView.get()]
         {
             const int sel = box->getSelectedId();
-            if (sel <= 1) automationView.erase (trackId);
+            clipGainView.erase (trackId);
+            if (sel == 100) { automationView.erase (trackId); clipGainView.insert (trackId); }
+            else if (sel <= 1) automationView.erase (trackId);
             else if (sel == 2) automationView[trackId] = engine::ParamId::volume();
             else if (sel == 3) automationView[trackId] = engine::ParamId::pan();
             else if (sel == 4) automationView[trackId] = engine::ParamId::mute();
@@ -666,6 +669,17 @@ void TrackArea::showAutomationLane (int trackIndex, const engine::ParamId& param
     }
 }
 
+void TrackArea::showClipGainView (int trackIndex)
+{
+    if (auto* t = session.getTrack (trackIndex))
+    {
+        automationView.erase (t->id);
+        clipGainView.insert (t->id);
+        rebuildTrackControls();
+        repaint();
+    }
+}
+
 std::optional<engine::ParamId> TrackArea::shownLane (const model::Track& track) const
 {
     auto it = automationView.find (track.id);
@@ -920,10 +934,13 @@ void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, co
 
     auto waveArea = clipRect.reduced (1.0f).withTrimmedTop (16.0f);
     g.setColour (track.colour.contrasting (0.9f).withAlpha (0.85f));
-    thumbnailFor (clip).drawChannels (g, waveArea.toNearestInt(),
-                                      (double) clip.sourceOffset / clip.sampleRate,
-                                      (double) (clip.sourceOffset + clip.length) / clip.sampleRate,
-                                      juce::jlimit (0.05f, 4.0f, clip.gain));
+    if (pixelsPerSecond / clip.sampleRate >= 0.25 || clip.audioModified)
+        paintSamples (g, clip, waveArea);
+    else
+        thumbnailFor (clip).drawChannels (g, waveArea.toNearestInt(),
+                                          (double) clip.sourceOffset / clip.sampleRate,
+                                          (double) (clip.sourceOffset + clip.length) / clip.sampleRate,
+                                          juce::jlimit (0.05f, 4.0f, clip.gain));
 
     // Fade curves: shaded region above the curve, like Pro Tools.
     auto drawFade = [&] (juce::int64 samples, engine::FadeShape shape, bool in)
@@ -949,10 +966,135 @@ void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, co
     drawFade (clip.fadeIn, clip.fadeInShape, true);
     drawFade (clip.fadeOut, clip.fadeOutShape, false);
 
+    if (showsClipGain (track)) paintClipGainLine (g, track, clip, clipRect);
+
     juce::String label = clip.name;
     if (std::abs (clip.gain - 1.0f) > 1.0e-4f)
         label += "   " + juce::String (juce::Decibels::gainToDecibels (clip.gain), 1) + " dB";
+    if (clip.audioModified) label += "   (edited)";
     paintClipFrame (g, clipRect, track, label);
+}
+
+// Direct sample rendering for high zoom (and for pencil-edited audio, which
+// has no thumbnail on disk).
+void TrackArea::paintSamples (juce::Graphics& g, const model::AudioClip& clip, juce::Rectangle<float> area)
+{
+    if (clip.audio == nullptr || area.getWidth() <= 1.0f) return;
+    const double sr = clip.sampleRate;
+    const double viewStart = juce::jmax (viewStartSeconds, clip.getStartSeconds());
+    const double viewEnd = juce::jmin (xToSeconds ((float) getWidth()), clip.getEndSeconds());
+    if (viewEnd <= viewStart) return;
+
+    const int channels = clip.audio->getNumChannels();
+    const float mid = area.getCentreY(), half = area.getHeight() * 0.5f;
+    const double pxPerSample = pixelsPerSecond / sr;
+    const auto* data = clip.audio->getReadPointer (0);
+    const int total = clip.audio->getNumSamples();
+
+    if (pxPerSample >= 1.0)
+    {
+        // One point per sample (dots when very zoomed)
+        juce::Path path;
+        const juce::int64 first = clip.sourceOffset + (juce::int64) ((viewStart - clip.getStartSeconds()) * sr);
+        const juce::int64 last = clip.sourceOffset + (juce::int64) ((viewEnd - clip.getStartSeconds()) * sr) + 1;
+        for (juce::int64 sIdx = first; sIdx <= last && sIdx < total; ++sIdx)
+        {
+            if (sIdx < 0) continue;
+            float v = 0.0f;
+            for (int ch = 0; ch < channels; ++ch) v += clip.audio->getSample (ch, (int) sIdx);
+            v = juce::jlimit (-1.0f, 1.0f, v / (float) channels * clip.gain);
+            const float x = secondsToX (clip.getStartSeconds() + (double) (sIdx - clip.sourceOffset) / sr);
+            const float y = mid - v * half;
+            if (path.isEmpty()) path.startNewSubPath (x, y); else path.lineTo (x, y);
+            if (pxPerSample >= 4.0) g.fillEllipse (x - 2.0f, y - 2.0f, 4.0f, 4.0f);
+        }
+        g.strokePath (path, juce::PathStrokeType (1.0f));
+        g.setColour (theme::grid);
+        g.drawHorizontalLine ((int) mid, area.getX(), area.getRight());
+    }
+    else
+    {
+        // Min/max per pixel column
+        for (int px = (int) secondsToX (viewStart); px <= (int) secondsToX (viewEnd); ++px)
+        {
+            const double t0 = xToSeconds ((float) px), t1 = xToSeconds ((float) px + 1.0f);
+            const juce::int64 a = clip.sourceOffset + (juce::int64) ((t0 - clip.getStartSeconds()) * sr);
+            const juce::int64 b = juce::jmax (a + 1, clip.sourceOffset + (juce::int64) ((t1 - clip.getStartSeconds()) * sr));
+            float lo = 1.0f, hi = -1.0f;
+            for (juce::int64 sIdx = juce::jmax<juce::int64> (0, a); sIdx < juce::jmin<juce::int64> (b, total); ++sIdx)
+            { const float v = data[sIdx] * clip.gain; lo = juce::jmin (lo, v); hi = juce::jmax (hi, v); }
+            if (hi >= lo) g.drawVerticalLine (px, mid - juce::jlimit (-1.0f, 1.0f, hi) * half, mid - juce::jlimit (-1.0f, 1.0f, lo) * half);
+        }
+    }
+}
+
+bool TrackArea::pencilZoomOk() const { return pixelsPerSecond / transport.getSampleRate() >= 0.5; }
+
+juce::Rectangle<float> TrackArea::waveAreaFor (const model::ClipRef& ref) const
+{
+    return rectForClip (ref).reduced (1.0f).withTrimmedTop (16.0f);
+}
+
+//==============================================================================
+// Clip gain line
+
+void TrackArea::paintClipGainLine (juce::Graphics& g, const model::Track& track, const model::AudioClip& clip, juce::Rectangle<float> clipRect)
+{
+    auto area = clipRect.reduced (1.0f).withTrimmedTop (16.0f);
+    const double sr = clip.sampleRate;
+    const engine::AutomationLane* lane = clip.gainLane.get();
+
+    juce::Path path;
+    const int steps = juce::jmax (2, (int) area.getWidth() / 3);
+    for (int i = 0; i <= steps; ++i)
+    {
+        const double rel = clip.getLengthSeconds() * i / steps;
+        const auto src = clip.sourceOffset + (juce::int64) std::llround (rel * sr);
+        const float v = lane != nullptr && ! lane->isEmpty() ? lane->valueAt (src, 1.0f) : 1.0f;
+        const float x = secondsToX (clip.getStartSeconds() + rel);
+        const float y = valueToY (engine::ParamId::volume(), v, area.toNearestInt());
+        if (i == 0) path.startNewSubPath (x, y); else path.lineTo (x, y);
+    }
+    g.setColour (juce::Colour (0xfff1c40f).withAlpha (lane != nullptr ? 0.95f : 0.5f));
+    g.strokePath (path, juce::PathStrokeType (lane != nullptr ? 1.6f : 1.0f));
+
+    if (lane != nullptr)
+        for (const auto& p : lane->points)
+        {
+            if (p.time < clip.sourceOffset || p.time > clip.sourceOffset + clip.length) continue;
+            const float x = secondsToX (clip.getStartSeconds() + (double) (p.time - clip.sourceOffset) / sr);
+            const float y = valueToY (engine::ParamId::volume(), p.value, area.toNearestInt());
+            g.setColour (juce::Colour (0xfff1c40f));
+            g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
+        }
+
+    if (drag == Drag::clipGainPoint && dragMoved && &session.getTrack (dragClip.track)->clips[(size_t) dragClip.index] == &clip)
+    {
+        const float x = secondsToX (clip.getStartSeconds() + (double) (ghostPoint.time - clip.sourceOffset) / sr);
+        const float y = valueToY (engine::ParamId::volume(), ghostPoint.value, area.toNearestInt());
+        g.setColour (theme::text);
+        g.drawEllipse (x - 5.0f, y - 5.0f, 10.0f, 10.0f, 1.5f);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (juce::String (juce::Decibels::gainToDecibels (ghostPoint.value, -60.0f), 1) + " dB", (int) x + 8, (int) y - 8, 80, 16, juce::Justification::centredLeft);
+    }
+    juce::ignoreUnused (track);
+}
+
+int TrackArea::clipGainPointAt (const model::ClipRef& ref, juce::Point<int> pt) const
+{
+    auto* t = session.getTrack (ref.track);
+    if (t == nullptr || ref.kind != model::ClipRef::Kind::audio || ref.index >= (int) t->clips.size()) return -1;
+    const auto& clip = t->clips[(size_t) ref.index];
+    if (clip.gainLane == nullptr) return -1;
+    const auto area = waveAreaFor (ref).toNearestInt();
+    for (int i = 0; i < (int) clip.gainLane->points.size(); ++i)
+    {
+        const auto& p = clip.gainLane->points[(size_t) i];
+        const float x = secondsToX (clip.getStartSeconds() + (double) (p.time - clip.sourceOffset) / clip.sampleRate);
+        const float y = valueToY (engine::ParamId::volume(), p.value, area);
+        if (std::abs (x - pt.x) <= 6.0f && std::abs (y - pt.y) <= 6.0f) return i;
+    }
+    return -1;
 }
 
 void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, const model::PatternClip& clip, juce::Rectangle<int> r)
@@ -1180,6 +1322,77 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
     }
 
     const auto hit = clipAtPoint (e.getPosition());
+
+    // Scrubber: drag audio under the cursor (transport must be stopped)
+    if (edit.tool == EditSettings::Tool::scrubber)
+    {
+        if (transport.isPlaying()) transport.stop();
+        transport.setPositionSeconds (dragAnchorSeconds);
+        graph.startScrub (track, toSamples (dragAnchorSeconds));
+        drag = Drag::scrub;
+        return;
+    }
+
+    // Pencil: redraw samples of the clip under the cursor
+    if (edit.tool == EditSettings::Tool::pencil)
+    {
+        if (! hit || hit->kind != model::ClipRef::Kind::audio || ! pencilZoomOk()) return;
+        const auto& clip = session.getTrack (hit->track)->clips[(size_t) hit->index];
+        if (clip.audio == nullptr) return;
+        pencilBuffer = std::make_shared<juce::AudioBuffer<float>> (*clip.audio);   // working copy
+        dragClip = *hit;
+        pencilLastSample = -1;
+        drag = Drag::pencil;
+        mouseDrag (e);
+        return;
+    }
+
+    // Clip gain view: breakpoints on the clip's gain line
+    if (hit && hit->kind == model::ClipRef::Kind::audio && showsClipGain (*session.getTrack (track))
+        && edit.tool != EditSettings::Tool::selector && edit.tool != EditSettings::Tool::zoomer)
+    {
+        const auto& clip = session.getTrack (hit->track)->clips[(size_t) hit->index];
+        const int hitPoint = clipGainPointAt (*hit, e.getPosition());
+        const auto area = waveAreaFor (*hit).toNearestInt();
+
+        if (e.mods.isPopupMenu() || (e.mods.isAltDown() && hitPoint >= 0))
+        {
+            if (hitPoint >= 0)
+            {
+                auto updated = std::make_shared<engine::AutomationLane> (*clip.gainLane);
+                updated->points.erase (updated->points.begin() + hitPoint);
+                session.execute (std::make_unique<model::SetClipGainLaneCommand> (*hit, updated, "Delete Clip Gain Point"));
+            }
+            return;
+        }
+
+        auto updated = std::make_shared<engine::AutomationLane>();
+        updated->param = engine::ParamId::volume();
+        if (clip.gainLane != nullptr) updated->points = clip.gainLane->points;
+        dragClip = *hit;
+        if (hitPoint >= 0)
+        {
+            dragPointIndex = hitPoint;
+            ghostPoint = updated->points[(size_t) hitPoint];
+        }
+        else
+        {
+            engine::AutomationPoint np { clip.sourceOffset + toSamples (snapSeconds (dragAnchorSeconds) - clip.getStartSeconds()),
+                                         yToValue (engine::ParamId::volume(), e.y, area) };
+            np.time = juce::jlimit (clip.sourceOffset, clip.sourceOffset + clip.length, np.time);
+            updated->points.push_back (np);
+            updated->sortPoints();
+            session.execute (std::make_unique<model::SetClipGainLaneCommand> (*hit, updated, "Add Clip Gain Point"));
+            ghostPoint = np;
+            dragPointIndex = -1;
+            if (const auto* fresh = session.getTrack (hit->track)->clips[(size_t) hit->index].gainLane.get())
+                for (int i = 0; i < (int) fresh->points.size(); ++i)
+                    if (fresh->points[(size_t) i].time == np.time) { dragPointIndex = i; break; }
+        }
+        drag = Drag::clipGainPoint;
+        return;
+    }
+
     bool nearStart = false, nearEnd = false;
     const auto tool = effectiveTool (e, hit, nearStart, nearEnd);
 
@@ -1316,6 +1529,43 @@ void TrackArea::mouseDrag (const juce::MouseEvent& e)
             ghostFadeSeconds = edit.mode == EditSettings::Mode::grid ? snapDelta (len) : len;
             break;
         }
+        case Drag::scrub:
+            graph.setScrubTarget (toSamples (now));
+            break;
+
+        case Drag::pencil:
+        {
+            auto* t = session.getTrack (dragClip.track);
+            if (t == nullptr || pencilBuffer == nullptr || dragClip.index >= (int) t->clips.size()) break;
+            const auto& clip = t->clips[(size_t) dragClip.index];
+            const auto area = waveAreaFor (dragClip);
+            const int sample = (int) juce::jlimit<juce::int64> (0, pencilBuffer->getNumSamples() - 1,
+                                   clip.sourceOffset + toSamples (now - clip.getStartSeconds()));
+            const float value = juce::jlimit (-1.0f, 1.0f, (area.getCentreY() - (float) e.y) / (area.getHeight() * 0.5f)) / juce::jmax (0.01f, clip.gain);
+            if (pencilLastSample < 0) { pencilLastSample = sample; pencilLastValue = value; }
+            const int from = juce::jmin (pencilLastSample, sample), to = juce::jmax (pencilLastSample, sample);
+            for (int i = from; i <= to; ++i)
+            {
+                const float frac = to == from ? 1.0f : (float) (i - from) / (float) (to - from);
+                const float v = pencilLastSample <= sample ? pencilLastValue + (value - pencilLastValue) * frac
+                                                           : value + (pencilLastValue - value) * frac;
+                for (int ch = 0; ch < pencilBuffer->getNumChannels(); ++ch) pencilBuffer->setSample (ch, i, v);
+            }
+            pencilLastSample = sample; pencilLastValue = value;
+            break;
+        }
+
+        case Drag::clipGainPoint:
+        {
+            auto* t = session.getTrack (dragClip.track);
+            if (t == nullptr || dragClip.index >= (int) t->clips.size()) break;
+            const auto& clip = t->clips[(size_t) dragClip.index];
+            ghostPoint.time = juce::jlimit (clip.sourceOffset, clip.sourceOffset + clip.length,
+                                            clip.sourceOffset + toSamples (snapSeconds (now) - clip.getStartSeconds()));
+            ghostPoint.value = yToValue (engine::ParamId::volume(), e.y, waveAreaFor (dragClip).toNearestInt());
+            break;
+        }
+
         case Drag::automationPoint:
         {
             if (auto* t = session.getTrack (dragClip.track); t != nullptr && shownLane (*t))
@@ -1368,12 +1618,12 @@ void TrackArea::mouseUp (const juce::MouseEvent& e)
             if (dragMoved && std::abs (b - a) > 0.01)
             {
                 viewStartSeconds = juce::jmin (a, b);
-                pixelsPerSecond = juce::jlimit (5.0, 2000.0, (getWidth() - theme::trackHeaderWidth) / std::abs (b - a));
+                pixelsPerSecond = juce::jlimit (5.0, 400000.0, (getWidth() - theme::trackHeaderWidth) / std::abs (b - a));
             }
             else
             {
                 const double anchor = dragAnchorSeconds;
-                pixelsPerSecond = juce::jmin (2000.0, pixelsPerSecond * 2.0);
+                pixelsPerSecond = juce::jmin (400000.0, pixelsPerSecond * 2.0);
                 viewStartSeconds = juce::jmax (0.0, anchor - (e.x - theme::trackHeaderWidth) / pixelsPerSecond);
             }
             break;
@@ -1405,6 +1655,31 @@ void TrackArea::mouseUp (const juce::MouseEvent& e)
 
         case Drag::automationPoint:
             if (dragMoved) commitAutomationDrag();
+            dragPointIndex = -1;
+            break;
+
+        case Drag::scrub:
+            graph.stopScrub();
+            break;
+
+        case Drag::pencil:
+            if (pencilBuffer != nullptr && pencilLastSample >= 0)
+                session.execute (std::make_unique<model::ReplaceClipAudioCommand> (dragClip, std::shared_ptr<const juce::AudioBuffer<float>> (pencilBuffer)));
+            pencilBuffer.reset();
+            break;
+
+        case Drag::clipGainPoint:
+            if (dragMoved)
+                if (auto* t = session.getTrack (dragClip.track); t != nullptr && dragClip.index < (int) t->clips.size())
+                {
+                    const auto& clip = t->clips[(size_t) dragClip.index];
+                    auto updated = std::make_shared<engine::AutomationLane>();
+                    updated->param = engine::ParamId::volume();
+                    if (clip.gainLane != nullptr) updated->points = clip.gainLane->points;
+                    if (juce::isPositiveAndBelow (dragPointIndex, (int) updated->points.size())) updated->points[(size_t) dragPointIndex] = ghostPoint;
+                    updated->sortPoints();
+                    session.execute (std::make_unique<model::SetClipGainLaneCommand> (dragClip, updated, "Move Clip Gain Point"));
+                }
             dragPointIndex = -1;
             break;
 
@@ -1462,6 +1737,8 @@ void TrackArea::updateCursor (const juce::MouseEvent& e)
         case EditSettings::Tool::trimmer:  setMouseCursor (hit ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor); break;
         case EditSettings::Tool::selector: setMouseCursor (juce::MouseCursor::IBeamCursor); break;
         case EditSettings::Tool::grabber:  setMouseCursor (hit ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor); break;
+        case EditSettings::Tool::scrubber: setMouseCursor (juce::MouseCursor::LeftRightResizeCursor); break;
+        case EditSettings::Tool::pencil:   setMouseCursor (hit && pencilZoomOk() ? juce::MouseCursor::CrosshairCursor : juce::MouseCursor::NormalCursor); break;
         case EditSettings::Tool::smart:    setMouseCursor (juce::MouseCursor::NormalCursor); break;
     }
 }
@@ -1472,7 +1749,7 @@ void TrackArea::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
     {
         // Zoom around the mouse position.
         const double anchorSeconds = xToSeconds ((float) e.x);
-        pixelsPerSecond = juce::jlimit (5.0, 2000.0, pixelsPerSecond * (1.0 + wheel.deltaY));
+        pixelsPerSecond = juce::jlimit (5.0, 400000.0, pixelsPerSecond * (1.0 + wheel.deltaY));
         viewStartSeconds = juce::jmax (0.0, anchorSeconds - (e.x - theme::trackHeaderWidth) / pixelsPerSecond);
     }
     else

@@ -25,6 +25,7 @@ target_sources(beatmaker_tests PRIVATE
     groups_test.cpp
     playlists_test.cpp
     trim_master_test.cpp
+    clip_gain_scrub_pencil_test.cpp
     recorder_test.cpp
     bounce_test.cpp
     loop_library_test.cpp
@@ -36,7 +37,7 @@ target_compile_definitions(beatmaker_tests PRIVATE
 
 # Tests deliberately compare exact sample values, so use plain warnings rather
 # than juce_recommended_warning_flags (which enables -Wfloat-equal).
-target_compile_options(beatmaker_tests PRIVATE -Wall -Wextra)
+target_compile_options(beatmaker_tests PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 
 target_link_libraries(beatmaker_tests PRIVATE
     beatmaker_engine

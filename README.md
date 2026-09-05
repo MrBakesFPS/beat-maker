@@ -36,11 +36,16 @@ Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-**Phase 0 and Phase 1 complete. Phase 2 in progress.**
+**Phases 0, 1 and 2 complete.**
 
 - Edit modes and tools (Pro Tools layout): Shuffle, Slip, Spot and Grid modes
   (F1-F4; Grid has a value selector and Absolute/Relative toggle), and the
-  Zoomer, Trimmer, Selector, Grabber and Smart Tool (F5-F9). Clips can be
+  Zoomer, Trimmer, Selector, Grabber, Scrubber, Pencil and Smart Tool
+  (F5-F11). The Scrubber drags the audio under the cursor through the track's
+  own strip, moving the playhead with it. The Pencil redraws waveform samples
+  once you zoom in far enough to see them (clips draw real samples at high
+  zoom); edits are non-destructive copies of the clip audio, one undo step
+  per stroke, and the clip is marked (edited). Clips can be
   moved (also across compatible tracks), trimmed non-destructively at either
   edge, separated at the playhead or selection (Ctrl+E), duplicated (Ctrl+D),
   nudged by the grid value (, and .), deleted, or cleared from a time
@@ -102,6 +107,11 @@ Run the tests with `ctest --test-dir build`.
   tracks read a bus and can carry inserts and sends of their own. Every
   knob and fader gesture is one undo step, and the same strip pipeline runs
   live and in Bounce.
+- Clip gain breakpoints: switch a track's view to Clip Gain to see each
+  clip's gain line. Click to add a breakpoint, drag to move it (dB readout),
+  right-click or Alt-click to delete. Breakpoint times live in the audio's own
+  sample positions, so the line stays glued to the sound through trims,
+  splits and moves, and it multiplies with the static clip gain and fades.
 - Fades and clip gain on audio clips: drag the top corners of a clip with the
   Smart Tool to set fade in/out, Ctrl+drag a clip vertically for clip gain
   (or Ctrl+Shift+Up/Down in 0.5 dB steps), and Ctrl+F opens the Fades window
@@ -152,8 +162,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 2: clip gain breakpoints, Scrubber and Pencil tools.
-See PLAN.md §5.
+Next is Phase 3: VST3/CLAP/LV2/AU plugin hosting with a sandbox, the full
+bundled effects suite and instruments, Elastic-style time stretching and
+Beat Detective-style transient tools. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

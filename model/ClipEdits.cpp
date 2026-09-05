@@ -361,6 +361,47 @@ void DuplicateClipCommand::undo (Session& s)
     }
 }
 
+void SetClipGainLaneCommand::execute (Session& s)
+{
+    withClip (s, ref, [&] (auto& c)
+    {
+        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>)
+        {
+            oldLane = c.gainLane;
+            c.gainLane = (newLane != nullptr && ! newLane->isEmpty()) ? newLane : nullptr;
+        }
+    });
+}
+
+void SetClipGainLaneCommand::undo (Session& s)
+{
+    withClip (s, ref, [&] (auto& c)
+    {
+        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>) c.gainLane = oldLane;
+    });
+}
+
+void ReplaceClipAudioCommand::execute (Session& s)
+{
+    withClip (s, ref, [&] (auto& c)
+    {
+        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>)
+        {
+            if (newAudio == nullptr) return;
+            oldAudio = c.audio; oldModified = c.audioModified;
+            c.audio = newAudio; c.audioModified = true;
+        }
+    });
+}
+
+void ReplaceClipAudioCommand::undo (Session& s)
+{
+    withClip (s, ref, [&] (auto& c)
+    {
+        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>) { c.audio = oldAudio; c.audioModified = oldModified; }
+    });
+}
+
 //==============================================================================
 // Repack (Shuffle)
 

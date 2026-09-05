@@ -49,6 +49,14 @@ public:
     // Message thread. Audition a note on a synth instrument in the snapshot.
     void triggerNotePreview (int instrumentId, int pitch, float velocity, double seconds = 0.3);
 
+    // Scrubbing (message thread): the audio of `strip` (-1 = every strip) is
+    // dragged toward `targetSample` at a limited rate while the transport is
+    // stopped; the transport position follows so the playhead moves.
+    void startScrub (int strip, juce::int64 sample);
+    void setScrubTarget (juce::int64 sample);
+    void stopScrub();
+    bool isScrubbing() const noexcept { return scrubbing.load (std::memory_order_relaxed); }
+
     int getNumSynthVoices() const noexcept;
 
     // Optional recorder that receives every input block (message thread, before start).
@@ -97,6 +105,7 @@ private:
     static const AutomationLane* laneFor (const RenderStrip&, const ParamId&) noexcept;
     void mixPreview (float* const* outputs, int numOutputs, int numSamples);
     void mixClips (int stripIndex, juce::int64 rangeStart, int numSamples);
+    void mixClipsScrub (int stripIndex, int numSamples);
     void mixMonitoredInputs (int stripIndex, const float* const* inputs, int numInputs, int numSamples);
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
     void scheduleMidi (juce::int64 rangeStart, int numSamples);
@@ -142,6 +151,11 @@ private:
     };
     std::array<StripDelay, maxStrips> stripDelays;
     LoudnessSource loudness;
+
+    std::atomic<bool> scrubbing { false };
+    std::atomic<int> scrubStrip { -1 };
+    std::atomic<juce::int64> scrubTarget { 0 };
+    double scrubPosition = 0.0;      // audio thread
 
     const juce::AudioBuffer<float>* previewSource = nullptr;  // identity of the current preview
     int previewPosition = 0;

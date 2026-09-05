@@ -7,6 +7,7 @@
 #include "../shared/Theme.h"
 #include <ClipEdits.h>
 #include <Session.h>
+#include <graph/AudioGraph.h>
 #include <transport/Transport.h>
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -26,8 +27,8 @@ class TrackArea final : public juce::Component,
                         private model::Session::Listener
 {
 public:
-    TrackArea (model::Session& session, engine::Transport& transport, juce::AudioFormatManager& formatManager,
-               EditSettings& editSettings);
+    TrackArea (model::Session& session, engine::Transport& transport, engine::AudioGraph& graph,
+               juce::AudioFormatManager& formatManager, EditSettings& editSettings);
     ~TrackArea() override;
 
     // ---- Editing state ----
@@ -77,6 +78,7 @@ public:
     std::function<void (int trackIndex, int inputPath)> onInputPathChanged;
     std::function<void (int trackIndex, model::AutomationMode)> onAutomationModeChanged;
     void showAutomationLane (int trackIndex, const engine::ParamId&);
+    void showClipGainView (int trackIndex);
     std::function<double()> getPlayheadSeconds;   // for automation value readouts
 
     // Device inputs offered in each audio track's input selector.
@@ -129,6 +131,13 @@ private:
 
     // Automation display state per track id: which parameter lane is shown (nullopt = clips)
     std::map<int, engine::ParamId> automationView;
+    std::set<int> clipGainView;   // track ids showing clip gain lines
+    bool showsClipGain (const model::Track& t) const { return clipGainView.count (t.id) > 0; }
+    void paintClipGainLine (juce::Graphics&, const model::Track&, const model::AudioClip&, juce::Rectangle<float> clipRect);
+    int clipGainPointAt (const model::ClipRef&, juce::Point<int>) const;
+    juce::Rectangle<float> waveAreaFor (const model::ClipRef&) const;
+    bool pencilZoomOk() const;    // enough pixels per sample to draw samples
+    void paintSamples (juce::Graphics&, const model::AudioClip&, juce::Rectangle<float> waveArea);
     std::optional<engine::ParamId> shownLane (const model::Track&) const;
     void paintAutomationLane (juce::Graphics&, const model::Track&, int trackIndex, juce::Rectangle<int> lane);
     float valueToY (const engine::ParamId&, float value, juce::Rectangle<int> lane) const;
@@ -162,7 +171,7 @@ private:
     void paintEditOverlays (juce::Graphics&);
 
     // ---- Edit helpers ----
-    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain, automationPoint };
+    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange, fadeIn, fadeOut, clipGain, automationPoint, clipGainPoint, scrub, pencil };
     EditSettings::Tool effectiveTool (const juce::MouseEvent&, const std::optional<model::ClipRef>& hit, bool& nearStart, bool& nearEnd) const;
     std::optional<model::ClipRef> clipAtPoint (juce::Point<int>) const;
     juce::Rectangle<float> rectForClip (const model::ClipRef&) const;
@@ -183,6 +192,7 @@ private:
     model::Session& session;
     engine::Transport& transport;
     juce::AudioFormatManager& formatManager;
+    engine::AudioGraph& graph;
     juce::AudioThumbnailCache thumbnailCache { 64 };
     std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
     std::vector<TrackControls> trackControls;
@@ -205,6 +215,10 @@ private:
     float ghostGainDb = 0.0f;
     int dragPointIndex = -1;
     engine::AutomationPoint ghostPoint;
+    // Pencil stroke
+    std::shared_ptr<juce::AudioBuffer<float>> pencilBuffer;
+    int pencilLastSample = -1;
+    float pencilLastValue = 0.0f;
     bool dragMoved = false;
     double dragAnchorSeconds = 0.0;
 

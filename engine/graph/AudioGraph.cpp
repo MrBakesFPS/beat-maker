@@ -116,6 +116,16 @@ bool AudioGraph::getAndClearStripClip (int strip) noexcept
 
 bool AudioGraph::getAndClearMasterClip() noexcept { return masterMeter.clipped.exchange (false); }
 
+void AudioGraph::startScrub (int strip, juce::int64 sample)
+{
+    scrubStrip.store (strip);
+    scrubTarget.store (sample);
+    scrubbing.store (true);
+}
+
+void AudioGraph::setScrubTarget (juce::int64 sample) { scrubTarget.store (sample); }
+void AudioGraph::stopScrub() { scrubbing.store (false); }
+
 int AudioGraph::getNumSynthVoices() const noexcept
 {
     int n = 0;
@@ -284,15 +294,37 @@ void AudioGraph::mixClips (int stripIndex, juce::int64 blockStart, int numSample
             float* dst = outputs[ch] + outOffset;
             const float chGain = gain;
 
-            if (! inFade)
+            const bool hasGainLane = clip.gainLane != nullptr && ! clip.gainLane->isEmpty();
+
+            if (! inFade && ! hasGainLane)
             {
                 juce::FloatVectorOperations::addWithMultiply (dst, src, chGain, count);
+            }
+            else if (! inFade)
+            {
+                // Clip gain line: ramp between the block edges unless a breakpoint falls inside.
+                const auto& lane = *clip.gainLane;
+                const juce::int64 s0 = srcStart, s1 = srcStart + count;
+                bool breakpointInside = false;
+                for (const auto& p : lane.points) if (p.time > s0 && p.time < s1) { breakpointInside = true; break; }
+                if (! breakpointInside)
+                {
+                    const float g0 = chGain * lane.valueAt (s0, 1.0f), g1 = chGain * lane.valueAt (s1, 1.0f);
+                    const float step = (g1 - g0) / (float) count;
+                    float g = g0;
+                    for (int i = 0; i < count; ++i) { dst[i] += src[i] * g; g += step; }
+                }
+                else
+                    for (int i = 0; i < count; ++i) dst[i] += src[i] * chGain * lane.valueAt (s0 + i, 1.0f);
             }
             else
             {
                 for (int i = 0; i < count; ++i)
-                    dst[i] += src[i] * chGain * clipEnvelopeAt (relStart + i, clip.length, clip.fadeIn, clip.fadeInShape,
-                                                                clip.fadeOut, clip.fadeOutShape);
+                {
+                    float g = chGain * clipEnvelopeAt (relStart + i, clip.length, clip.fadeIn, clip.fadeInShape, clip.fadeOut, clip.fadeOutShape);
+                    if (hasGainLane) g *= clip.gainLane->valueAt (srcStart + i, 1.0f);
+                    dst[i] += src[i] * g;
+                }
             }
         }
     }
@@ -429,6 +461,40 @@ void AudioGraph::mixPreview (float* const* outputs, int numOutputs, int numSampl
     }
 }
 
+// Scrub: slide the read position toward the target at up to 2x speed and
+// read the strip's clips with linear interpolation.
+void AudioGraph::mixClipsScrub (int stripIndex, int numSamples)
+{
+    const double target = (double) scrubTarget.load (std::memory_order_relaxed);
+    const double sr = transport.getSampleRate();
+    float* outputs[2] = { stripBuffer.getWritePointer (0), stripBuffer.getWritePointer (1) };
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        // Rate proportional to distance (settles in ~50 ms), capped at 2x
+        const double rate = juce::jlimit (-2.0, 2.0, (target - scrubPosition) / (0.05 * sr));
+        scrubPosition += rate;
+        if (std::abs (rate) < 1.0e-3) continue;   // parked: silence
+
+        for (const auto& clip : current->clips)
+        {
+            if (clip.audio == nullptr || clip.strip != stripIndex) continue;
+            const double rel = scrubPosition - (double) clip.timelineStart;
+            if (rel < 0.0 || rel >= (double) clip.length) continue;
+            const double src = (double) clip.sourceOffset + rel;
+            const int s0 = (int) src;
+            if (s0 + 1 >= clip.audio->getNumSamples()) continue;
+            const float frac = (float) (src - s0);
+            const int channels = clip.audio->getNumChannels();
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* d = clip.audio->getReadPointer (juce::jmin (ch, channels - 1));
+                outputs[ch][i] += (d[s0] + (d[s0 + 1] - d[s0]) * frac) * clip.gain;
+            }
+        }
+    }
+}
+
 //==============================================================================
 // Strips
 
@@ -436,7 +502,10 @@ void AudioGraph::renderStripSources (int stripIndex, const float* const* inputs,
 {
     stripBuffer.clear (0, numSamples);
 
-    if (playing)
+    const bool scrub = scrubbing.load (std::memory_order_relaxed) && ! playing;
+    if (scrub && (scrubStrip.load (std::memory_order_relaxed) < 0 || scrubStrip.load (std::memory_order_relaxed) == stripIndex))
+        mixClipsScrub (stripIndex, numSamples);
+    else if (playing)
         mixClips (stripIndex, pos, numSamples);
 
     float* outs[2] = { stripBuffer.getWritePointer (0), stripBuffer.getWritePointer (1) };
@@ -610,6 +679,12 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
         releaseAllSynths (false);       // stop: let held notes release
     wasPlaying = playing;
 
+    // Scrubbing starts from wherever the playhead is and drags it along.
+    static thread_local bool wasScrubbing = false;
+    const bool scrubNow = scrubbing.load (std::memory_order_relaxed) && ! playing;
+    if (scrubNow && ! wasScrubbing) scrubPosition = (double) transport.getPositionSamples();
+    wasScrubbing = scrubNow;
+
     if (current != nullptr)
     {
         processPreviewEvents();
@@ -686,6 +761,9 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
     }
 
     mixPreview (outputs, numOutputs, numSamples);
+
+    if (scrubNow)
+        transport.setPositionSamples ((juce::int64) std::llround (scrubPosition));
 
     for (int ch = 0; ch < juce::jmin (numOutputs, (int) outputPeak.size()); ++ch)
         if (outputs[ch] != nullptr)

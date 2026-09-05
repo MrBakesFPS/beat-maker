@@ -210,6 +210,23 @@ public:
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
 
+    // --clip-gain-demo: a gain line on the first audio clip, Clip Gain view on, zoomed to fit
+    void clipGainDemoFromCommandLine()
+    {
+        for (int i = 0; i < session.getNumTracks(); ++i)
+        {
+            const auto& t = session.getTracks()[(size_t) i];
+            if (! t.isAudio() || t.clips.empty()) continue;
+            const auto& c = t.clips[0];
+            auto lane = std::make_shared<engine::AutomationLane>();
+            lane->param = engine::ParamId::volume();
+            lane->points = { { c.sourceOffset, 1.0f }, { c.sourceOffset + c.length / 4, 0.3f }, { c.sourceOffset + c.length / 2, 1.5f }, { c.sourceOffset + c.length, 0.6f } };
+            session.execute (std::make_unique<model::SetClipGainLaneCommand> (model::ClipRef { i, model::ClipRef::Kind::audio, 0 }, lane, "Demo Clip Gain"));
+            trackArea.showClipGainView (i);
+            break;
+        }
+    }
+
     void playlistDemoFromCommandLine()
     {
         for (int i = 0; i < session.getNumTracks(); ++i)
@@ -384,7 +401,9 @@ public:
         if (key == juce::KeyPress::F6Key) { editSettings.tool = Tool::trimmer;  editSettings.notify(); return true; }
         if (key == juce::KeyPress::F7Key) { editSettings.tool = Tool::selector; editSettings.notify(); return true; }
         if (key == juce::KeyPress::F8Key) { editSettings.tool = Tool::grabber;  editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::smart;    editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::scrubber; editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F10Key) { editSettings.tool = Tool::pencil;  editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F11Key) { editSettings.tool = Tool::smart;   editSettings.notify(); return true; }
         if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
         if (key == juce::KeyPress ('f', juce::ModifierKeys::commandModifier, 0)) { showFadesDialog(); return true; }
         if (key == juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 0)) { showGroupDialog (-1); return true; }
@@ -1129,7 +1148,7 @@ private:
     ui::TransportBar transportBar { engine.getTransport() };
     ui::EditSettings editSettings;
     ui::EditToolbar editToolbar { editSettings };
-    ui::TrackArea trackArea { session, engine.getTransport(), loader.getFormatManager(), editSettings };
+    ui::TrackArea trackArea { session, engine.getTransport(), engine.getGraph(), loader.getFormatManager(), editSettings };
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
     ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
     ui::SmartControls smartControls { session };
@@ -1196,6 +1215,7 @@ public:
             else if (arg == "--io-setup") main.showIOSetupDialogFromCommandLine();
             else if (arg == "--vca") main.addVcaTrackFromCommandLine();
             else if (arg == "--playlist-demo") main.playlistDemoFromCommandLine();
+            else if (arg == "--clip-gain-demo") main.clipGainDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

@@ -99,6 +99,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rc.fadeOut       = clip.fadeOut;
             rc.fadeInShape   = clip.fadeInShape;
             rc.fadeOutShape  = clip.fadeOutShape;
+            rc.gainLane      = clip.gainLane;
             snapshot->clips.push_back (std::move (rc));
         }
 

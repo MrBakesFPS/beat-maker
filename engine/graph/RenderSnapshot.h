@@ -44,6 +44,7 @@ struct RenderClip
     juce::int64 fadeOut       = 0;   // samples, to the clip end
     FadeShape fadeInShape     = FadeShape::linear;
     FadeShape fadeOutShape    = FadeShape::linear;
+    std::shared_ptr<const AutomationLane> gainLane;   // clip gain breakpoints, times in source samples
 };
 
 // A pattern clip: the step pattern loops for `length` samples starting at
