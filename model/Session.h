@@ -7,6 +7,7 @@
 #include "Command.h"
 
 #include <dsp/DrumKit.h>
+#include <dsp/Effects.h>
 #include <dsp/Fades.h>
 #include <dsp/SynthParams.h>
 #include <sequencer/MidiSequence.h>
@@ -78,10 +79,32 @@ struct MidiClip
     double getEndSeconds() const noexcept    { return getStartSeconds() + getLengthSeconds(); }
 };
 
+// Mixer insert slot. The effect instance is stateful and shared between the
+// model and the render snapshot; its parameters are immutable.
+struct Insert
+{
+    engine::EffectType type = engine::EffectType::none;
+    std::shared_ptr<engine::Effect> instance;
+    std::shared_ptr<const engine::InsertParams> params;
+    bool bypass = false;
+    bool isEmpty() const noexcept { return type == engine::EffectType::none || instance == nullptr; }
+};
+
+struct Send
+{
+    int bus = -1;          // -1 = no send
+    float gain = 1.0f;     // linear
+    bool preFader = false;
+    bool isActive() const noexcept { return bus >= 0; }
+};
+
 struct Track
 {
     enum class Type { audio, instrument, aux, master };
     enum class InstrumentKind { none, drumMachine, synth };
+    static constexpr int numInsertSlots = 10;
+    static constexpr int numSendSlots = 5;
+    static constexpr int numBuses = 8;
 
     int id = 0;                       // stable identity, assigned by the Session
     juce::String name;
@@ -101,6 +124,12 @@ struct Track
     bool mute = false;
     bool solo = false;
 
+    // Mixer
+    std::array<Insert, numInsertSlots> inserts;
+    std::array<Send, numSendSlots> sends;
+    int outputBus = -1;      // -1 = main mix
+    int inputBus = -1;       // aux tracks: which bus feeds this strip
+
     // Recording (audio tracks)
     bool armed = false;      // record-enabled
     bool monitor = false;    // pass the input straight to the outputs
@@ -111,6 +140,8 @@ struct Track
     bool isDrumMachine() const noexcept { return isInstrument() && instrumentKind == InstrumentKind::drumMachine; }
     bool isSynth() const noexcept       { return isInstrument() && instrumentKind == InstrumentKind::synth; }
     bool isAudio() const noexcept       { return type == Type::audio; }
+    bool isAux() const noexcept         { return type == Type::aux; }
+    bool isMaster() const noexcept      { return type == Type::master; }
     bool hasContent() const noexcept    { return ! clips.empty() || ! patternClips.empty() || ! midiClips.empty(); }
 };
 
@@ -131,6 +162,8 @@ public:
         return juce::isPositiveAndBelow (index, getNumTracks()) ? &tracks[(size_t) index] : nullptr;
     }
     int indexOfTrackId (int id) const noexcept;
+    const Track& getMaster() const noexcept { return master; }
+    static juce::String busName (int bus) { return "Bus " + juce::String (bus * 2 + 1) + "-" + juce::String (bus * 2 + 2); }
     double getBpm() const noexcept { return bpm; }
     int getBeatsPerBar() const noexcept { return beatsPerBar; }
     double getLengthSeconds() const;   // end of the last clip of any kind, or 0
@@ -168,6 +201,7 @@ private:
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
 
     std::vector<Track> tracks;
+    Track master = [] { Track m; m.name = "Master"; m.type = Track::Type::master; m.colour = juce::Colour (0xffb0b8c4); return m; }();
     int nextTrackId = 1;
     double bpm = 120.0;
     int beatsPerBar = 4;
@@ -179,6 +213,13 @@ private:
 struct EditAccess
 {
     static std::vector<Track>& tracks (Session& s) noexcept { return s.tracks; }
+    static Track& master (Session& s) noexcept { return s.master; }
+    // index -1 addresses the master strip
+    static Track* trackOrMaster (Session& s, int index) noexcept
+    {
+        if (index == -1) return &s.master;
+        return juce::isPositiveAndBelow (index, (int) s.tracks.size()) ? &s.tracks[(size_t) index] : nullptr;
+    }
 };
 
 //==============================================================================
@@ -371,11 +412,9 @@ public:
     juce::String getName() const override { return "Adjust Volume/Pan"; }
     void execute (Session& s) override
     {
-        auto& t = s.tracks[(size_t) index];
-        oldGain = t.gain; oldPan = t.pan;
-        t.gain = gain; t.pan = pan;
+        if (auto* t = EditAccess::trackOrMaster (s, index)) { oldGain = t->gain; oldPan = t->pan; t->gain = gain; t->pan = pan; }
     }
-    void undo (Session& s) override { auto& t = s.tracks[(size_t) index]; t.gain = oldGain; t.pan = oldPan; }
+    void undo (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) { t->gain = oldGain; t->pan = oldPan; } }
 private:
     int index;
     float gain, pan, oldGain = 1.0f, oldPan = 0.0f;

@@ -7,6 +7,7 @@ target_sources(beatmaker_engine INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/bounce/Bouncer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/DrumKitFactory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/DrumMachine.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Effects.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Resampler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Synth.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/graph/AudioGraph.cpp

@@ -79,6 +79,12 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     controlsButton.setTooltip ("Show or hide Smart Controls (B)");
     controlsButton.onClick = [this] { if (onControlsToggled) onControlsToggled (controlsButton.getToggleState()); };
 
+    addAndMakeVisible (mixerButton);
+    mixerButton.setClickingTogglesState (true);
+    mixerButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
+    mixerButton.setTooltip ("Show the Mix window instead of the editor (X)");
+    mixerButton.onClick = [this] { if (onMixerToggled) onMixerToggled (mixerButton.getToggleState()); };
+
     addAndMakeVisible (editorButton);
     editorButton.setClickingTogglesState (true);
     editorButton.setToggleState (true, juce::dontSendNotification);
@@ -113,6 +119,8 @@ void TransportBar::resized()
     openButton.setBounds (area.removeFromRight (80).reduced (0, 6));
     area.removeFromRight (8);
     editorButton.setBounds (area.removeFromRight (64).reduced (0, 8));
+    area.removeFromRight (6);
+    mixerButton.setBounds (area.removeFromRight (46).reduced (0, 8));
     area.removeFromRight (6);
     controlsButton.setBounds (area.removeFromRight (74).reduced (0, 8));
     area.removeFromRight (6);

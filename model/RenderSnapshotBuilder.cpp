@@ -3,6 +3,18 @@
 namespace beatmaker::model
 {
 
+namespace
+{
+    std::vector<engine::RenderInsert> renderInserts (const Track& t)
+    {
+        std::vector<engine::RenderInsert> out;
+        for (const auto& ins : t.inserts)
+            if (! ins.isEmpty() && ins.params != nullptr)
+                out.push_back ({ ins.instance, ins.params, ins.bypass });
+        return out;
+    }
+}
+
 std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& session)
 {
     auto snapshot = std::make_unique<engine::RenderSnapshot>();
@@ -11,16 +23,34 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
     for (const auto& t : session.getTracks())
         anySolo = anySolo || t.solo;
 
-    for (const auto& track : session.getTracks())
+    const auto& tracks = session.getTracks();
+    for (int i = 0; i < (int) tracks.size(); ++i)
     {
+        const auto& track = tracks[(size_t) i];
         const bool audible = ! track.mute && (! anySolo || track.solo);
 
+        // ---- Channel strip (one per track, same index) ----
+        engine::RenderStrip strip;
+        strip.trackId   = track.id;
+        strip.isAux     = track.isAux();
+        strip.inputBus  = track.inputBus;
+        strip.outputBus = track.outputBus;
+        strip.gain      = track.gain;
+        strip.pan       = track.pan;
+        strip.muted     = ! audible;
+        strip.inserts   = renderInserts (track);
+        for (const auto& send : track.sends)
+            if (send.isActive() && send.gain > 0.0f)
+                strip.sends.push_back ({ send.bus, send.gain, send.preFader });
+        snapshot->strips.push_back (std::move (strip));
+
+        // ---- Sources ----
         if (track.isAudio() && track.monitor && audible)
-            snapshot->monitors.push_back ({ track.firstInput, track.numInputs, track.gain });
+            snapshot->monitors.push_back ({ track.firstInput, track.numInputs, 1.0f, i });
 
         for (const auto& clip : track.clips)
         {
-            if (! audible || clip.audio == nullptr)
+            if (clip.audio == nullptr)
                 continue;
 
             engine::RenderClip rc;
@@ -28,8 +58,8 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rc.timelineStart = clip.timelineStart;
             rc.sourceOffset  = clip.sourceOffset;
             rc.length        = clip.length;
-            rc.gain          = clip.gain * track.gain;
-            rc.pan           = track.pan;
+            rc.gain          = clip.gain;
+            rc.strip         = i;
             rc.fadeIn        = clip.fadeIn;
             rc.fadeOut       = clip.fadeOut;
             rc.fadeInShape   = clip.fadeInShape;
@@ -50,16 +80,14 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rp.timelineStart = clip.timelineStart;
             rp.length        = audible ? clip.length : 0;
             rp.loopOffset    = clip.loopOffset;
-            rp.gain          = clip.gain * track.gain;
-            rp.pan           = track.pan;
+            rp.gain          = clip.gain;
+            rp.strip         = i;
             snapshot->patterns.push_back (std::move (rp));
         }
 
-        // Synth tracks: the instrument is always present (for auditioning);
-        // muted tracks get zero-length clips so nothing fires.
         if (track.isSynth() && track.synthParams != nullptr)
         {
-            snapshot->synths.push_back ({ track.id, track.synthParams, track.pan });
+            snapshot->synths.push_back ({ track.id, track.synthParams, i });
 
             for (const auto& clip : track.midiClips)
             {
@@ -70,11 +98,15 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
                 rm.timelineStart = clip.timelineStart;
                 rm.length        = audible ? clip.length : 0;
                 rm.loopOffset    = clip.loopOffset;
-                rm.gain          = clip.gain * track.gain;
+                rm.gain          = clip.gain;
                 snapshot->midiClips.push_back (std::move (rm));
             }
         }
     }
+
+    // ---- Master ----
+    snapshot->master.gain = session.getMaster().gain;
+    snapshot->master.inserts = renderInserts (session.getMaster());
 
     return snapshot;
 }

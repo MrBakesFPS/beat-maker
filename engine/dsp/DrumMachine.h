@@ -18,10 +18,13 @@ public:
 
     // Start `pad` of `kit` after `delaySamples` within the next render call.
     // Re-triggering a pad that is still sounding fades the old voice out.
-    void trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, float pan = 0.0f) noexcept;
+    void trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip = 0) noexcept;
 
-    // Mix all active voices into the outputs (additive).
-    void render (float* const* outputs, int numOutputs, int numSamples) noexcept;
+    // Mix active voices into the outputs (additive). strip < 0 renders every
+    // voice; otherwise only voices belonging to that channel strip.
+    void render (float* const* outputs, int numOutputs, int numSamples, int strip = -1) noexcept;
+
+    bool hasVoicesForStrip (int strip) const noexcept;
 
     // Kill every voice whose kit is not in `kits`.
     void killVoicesNotUsing (const DrumKit* const* kits, int numKits) noexcept;
@@ -40,7 +43,7 @@ private:
         int fadePending = -1;     // >= 0: samples until a choke fade begins
         int fadeRemaining = -1;   // >= 0 while fading out
         float gain = 0.0f;
-        float pan = 0.0f;
+        int strip = 0;
         bool active = false;
     };
 

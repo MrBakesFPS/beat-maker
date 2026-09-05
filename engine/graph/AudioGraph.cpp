@@ -4,7 +4,10 @@
 namespace beatmaker::engine
 {
 
-AudioGraph::AudioGraph (Transport& transportToUse) : transport (transportToUse) {}
+AudioGraph::AudioGraph (Transport& transportToUse) : transport (transportToUse)
+{
+    for (auto& b : busBuffers) b.setSize (2, maxBlock);
+}
 
 AudioGraph::~AudioGraph()
 {
@@ -56,6 +59,17 @@ void AudioGraph::triggerNotePreview (int instrumentId, int pitch, float velocity
         e.gateSamples = (int) std::llround (seconds * transport.getSampleRate());
         previewEvents[(size_t) index] = e;
     }
+}
+
+float AudioGraph::getStripPeak (int strip, int channel) const noexcept
+{
+    return juce::isPositiveAndBelow (strip, maxStrips) && juce::isPositiveAndBelow (channel, 2)
+             ? stripMeters[(size_t) strip].peak[(size_t) channel].load (std::memory_order_relaxed) : 0.0f;
+}
+
+float AudioGraph::getMasterPeak (int channel) const noexcept
+{
+    return juce::isPositiveAndBelow (channel, 2) ? masterMeter.peak[(size_t) channel].load (std::memory_order_relaxed) : 0.0f;
 }
 
 int AudioGraph::getNumSynthVoices() const noexcept
@@ -135,7 +149,7 @@ void AudioGraph::rebindSynthSlots()
 
         if (slot->id < 0) { slot->id = rs.instrumentId; slot->synth.prepare (transport.getSampleRate()); }
         slot->synth.setParams (rs.params.get());
-        slot->synth.setPan (rs.pan);
+        slot->strip = rs.strip;
     }
 }
 
@@ -169,8 +183,8 @@ void AudioGraph::processPreviewEvents()
             const auto& e = previewEvents[(size_t) (start + i)];
             if (e.kit != nullptr)
             {
-                if (snapshotHasKit (e.kit))
-                    drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0);
+                for (const auto& p : current->patterns)
+                    if (p.kit.get() == e.kit) { drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0, p.strip); break; }
             }
             else if (auto* synth = synthForId (e.instrumentId))
                 synth->noteOn (e.pitch, e.velocity * current->masterGain, 0, juce::jmax (1, e.gateSamples));
@@ -180,13 +194,15 @@ void AudioGraph::processPreviewEvents()
     handle (scope.startIndex2, scope.blockSize2);
 }
 
-void AudioGraph::mixClips (float* const* outputs, int numOutputs, juce::int64 blockStart, int numSamples)
+void AudioGraph::mixClips (int stripIndex, juce::int64 blockStart, int numSamples)
 {
     const juce::int64 blockEnd = blockStart + numSamples;
+    float* outputs[2] = { stripBuffer.getWritePointer (0), stripBuffer.getWritePointer (1) };
+    constexpr int numOutputs = 2;
 
     for (const auto& clip : current->clips)
     {
-        if (clip.audio == nullptr || clip.length <= 0)
+        if (clip.audio == nullptr || clip.length <= 0 || clip.strip != stripIndex)
             continue;
 
         const juce::int64 clipEnd = clip.timelineStart + clip.length;
@@ -222,7 +238,7 @@ void AudioGraph::mixClips (float* const* outputs, int numOutputs, juce::int64 bl
             const int srcCh = juce::jmin (ch, srcChannels - 1);
             const float* src = clip.audio->getReadPointer (srcCh, (int) srcStart);
             float* dst = outputs[ch] + outOffset;
-            const float chGain = gain * panGainForChannel (clip.pan, ch);
+            const float chGain = gain;
 
             if (! inFade)
             {
@@ -277,7 +293,7 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
             {
                 const auto v = rp.pattern->velocity[(size_t) pad][(size_t) step];
                 if (v > 0)
-                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay, rp.pan);
+                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay, rp.strip);
             }
         }
     }
@@ -325,62 +341,19 @@ void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
     }
 }
 
-void AudioGraph::renderRange (float* const* outputs, int numOutputs, int numSamples)
+void AudioGraph::mixMonitoredInputs (int stripIndex, const float* const* inputs, int numInputs, int numSamples)
 {
-    for (int ch = 0; ch < numOutputs; ++ch)
-        if (outputs[ch] != nullptr)
-            juce::FloatVectorOperations::clear (outputs[ch], numSamples);
-
-    swapInPendingSnapshot();
-
-    const bool playing = transport.isPlaying();
-    if (wasPlaying && ! playing)
-        releaseAllSynths (false);       // stop: let held notes release
-    wasPlaying = playing;
-
-    if (current != nullptr)
-    {
-        processPreviewEvents();
-
-        if (playing)
-        {
-            const juce::int64 pos = transport.getPositionSamples();
-            mixClips (outputs, numOutputs, pos, numSamples);
-            scheduleSequencer (pos, numSamples);
-            scheduleMidi (pos, numSamples);
-        }
-    }
-
-    // Instrument voices always render so previews sound while stopped and
-    // tails ring out after stop. Library preview likewise ignores the transport.
-    drums.render (outputs, numOutputs, numSamples);
-    for (auto& slot : synthSlots)
-        if (slot.id >= 0) slot.synth.render (outputs, numOutputs, numSamples);
-    mixPreview (outputs, numOutputs, numSamples);
-
-    for (int ch = 0; ch < juce::jmin (numOutputs, (int) outputPeak.size()); ++ch)
-        if (outputs[ch] != nullptr)
-            outputPeak[(size_t) ch].store (juce::FloatVectorOperations::findMaximum (outputs[ch], numSamples),
-                                           std::memory_order_relaxed);
-
-    if (transport.isPlaying())
-        transport.advance (numSamples);
-}
-
-void AudioGraph::mixMonitoredInputs (const float* const* inputs, int numInputs,
-                                     float* const* outputs, int numOutputs, int numSamples)
-{
-    if (current == nullptr || inputs == nullptr || numInputs <= 0)
+    if (inputs == nullptr || numInputs <= 0)
         return;
 
     for (const auto& m : current->monitors)
     {
-        for (int ch = 0; ch < numOutputs; ++ch)
+        if (m.strip != stripIndex) continue;
+        for (int ch = 0; ch < 2; ++ch)
         {
-            if (outputs[ch] == nullptr) continue;
             const int idx = m.firstInput + juce::jmin (ch, m.numInputs - 1);
             if (idx < 0 || idx >= numInputs || inputs[idx] == nullptr) continue;
-            juce::FloatVectorOperations::addWithMultiply (outputs[ch], inputs[idx], m.gain, numSamples);
+            juce::FloatVectorOperations::addWithMultiply (stripBuffer.getWritePointer (ch), inputs[idx], m.gain, numSamples);
         }
     }
 }
@@ -412,6 +385,145 @@ void AudioGraph::mixPreview (float* const* outputs, int numOutputs, int numSampl
     }
 }
 
+//==============================================================================
+// Strips
+
+void AudioGraph::renderStripSources (int stripIndex, const float* const* inputs, int numInputs, juce::int64 pos, bool playing, int numSamples)
+{
+    stripBuffer.clear (0, numSamples);
+
+    if (playing)
+        mixClips (stripIndex, pos, numSamples);
+
+    float* outs[2] = { stripBuffer.getWritePointer (0), stripBuffer.getWritePointer (1) };
+    drums.render (outs, 2, numSamples, stripIndex);
+    for (auto& slot : synthSlots)
+        if (slot.id >= 0 && slot.strip == stripIndex)
+            slot.synth.render (outs, 2, numSamples);
+
+    mixMonitoredInputs (stripIndex, inputs, numInputs, numSamples);
+}
+
+void AudioGraph::processInserts (const std::vector<RenderInsert>& inserts, juce::AudioBuffer<float>& buffer, int numSamples)
+{
+    for (const auto& ins : inserts)
+    {
+        if (ins.fx == nullptr || ins.params == nullptr || ins.bypass) continue;
+        if (std::abs (ins.fx->getSampleRate() - transport.getSampleRate()) > 0.5) continue;   // prepared for another rate: skip
+        ins.fx->process (buffer, numSamples, *ins.params);
+    }
+}
+
+void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, int numSamples)
+{
+    processInserts (strip.inserts, stripBuffer, numSamples);
+
+    auto& meter = stripMeters[(size_t) juce::jlimit (0, maxStrips - 1, stripIndex)];
+
+    if (strip.muted)
+    {
+        for (auto& p : meter.peak) p.store (0.0f, std::memory_order_relaxed);
+        return;
+    }
+
+    // Pre-fader sends
+    for (const auto& send : strip.sends)
+        if (send.preFader && juce::isPositiveAndBelow (send.bus, numBuses) && send.gain > 0.0f)
+            for (int ch = 0; ch < 2; ++ch)
+                busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, send.gain);
+
+    // Fader + pan
+    for (int ch = 0; ch < 2; ++ch)
+        stripBuffer.applyGain (ch, 0, numSamples, strip.gain * panGainForChannel (strip.pan, ch));
+
+    for (int ch = 0; ch < 2; ++ch)
+        meter.peak[(size_t) ch].store (stripBuffer.getMagnitude (ch, 0, numSamples), std::memory_order_relaxed);
+
+    // Post-fader sends
+    for (const auto& send : strip.sends)
+        if (! send.preFader && juce::isPositiveAndBelow (send.bus, numBuses) && send.gain > 0.0f)
+            for (int ch = 0; ch < 2; ++ch)
+                busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, send.gain);
+
+    // Output
+    auto& dest = juce::isPositiveAndBelow (strip.outputBus, numBuses) ? busBuffers[(size_t) strip.outputBus] : mainBuffer;
+    for (int ch = 0; ch < 2; ++ch)
+        dest.addFrom (ch, 0, stripBuffer, ch, 0, numSamples);
+}
+
+void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples)
+{
+    for (int ch = 0; ch < numOutputs; ++ch)
+        if (outputs[ch] != nullptr)
+            juce::FloatVectorOperations::clear (outputs[ch], numSamples);
+
+    swapInPendingSnapshot();
+
+    const bool playing = transport.isPlaying();
+    if (wasPlaying && ! playing)
+        releaseAllSynths (false);       // stop: let held notes release
+    wasPlaying = playing;
+
+    if (current != nullptr)
+    {
+        processPreviewEvents();
+
+        const juce::int64 pos = transport.getPositionSamples();
+        if (playing)
+        {
+            scheduleSequencer (pos, numSamples);
+            scheduleMidi (pos, numSamples);
+        }
+
+        mainBuffer.clear (0, numSamples);
+        for (auto& b : busBuffers) b.clear (0, numSamples);
+
+        const bool useDefault = current->strips.empty();
+        const int numStrips = useDefault ? 1 : (int) current->strips.size();
+        auto stripAt = [&] (int i) -> const RenderStrip& { return useDefault ? defaultStrip : current->strips[(size_t) i]; };
+
+        // Source strips first, then aux strips (which read the buses the others filled).
+        for (int pass = 0; pass < 2; ++pass)
+            for (int i = 0; i < numStrips; ++i)
+            {
+                const auto& strip = stripAt (i);
+                if (strip.isAux != (pass == 1)) continue;
+
+                if (strip.isAux)
+                {
+                    stripBuffer.clear (0, numSamples);
+                    if (juce::isPositiveAndBelow (strip.inputBus, numBuses))
+                        for (int ch = 0; ch < 2; ++ch)
+                            stripBuffer.copyFrom (ch, 0, busBuffers[(size_t) strip.inputBus], ch, 0, numSamples);
+                }
+                else
+                    renderStripSources (i, inputs, numInputs, pos, playing, numSamples);
+
+                processStrip (strip, i, numSamples);
+            }
+
+        // Master
+        processInserts (current->master.inserts, mainBuffer, numSamples);
+        mainBuffer.applyGain (0, numSamples, current->master.gain);
+        for (int ch = 0; ch < 2; ++ch)
+            masterMeter.peak[(size_t) ch].store (mainBuffer.getMagnitude (ch, 0, numSamples), std::memory_order_relaxed);
+
+        for (int ch = 0; ch < numOutputs; ++ch)
+            if (outputs[ch] != nullptr)
+                juce::FloatVectorOperations::add (outputs[ch], mainBuffer.getReadPointer (juce::jmin (ch, 1)), numSamples);
+    }
+
+    mixPreview (outputs, numOutputs, numSamples);
+
+    for (int ch = 0; ch < juce::jmin (numOutputs, (int) outputPeak.size()); ++ch)
+        if (outputs[ch] != nullptr)
+            outputPeak[(size_t) ch].store (juce::FloatVectorOperations::findMaximum (outputs[ch], numSamples),
+                                           std::memory_order_relaxed);
+
+    if (playing)
+        transport.advance (numSamples);
+}
+
 void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
                               float* const* outputs, int numOutputs, int numSamples)
 {
@@ -422,10 +534,13 @@ void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
         recorder->processInput (inputs, numInputs, numSamples);
     std::array<float*, maxOutputs> offsetOutputs {};
 
+    std::array<const float*, maxOutputs> offsetInputs {};
+    numInputs = juce::jmin (numInputs, maxOutputs);
+
     int done = 0;
     while (done < numSamples)
     {
-        int count = numSamples - done;
+        int count = juce::jmin (numSamples - done, maxBlock);
         bool wrapAfter = false;
 
         // Split the block at the loop end so the wrap is sample-accurate.
@@ -444,8 +559,10 @@ void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
         {
             for (int ch = 0; ch < numOutputs; ++ch)
                 offsetOutputs[(size_t) ch] = outputs[ch] != nullptr ? outputs[ch] + done : nullptr;
+            for (int ch = 0; ch < numInputs; ++ch)
+                offsetInputs[(size_t) ch] = (inputs != nullptr && inputs[ch] != nullptr) ? inputs[ch] + done : nullptr;
 
-            renderRange (offsetOutputs.data(), numOutputs, count);
+            renderRange (inputs != nullptr ? offsetInputs.data() : nullptr, numInputs, offsetOutputs.data(), numOutputs, count);
             done += count;
         }
 
@@ -458,8 +575,6 @@ void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
         if (count <= 0)
             break;
     }
-
-    mixMonitoredInputs (inputs, numInputs, outputs, numOutputs, numSamples);
 }
 
 float AudioGraph::getOutputPeak (int channel) const noexcept

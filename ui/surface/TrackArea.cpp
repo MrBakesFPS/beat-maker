@@ -16,10 +16,12 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormat
         menu.addItem (1, "Audio Track");
         menu.addItem (2, "Drum Machine Track");
         menu.addItem (3, "Synth Track");
+        menu.addItem (4, "Aux Input");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
                             [this] (int result)
                             {
-                                if (result == 1 && onAddTrack)      onAddTrack (model::Track::Type::audio, model::Track::InstrumentKind::none);
+                                if (result == 4 && onAddTrack)      onAddTrack (model::Track::Type::aux, model::Track::InstrumentKind::none);
+                                else if (result == 1 && onAddTrack) onAddTrack (model::Track::Type::audio, model::Track::InstrumentKind::none);
                                 else if (result == 2 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::drumMachine);
                                 else if (result == 3 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::synth);
                             });
@@ -364,7 +366,9 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
 
     g.setColour (track.armed ? theme::record.brighter (0.2f) : theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth" : track.armed ? "  Audio  REC" : "  Audio"),
+    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth"
+                                            : track.isAux() ? "  Aux  <- " + (track.inputBus >= 0 ? model::Session::busName (track.inputBus) : juce::String ("no input"))
+                                            : track.armed ? "  Audio  REC" : "  Audio"),
                 content.removeFromTop (14), juce::Justification::centredLeft);
 
     g.setColour (theme::grid);

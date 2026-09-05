@@ -1,10 +1,13 @@
 // AudioGraph: the real-time render callback. Per block it
 //   1. swaps in any pending RenderSnapshot,
-//   2. mixes audio clips that overlap the block,
-//   3. schedules step-sequencer hits into the DrumMachine voice pool,
-//   4. renders drum voices (also while stopped, for pad previews and tails),
-//   5. advances the transport, wrapping at the loop end when cycling,
-//   6. hands device input to the Recorder and mixes monitored inputs through.
+//   2. schedules step-sequencer hits and MIDI notes,
+//   3. renders every channel strip: its clips, drum voices, synth and
+//      monitored inputs -> inserts -> pre-fader sends -> fader/pan -> post
+//      sends -> main mix or a bus; then aux strips read their bus; then the
+//      master strip (inserts, fader) feeds the device outputs,
+//   4. advances the transport, wrapping at the loop end when cycling,
+//   5. hands device input to the Recorder.
+// Instruments render while stopped too (previews, tails).
 //
 // Snapshot handoff is lock-free:
 //   message thread  --incoming-->  audio thread  --retired-->  message thread
@@ -61,6 +64,12 @@ public:
     float getOutputPeak (int channel) const noexcept;
     int getNumActiveVoices() const noexcept { return drums.getNumActiveVoices(); }
 
+    // Meters (message thread readout): post-fader peak per strip and master.
+    static constexpr int maxStrips = 64;
+    static constexpr int numBuses = 8;
+    float getStripPeak (int strip, int channel) const noexcept;
+    float getMasterPeak (int channel) const noexcept;
+
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext (const float* const* inputChannelData, int numInputChannels,
                                            float* const* outputChannelData, int numOutputChannels,
@@ -71,11 +80,15 @@ public:
 
 private:
     static constexpr int maxOutputs = 32;
+    static constexpr int maxBlock = 8192;
 
-    void renderRange (float* const* outputs, int numOutputs, int numSamples);
-    void mixMonitoredInputs (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
+    void renderRange (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
+    void renderStripSources (int stripIndex, const float* const* inputs, int numInputs, juce::int64 pos, bool playing, int numSamples);
+    void processStrip (const RenderStrip&, int stripIndex, int numSamples);
+    void processInserts (const std::vector<RenderInsert>&, juce::AudioBuffer<float>&, int numSamples);
     void mixPreview (float* const* outputs, int numOutputs, int numSamples);
-    void mixClips (float* const* outputs, int numOutputs, juce::int64 rangeStart, int numSamples);
+    void mixClips (int stripIndex, juce::int64 rangeStart, int numSamples);
+    void mixMonitoredInputs (int stripIndex, const float* const* inputs, int numInputs, int numSamples);
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
     void scheduleMidi (juce::int64 rangeStart, int numSamples);
     void rebindSynthSlots();
@@ -90,9 +103,18 @@ private:
     Recorder* recorder = nullptr;
 
     static constexpr int maxSynths = 16;
-    struct SynthSlot { int id = -1; Synth synth; };
+    struct SynthSlot { int id = -1; int strip = 0; Synth synth; };
     std::array<SynthSlot, maxSynths> synthSlots;
     bool wasPlaying = false;
+
+    // Mixer buffers (allocated once; blocks are chunked to maxBlock)
+    juce::AudioBuffer<float> stripBuffer { 2, maxBlock };
+    juce::AudioBuffer<float> mainBuffer { 2, maxBlock };
+    std::array<juce::AudioBuffer<float>, numBuses> busBuffers;
+    struct Meter { std::array<std::atomic<float>, 2> peak { 0.0f, 0.0f }; };
+    std::array<Meter, maxStrips> stripMeters;
+    Meter masterMeter;
+    const RenderStrip defaultStrip {};
 
     const juce::AudioBuffer<float>* previewSource = nullptr;  // identity of the current preview
     int previewPosition = 0;

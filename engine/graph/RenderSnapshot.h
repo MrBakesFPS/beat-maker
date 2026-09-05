@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../dsp/DrumKit.h"
+#include "../dsp/Effects.h"
 #include "../dsp/Fades.h"
 #include "../dsp/SynthParams.h"
 #include "../sequencer/MidiSequence.h"
@@ -36,8 +37,8 @@ struct RenderClip
     juce::int64 timelineStart = 0;   // in engine samples
     juce::int64 sourceOffset  = 0;   // first sample of `audio` to play
     juce::int64 length        = 0;   // samples to play
-    float gain                = 1.0f; // clip gain * track gain, linear
-    float pan                 = 0.0f; // -1..1
+    float gain                = 1.0f; // clip gain, linear (the track fader lives on the strip)
+    int strip                 = 0;   // channel strip that receives this clip
     juce::int64 fadeIn        = 0;   // samples, from the clip start
     juce::int64 fadeOut       = 0;   // samples, to the clip end
     FadeShape fadeInShape     = FadeShape::linear;
@@ -53,7 +54,7 @@ struct RenderPattern
     juce::int64 timelineStart = 0;
     juce::int64 length        = 0;
     float gain                = 1.0f;
-    float pan                 = 0.0f;
+    int strip                 = 0;
     juce::int64 loopOffset    = 0;    // pattern position at timelineStart
 };
 
@@ -62,7 +63,7 @@ struct RenderSynth
 {
     int instrumentId = 0;
     std::shared_ptr<const SynthParams> params;
-    float pan = 0.0f;
+    int strip = 0;
 };
 
 // A MIDI clip driving a synth: the sequence loops for `length` samples.
@@ -82,6 +83,44 @@ struct MonitorInput
     int firstInput = 0;
     int numInputs  = 1;   // 1 = mono to all outputs, 2 = stereo pair
     float gain     = 1.0f;
+    int strip      = 0;
+};
+
+//==============================================================================
+// Mixer
+
+struct RenderInsert
+{
+    std::shared_ptr<Effect> fx;                    // stateful instance owned by the model
+    std::shared_ptr<const InsertParams> params;
+    bool bypass = false;
+};
+
+struct RenderSend
+{
+    int bus = -1;          // 0..numBuses-1
+    float gain = 1.0f;     // linear
+    bool preFader = false;
+};
+
+// One channel strip: sources -> inserts -> (pre sends) -> fader/pan -> (post sends) -> output.
+struct RenderStrip
+{
+    int trackId = 0;
+    bool isAux = false;    // takes its input from `inputBus` instead of sources
+    int inputBus = -1;
+    int outputBus = -1;    // -1 = main mix
+    float gain = 1.0f;
+    float pan = 0.0f;
+    bool muted = false;    // after solo logic
+    std::vector<RenderInsert> inserts;
+    std::vector<RenderSend> sends;
+};
+
+struct RenderMaster
+{
+    float gain = 1.0f;
+    std::vector<RenderInsert> inserts;
 };
 
 struct RenderSnapshot
@@ -91,6 +130,10 @@ struct RenderSnapshot
     std::vector<RenderSynth> synths;
     std::vector<RenderMidiClip> midiClips;
     std::vector<MonitorInput> monitors;
+
+    // Channel strips in track order; empty = a single pass-through strip.
+    std::vector<RenderStrip> strips;
+    RenderMaster master;
 
     // Library audition: played from its start whenever the pointer changes,
     // independent of the transport, looping while present.

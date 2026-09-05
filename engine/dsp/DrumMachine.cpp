@@ -1,10 +1,9 @@
 #include "DrumMachine.h"
-#include "../graph/RenderSnapshot.h"
 
 namespace beatmaker::engine
 {
 
-void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, float pan) noexcept
+void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip) noexcept
 {
     if (kit == nullptr || ! juce::isPositiveAndBelow (pad, DrumKit::numPads))
         return;
@@ -36,15 +35,21 @@ void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float ga
     target->pad    = pad;
     target->delay  = juce::jmax (0, delaySamples);
     target->gain   = velocity * sample.gain * gain;
-    target->pan    = pan;
+    target->strip  = strip;
     target->active = true;
 }
 
-void DrumMachine::render (float* const* outputs, int numOutputs, int numSamples) noexcept
+bool DrumMachine::hasVoicesForStrip (int strip) const noexcept
+{
+    for (const auto& v : voices) if (v.active && v.strip == strip) return true;
+    return false;
+}
+
+void DrumMachine::render (float* const* outputs, int numOutputs, int numSamples, int strip) noexcept
 {
     for (auto& v : voices)
     {
-        if (! v.active)
+        if (! v.active || (strip >= 0 && v.strip != strip))
             continue;
 
         int pos = juce::jmin (v.delay, numSamples);   // position within this block
@@ -82,7 +87,7 @@ void DrumMachine::render (float* const* outputs, int numOutputs, int numSamples)
                 if (outputs[ch] == nullptr) continue;
                 const float* src = v.audio->getReadPointer (juce::jmin (ch, srcChannels - 1), v.position);
                 float* dst = outputs[ch] + pos;
-                const float chGain = v.gain * panGainForChannel (v.pan, ch);
+                const float chGain = v.gain;
 
                 if (mode == Mode::normal)
                     juce::FloatVectorOperations::addWithMultiply (dst, src, chGain, n);

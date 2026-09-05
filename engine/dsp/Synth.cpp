@@ -1,5 +1,4 @@
 #include "Synth.h"
-#include "../graph/RenderSnapshot.h"
 #include <cmath>
 
 namespace beatmaker::engine
@@ -146,10 +145,7 @@ void Synth::render (float* const* outputs, int numOutputs, int numSamples) noexc
     const auto& p = *params;
     const double nyquist = 0.45 * sampleRate;
 
-    float channelGain[32];
     const int channels = juce::jmin (numOutputs, 32);
-    for (int ch = 0; ch < channels; ++ch)
-        channelGain[ch] = panGainForChannel (pan, ch);
 
     for (auto& v : voices)
     {
@@ -205,7 +201,7 @@ void Synth::render (float* const* outputs, int numOutputs, int numSamples) noexc
 
             const float sample = v2 * v.env * v.velocity * p.gain;
             for (int ch = 0; ch < channels; ++ch)
-                if (outputs[ch] != nullptr) outputs[ch][i] += sample * channelGain[ch];
+                if (outputs[ch] != nullptr) outputs[ch][i] += sample;
         }
     }
 }

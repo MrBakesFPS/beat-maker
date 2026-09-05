@@ -7,6 +7,7 @@
 #include "depth/BounceDialog.h"
 #include "depth/EditToolbar.h"
 #include "depth/FadesDialog.h"
+#include "depth/MixerView.h"
 #include "shared/EditSettings.h"
 #include "shared/Theme.h"
 #include "surface/LoopBrowser.h"
@@ -68,7 +69,16 @@ public:
         addAndMakeVisible (sequencer);
         addAndMakeVisible (pianoRoll);
         pianoRoll.setVisible (false);
+        addAndMakeVisible (mixerView);
+        mixerView.setVisible (false);
         addAndMakeVisible (smartControls);
+
+        mixerView.onCommand = [this] (std::unique_ptr<model::Command> cmd, bool replacePrevious)
+        {
+            if (replacePrevious) session.undo();
+            session.execute (std::move (cmd));
+        };
+        mixerView.onSelectTrack = [this] (int i) { trackArea.setSelectedTrack (i); };
         addAndMakeVisible (loopBrowser);
         addAndMakeVisible (statusLabel);
 
@@ -83,6 +93,7 @@ public:
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
         transportBar.onLibraryToggled = [this] (bool visible) { setLibraryVisible (visible); };
         transportBar.onControlsToggled = [this] (bool visible) { setControlsVisible (visible); };
+        transportBar.onMixerToggled = [this] (bool visible) { setMixerVisible (visible); };
 
         smartControls.onCommand = [this] (std::unique_ptr<model::Command> cmd, bool replacePrevious)
         {
@@ -112,7 +123,8 @@ public:
         };
         trackArea.onAddTrack = [this] (model::Track::Type type, model::Track::InstrumentKind kind)
         {
-            if (type != model::Track::Type::instrument)                       addTrack ("Audio " + juce::String (session.getNumTracks() + 1));
+            if (type == model::Track::Type::aux)                              addAuxTrack();
+            else if (type != model::Track::Type::instrument)                  addTrack ("Audio " + juce::String (session.getNumTracks() + 1));
             else if (kind == model::Track::InstrumentKind::synth)             addSynthTrack();
             else                                                              addDrumMachineTrack();
         };
@@ -178,6 +190,7 @@ public:
     }
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
     void showBounceDialog();
+    void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
     void importLoopFromCommandLine (const juce::File& file) { importLoop (file, -1, engine.getTransport().getPositionSeconds()); }
 
     // --fades=<in ms>,<out ms>[,<gain dB>]: apply to every audio clip (smoke tests).
@@ -254,7 +267,12 @@ public:
         editToolbar.setBounds (area.removeFromTop (ui::EditToolbar::preferredHeight));
         statusLabel.setBounds (area.removeFromBottom (22).reduced (8, 0));
 
-        if (editorVisible)
+        if (mixerVisible)
+        {
+            mixerView.setBounds (area.removeFromBottom (juce::jmin (ui::MixerView::preferredHeight, area.getHeight() * 2 / 3)));
+            area.removeFromBottom (2);
+        }
+        else if (editorVisible)
         {
             auto editor = area.removeFromBottom (juce::jmin (300, area.getHeight() / 2));
             sequencer.setBounds (editor);
@@ -284,6 +302,7 @@ public:
         if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
         if (key == juce::KeyPress ('l'))                      { setLibraryVisible (! libraryVisible); return true; }
         if (key == juce::KeyPress ('b'))                      { setControlsVisible (! controlsVisible); return true; }
+        if (key == juce::KeyPress ('x'))                      { setMixerVisible (! mixerVisible); return true; }
         if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { addDrumMachineTrack(); return true; }
         if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addSynthTrack(); return true; }
@@ -449,6 +468,29 @@ private:
 
         statusMessage = "Added " + info.name + " at bar " + juce::String (engine.getTransport().barBeatForSeconds (start).bar) + conformNote;
         updateStatus();
+    }
+
+    void setMixerVisible (bool visible)
+    {
+        mixerVisible = visible;
+        mixerView.setVisible (visible);
+        transportBar.setMixerVisible (visible);
+        updateSequencerTarget();
+        resized();
+    }
+
+    void addAuxTrack()
+    {
+        model::Track track;
+        track.name   = "Aux " + juce::String (countTracks (model::Track::Type::aux) + 1);
+        track.type   = model::Track::Type::aux;
+        track.colour = model::Session::colourForTrackIndex (session.getNumTracks());
+        track.inputBus = 0;   // Bus 1-2 by default; change it in the mixer
+        auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
+        auto* raw = cmd.get();
+        session.execute (std::move (cmd));
+        trackArea.setSelectedTrack (raw->getTrackIndex());
+        setMixerVisible (true);
     }
 
     void setControlsVisible (bool visible)
@@ -838,8 +880,8 @@ private:
         sequencer.setTarget (drums ? sel : -1, drums ? 0 : -1);
         pianoRoll.setTarget (synth ? sel : -1, synth ? 0 : -1);
         if (smartControls.getTrackIndex() != sel) smartControls.setTrack (sel);
-        pianoRoll.setVisible (editorVisible && synth);
-        sequencer.setVisible (editorVisible && ! synth);
+        pianoRoll.setVisible (editorVisible && ! mixerVisible && synth);
+        sequencer.setVisible (editorVisible && ! mixerVisible && ! synth);
     }
 
     void setEditorVisible (bool visible)
@@ -900,7 +942,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   B: controls   E: editor   Ctrl+Shift+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce   Alt+Z: zoom to fit";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   B: controls   X: mixer   E: editor   Ctrl+Shift+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -915,7 +957,9 @@ private:
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
     ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
     ui::SmartControls smartControls { session };
+    ui::MixerView mixerView { session, engine.getGraph(), [this] { return engine.getSampleRate(); } };
     bool controlsVisible = true;
+    bool mixerVisible = false;
     persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
     ui::LoopBrowser loopBrowser { loopLibrary };
     std::unique_ptr<juce::PropertiesFile> appSettings;
@@ -969,6 +1013,7 @@ public:
             else if (arg.startsWith ("--bounce=")) bounceFile = juce::File::getCurrentWorkingDirectory()
                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--bounce-dialog") main.showBounceDialog();
+            else if (arg == "--mixer")  main.setMixerVisibleFromCommandLine (true);
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()
                                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));

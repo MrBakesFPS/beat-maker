@@ -47,6 +47,15 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- Mixer (X): a Pro Tools-style Mix window with one channel strip per track
+  plus a Master strip. Each strip has 10 insert slots (5 shown) hosting the
+  built-in EQ, Compressor, Delay and Reverb (click to edit the knobs in a
+  callout, right-click to bypass, replace or remove), 5 sends to 8 stereo
+  buses with pre/post-fader switching and level, a pan knob, a fader with a
+  post-fader meter, mute/solo and output routing (Main or a bus). Aux Input
+  tracks read a bus and can carry inserts and sends of their own. Every
+  knob and fader gesture is one undo step, and the same strip pipeline runs
+  live and in Bounce.
 - Fades and clip gain on audio clips: drag the top corners of a clip with the
   Smart Tool to set fade in/out, Ctrl+drag a clip vertically for clip gain
   (or Ctrl+Shift+Up/Down in 0.5 dB steps), and Ctrl+F opens the Fades window
@@ -97,9 +106,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 2: clip gain breakpoints, Scrubber and Pencil tools,
-the full mixer with inserts, sends, buses and automation, I/O Setup and delay
-compensation. See PLAN.md §5.
+Still to come in Phase 2: automation, VCA and groups, I/O Setup, delay
+compensation, metering modes, clip gain breakpoints, Scrubber and Pencil
+tools, playlists and comping. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -112,7 +121,12 @@ exchange; retired snapshots are freed back on the message thread. Step
 patterns and drum kits are immutable and replaced copy-on-write; the graph
 schedules pattern hits into a `DrumMachine` voice pool and kills any voice
 whose kit is no longer referenced by the active snapshot before that snapshot
-is retired. Synth tracks get a `Synth` slot in the graph keyed by track id;
+is retired. Every source (clip, drum voice, synth, monitored input) is tagged
+with a channel strip; the graph renders each strip's sources into a scratch
+buffer, runs its inserts (stateful `Effect` instances owned by the model,
+parameters immutable and copy-on-write), pre-fader sends, fader/pan, meter,
+post-fader sends, then routes to the main mix or a bus; aux strips read a bus
+afterwards; the master strip's inserts and fader feed the device. Synth tracks get a `Synth` slot in the graph keyed by track id;
 MIDI notes carry their own gate length so no note-off has to be scheduled
 across blocks, and all synths release on stop and at the cycle wrap. The `Recorder` receives every input block on the audio thread and
 pushes it into per-track lock-free ring buffers that a background thread

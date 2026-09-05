@@ -201,7 +201,7 @@ beat-maker/
 ### Phase 2 — Depth: Editing & Mixing (Weeks 13–22)
 - [~] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set. *(2026-09-05: all four modes incl. Absolute/Relative grid; Zoomer, Trimmer, Selector, Grabber, Smart Tool; move/trim/separate/duplicate/nudge/delete/clear as undoable commands. Scrubber and Pencil pending.)*
 - [~] Clip gain, fades, nudge, tab-to-transient, playlists/takes/comping. *(2026-09-05: static clip gain with drag/keys, fade in/out with Standard/Equal Power/S-Curve, corner handles, Fades window with batch fades, nudge. Pending: clip gain breakpoints, tab-to-transient, playlists/comping.)*
-- [ ] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups.
+- [~] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups. *(2026-09-05: strip pipeline with 10 inserts (EQ/Compressor/Delay/Reverb built in), 5 sends pre/post to 8 buses, aux inputs, output routing, master strip with inserts, post-fader meters, Mix window. Pending: 10 sends, VCA, groups.)*
 - [ ] I/O Setup window; automatic delay compensation.
 - [ ] Automation: all modes, lanes for every parameter.
 - [ ] Metering suite (peak/RMS/K/LUFS).

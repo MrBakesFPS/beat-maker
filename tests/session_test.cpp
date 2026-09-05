@@ -67,18 +67,32 @@ TEST_CASE ("Snapshot builder honours mute, solo and gain")
         s.execute (std::make_unique<AddClipCommand> (i, c));
     }
 
+    // Clip gain stays on the clip; the track fader lives on the strip.
     auto snap = buildRenderSnapshot (s);
     REQUIRE (snap->clips.size() == 3);
-    CHECK (snap->clips[0].gain == 1.0f); // 0.5 * 2.0
+    REQUIRE (snap->strips.size() == 3);
+    CHECK (snap->clips[0].gain == 2.0f);
+    CHECK (snap->clips[0].strip == 0);
+    CHECK (snap->clips[2].strip == 2);
+    CHECK (snap->strips[0].gain == 0.5f);
+    CHECK_FALSE (snap->strips[0].muted);
 
+    // Mute and solo are resolved into the strip's muted flag; clips stay listed.
     s.execute (std::make_unique<SetTrackFlagCommand> (1, SetTrackFlagCommand::Flag::mute, true));
-    CHECK (buildRenderSnapshot (s)->clips.size() == 2);
+    snap = buildRenderSnapshot (s);
+    CHECK (snap->clips.size() == 3);
+    CHECK (snap->strips[1].muted);
+    CHECK_FALSE (snap->strips[0].muted);
 
     s.execute (std::make_unique<SetTrackFlagCommand> (2, SetTrackFlagCommand::Flag::solo, true));
-    CHECK (buildRenderSnapshot (s)->clips.size() == 1); // only the soloed track
+    snap = buildRenderSnapshot (s);
+    CHECK (snap->strips[0].muted);          // not soloed
+    CHECK (snap->strips[1].muted);          // muted
+    CHECK_FALSE (snap->strips[2].muted);    // the soloed track
 
     s.undo(); s.undo();
-    CHECK (buildRenderSnapshot (s)->clips.size() == 3);
+    snap = buildRenderSnapshot (s);
+    for (const auto& strip : snap->strips) CHECK_FALSE (strip.muted);
 }
 
 TEST_CASE ("Tracks get stable increasing ids that survive undo/redo")
