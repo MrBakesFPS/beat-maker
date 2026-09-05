@@ -29,6 +29,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rc.sourceOffset  = clip.sourceOffset;
             rc.length        = clip.length;
             rc.gain          = clip.gain * track.gain;
+            rc.pan           = track.pan;
             snapshot->clips.push_back (std::move (rc));
         }
 
@@ -45,6 +46,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rp.timelineStart = clip.timelineStart;
             rp.length        = audible ? clip.length : 0;
             rp.gain          = clip.gain * track.gain;
+            rp.pan           = track.pan;
             snapshot->patterns.push_back (std::move (rp));
         }
 
@@ -52,7 +54,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
         // muted tracks get zero-length clips so nothing fires.
         if (track.isSynth() && track.synthParams != nullptr)
         {
-            snapshot->synths.push_back ({ track.id, track.synthParams });
+            snapshot->synths.push_back ({ track.id, track.synthParams, track.pan });
 
             for (const auto& clip : track.midiClips)
             {

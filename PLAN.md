@@ -194,9 +194,9 @@ beat-maker/
 - [x] Loop browser with bundled loops; drag-to-track; tempo conform. *(Done 2026-09-05: LoopLibrary scanner with name/length metadata, Library panel with search/category filters/audition/drag/double-click, varispeed conform + beat snap; 7 bundled loops. Polyphonic stretch remains a Phase 3 item.)*
 - [x] Step sequencer + Drum Machine instrument. *(Done 2026-09-05: synthesised 16-pad kit, pattern clips, step editor, pad audition, per-pad sample load, Cycle mode)*
 - [x] Piano roll editor. *(Done 2026-09-05, together with a polyphonic subtractive Synth instrument with presets; MIDI clips loop like pattern clips)*
-- [ ] Simple mixer (volume/pan/mute/solo) and Smart Controls panel.
+- [x] Simple mixer (volume/pan/mute/solo) and Smart Controls panel. *(Done 2026-09-05: per-track Volume/Pan with -3 dB pan law through clips, drums and synths; Smart Controls knobs bound to synth params and drum pad-group levels; knob drags coalesce into one undo step)*
 - [x] Bounce to WAV (also AIFF/FLAC; MP3 deferred, needs an encoder). *(Done 2026-09-05: Bounce to Disk dialog, range/format/depth/tail/normalise, offline render bit-identical to playback, `--bounce=` batch flag)*
-- **Milestone:** A beginner can make and export a beat in under 10 minutes.
+- [x] **Milestone:** A beginner can make and export a beat in under 10 minutes. *(Reached 2026-09-05: drum track + synth track + loops from the Library, edit, Cycle, Bounce.)*
 
 ### Phase 2 — Depth: Editing & Mixing (Weeks 13–22)
 - [ ] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set.

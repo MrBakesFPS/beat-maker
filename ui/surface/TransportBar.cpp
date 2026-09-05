@@ -72,6 +72,13 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     libraryButton.setTooltip ("Show or hide the loop library (L)");
     libraryButton.onClick = [this] { if (onLibraryToggled) onLibraryToggled (libraryButton.getToggleState()); };
 
+    addAndMakeVisible (controlsButton);
+    controlsButton.setClickingTogglesState (true);
+    controlsButton.setToggleState (true, juce::dontSendNotification);
+    controlsButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
+    controlsButton.setTooltip ("Show or hide Smart Controls (B)");
+    controlsButton.onClick = [this] { if (onControlsToggled) onControlsToggled (controlsButton.getToggleState()); };
+
     addAndMakeVisible (editorButton);
     editorButton.setClickingTogglesState (true);
     editorButton.setToggleState (true, juce::dontSendNotification);
@@ -107,12 +114,18 @@ void TransportBar::resized()
     area.removeFromRight (8);
     editorButton.setBounds (area.removeFromRight (64).reduced (0, 8));
     area.removeFromRight (6);
+    controlsButton.setBounds (area.removeFromRight (74).reduced (0, 8));
+    area.removeFromRight (6);
     libraryButton.setBounds (area.removeFromRight (68).reduced (0, 8));
     area.removeFromRight (16);
 
-    barsBeatsLcd.setBounds (area.removeFromLeft (200)); area.removeFromLeft (4);
-    timeLcd.setBounds      (area.removeFromLeft (130)); area.removeFromLeft (4);
-    tempoLcd.setBounds     (area.removeFromLeft (170));
+    // LCDs share whatever is left, shrinking proportionally on narrow windows.
+    const int ideal = 200 + 4 + 130 + 4 + 170;
+    const double scale = juce::jmin (1.0, (double) area.getWidth() / ideal);
+    barsBeatsLcd.setBounds (area.removeFromLeft (juce::roundToInt (200 * scale))); area.removeFromLeft (4);
+    timeLcd.setBounds      (area.removeFromLeft (juce::roundToInt (130 * scale))); area.removeFromLeft (4);
+    tempoLcd.setBounds     (area.removeFromLeft (juce::roundToInt (170 * scale)));
+    tempoLcd.setVisible (scale > 0.55);
 }
 
 void TransportBar::timerCallback()

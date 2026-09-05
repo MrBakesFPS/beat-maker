@@ -22,6 +22,7 @@ public:
     void prepare (double sampleRate) noexcept;
     void setParams (const SynthParams* p) noexcept { params = p; }
     const SynthParams* getParams() const noexcept { return params; }
+    void setPan (float newPan) noexcept { pan = juce::jlimit (-1.0f, 1.0f, newPan); }
 
     void noteOn (int pitch, float velocity, int delaySamples, int gateSamples) noexcept;
     void noteOff (int pitch) noexcept;
@@ -57,6 +58,7 @@ private:
 
     std::array<Voice, maxVoices> voices;
     const SynthParams* params = nullptr;
+    float pan = 0.0f;
     double sampleRate = 44100.0;
     std::uint32_t orderCounter = 0;
     static constexpr int coefficientInterval = 16;

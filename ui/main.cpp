@@ -8,6 +8,7 @@
 #include "shared/Theme.h"
 #include "surface/LoopBrowser.h"
 #include "surface/PianoRoll.h"
+#include "surface/SmartControls.h"
 #include "surface/StepSequencer.h"
 #include "surface/TrackArea.h"
 #include "surface/TransportBar.h"
@@ -61,6 +62,7 @@ public:
         addAndMakeVisible (sequencer);
         addAndMakeVisible (pianoRoll);
         pianoRoll.setVisible (false);
+        addAndMakeVisible (smartControls);
         addAndMakeVisible (loopBrowser);
         addAndMakeVisible (statusLabel);
 
@@ -74,6 +76,13 @@ public:
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
         transportBar.onLibraryToggled = [this] (bool visible) { setLibraryVisible (visible); };
+        transportBar.onControlsToggled = [this] (bool visible) { setControlsVisible (visible); };
+
+        smartControls.onCommand = [this] (std::unique_ptr<model::Command> cmd, bool replacePrevious)
+        {
+            if (replacePrevious) session.undo();
+            session.execute (std::move (cmd));
+        };
 
         loopBrowser.onPreview = [this] (const persistence::LoopInfo* loop) { previewLoop (loop); };
         loopBrowser.onAddAtPlayhead = [this] (const persistence::LoopInfo& loop)
@@ -231,6 +240,8 @@ public:
             pianoRoll.setBounds (editor);
             area.removeFromBottom (2);
         }
+        if (controlsVisible)
+            smartControls.setBounds (area.removeFromBottom (ui::SmartControls::preferredHeight));
         if (libraryVisible)
             loopBrowser.setBounds (area.removeFromLeft (juce::jmin (280, area.getWidth() / 3)));
         trackArea.setBounds (area);
@@ -251,6 +262,7 @@ public:
         if (key == juce::KeyPress ('r'))                      { toggleRecord(); return true; }
         if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
         if (key == juce::KeyPress ('l'))                      { setLibraryVisible (! libraryVisible); return true; }
+        if (key == juce::KeyPress ('b'))                      { setControlsVisible (! controlsVisible); return true; }
         if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { addDrumMachineTrack(); return true; }
         if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addSynthTrack(); return true; }
@@ -399,6 +411,14 @@ private:
 
         statusMessage = "Added " + info.name + " at bar " + juce::String (engine.getTransport().barBeatForSeconds (start).bar) + conformNote;
         updateStatus();
+    }
+
+    void setControlsVisible (bool visible)
+    {
+        controlsVisible = visible;
+        smartControls.setVisible (visible);
+        transportBar.setControlsVisible (visible);
+        resized();
     }
 
     void setLibraryVisible (bool visible)
@@ -742,6 +762,7 @@ private:
 
         sequencer.setTarget (drums ? sel : -1, drums ? 0 : -1);
         pianoRoll.setTarget (synth ? sel : -1, synth ? 0 : -1);
+        if (smartControls.getTrackIndex() != sel) smartControls.setTrack (sel);
         pianoRoll.setVisible (editorVisible && synth);
         sequencer.setVisible (editorVisible && ! synth);
     }
@@ -795,7 +816,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   E: editor   Ctrl+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   B: controls   E: editor   Ctrl+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -807,6 +828,8 @@ private:
     ui::TrackArea trackArea { session, engine.getTransport(), loader.getFormatManager() };
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
     ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
+    ui::SmartControls smartControls { session };
+    bool controlsVisible = true;
     persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
     ui::LoopBrowser loopBrowser { loopLibrary };
     std::unique_ptr<juce::PropertiesFile> appSettings;

@@ -1,9 +1,10 @@
 #include "DrumMachine.h"
+#include "../graph/RenderSnapshot.h"
 
 namespace beatmaker::engine
 {
 
-void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples) noexcept
+void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, float pan) noexcept
 {
     if (kit == nullptr || ! juce::isPositiveAndBelow (pad, DrumKit::numPads))
         return;
@@ -35,6 +36,7 @@ void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float ga
     target->pad    = pad;
     target->delay  = juce::jmax (0, delaySamples);
     target->gain   = velocity * sample.gain * gain;
+    target->pan    = pan;
     target->active = true;
 }
 
@@ -80,12 +82,13 @@ void DrumMachine::render (float* const* outputs, int numOutputs, int numSamples)
                 if (outputs[ch] == nullptr) continue;
                 const float* src = v.audio->getReadPointer (juce::jmin (ch, srcChannels - 1), v.position);
                 float* dst = outputs[ch] + pos;
+                const float chGain = v.gain * panGainForChannel (v.pan, ch);
 
                 if (mode == Mode::normal)
-                    juce::FloatVectorOperations::addWithMultiply (dst, src, v.gain, n);
+                    juce::FloatVectorOperations::addWithMultiply (dst, src, chGain, n);
                 else
                     for (int i = 0; i < n; ++i)
-                        dst[i] += src[i] * v.gain * (float) (v.fadeRemaining - i) / (float) retriggerFadeSamples;
+                        dst[i] += src[i] * chGain * (float) (v.fadeRemaining - i) / (float) retriggerFadeSamples;
             }
 
             v.position += n;

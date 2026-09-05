@@ -36,7 +36,7 @@ Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-**Phase 0 complete. Phase 1 in progress.**
+**Phase 0 and Phase 1 complete.**
 
 - Audio tracks: import files (open dialog, drag-and-drop, command line), shown
   as waveform clips on colour-coded tracks.
@@ -44,6 +44,11 @@ Run the tests with `ctest --test-dir build`.
   starter beat, and a step-sequencer editor panel. Click a step to toggle it,
   Shift-click for a soft hit, drag to paint, click a pad name to audition it,
   drop an audio file on a pad row to replace its sample.
+- Smart Controls (B): a macro-knob strip for the selected track. Every track
+  has Volume and Pan (-3 dB centre-compensated pan law); synth tracks add
+  Cutoff, Resonance, Filter Env, ADSR, Detune, Level and a Wave selector bound
+  to the preset; drum tracks add levels for Kick, Snare, Clap/Rim, Hats, Toms,
+  Cymbals, Perc and Sub. A knob drag is one undo step.
 - Synth tracks (Ctrl+I): a polyphonic subtractive synth (PolyBLEP saw, square,
   triangle, sine; detuned second oscillator; state-variable low-pass with
   envelope; ADSR) with presets, driven by MIDI clips edited in a piano roll:
@@ -71,11 +76,12 @@ Run the tests with `ctest --test-dir build`.
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.
 
-Keys: Space play/stop, R record, Return back to start, C cycle, L library, E editor panel,
+Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Smart Controls, E editor panel,
 Ctrl+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 1: Smart Controls. See PLAN.md §5.
+Next is Phase 2: edit modes and tools, the full mixer with inserts, sends,
+buses and automation, I/O Setup and delay compensation. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

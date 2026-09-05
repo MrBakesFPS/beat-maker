@@ -11,11 +11,23 @@
 #include "../sequencer/StepPattern.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
+#include <cmath>
 #include <memory>
 #include <vector>
 
 namespace beatmaker::engine
 {
+
+// Pan law: -3 dB centre-compensated (centre = unity, hard side = +3 dB), the
+// Pro Tools default. pan is -1 (left) .. +1 (right). Channels beyond the
+// first stereo pair are unaffected.
+inline float panGainForChannel (float pan, int channel) noexcept
+{
+    if (channel > 1 || std::abs (pan) < 1.0e-6f) return 1.0f;   // centre is exactly unity
+    const float theta = (juce::jlimit (-1.0f, 1.0f, pan) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
+    const float g = channel == 0 ? std::cos (theta) : std::sin (theta);
+    return g * juce::MathConstants<float>::sqrt2;
+}
 
 struct RenderClip
 {
@@ -24,6 +36,7 @@ struct RenderClip
     juce::int64 sourceOffset  = 0;   // first sample of `audio` to play
     juce::int64 length        = 0;   // samples to play
     float gain                = 1.0f; // clip gain * track gain, linear
+    float pan                 = 0.0f; // -1..1
 };
 
 // A pattern clip: the step pattern loops for `length` samples starting at
@@ -35,6 +48,7 @@ struct RenderPattern
     juce::int64 timelineStart = 0;
     juce::int64 length        = 0;
     float gain                = 1.0f;
+    float pan                 = 0.0f;
 };
 
 // A synth instrument: the graph keeps a voice pool per instrumentId.
@@ -42,6 +56,7 @@ struct RenderSynth
 {
     int instrumentId = 0;
     std::shared_ptr<const SynthParams> params;
+    float pan = 0.0f;
 };
 
 // A MIDI clip driving a synth: the sequence loops for `length` samples.

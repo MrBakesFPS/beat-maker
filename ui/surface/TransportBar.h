@@ -21,6 +21,8 @@ public:
     std::function<void()> onBounce;
     std::function<void (bool)> onEditorToggled;
     std::function<void (bool)> onLibraryToggled;
+    std::function<void (bool)> onControlsToggled;
+    void setControlsVisible (bool visible) { controlsButton.setToggleState (visible, juce::dontSendNotification); }
 
     void setEditorVisible (bool visible)  { editorButton.setToggleState (visible, juce::dontSendNotification); }
     void setLibraryVisible (bool visible) { libraryButton.setToggleState (visible, juce::dontSendNotification); }
@@ -43,6 +45,7 @@ private:
 
     juce::Label barsBeatsLcd, timeLcd, tempoLcd;
     juce::TextButton libraryButton { "Library" };
+    juce::TextButton controlsButton { "Controls" };
     juce::TextButton cycleButton { "Cycle" };
     juce::TextButton editorButton { "Editor" };
     juce::TextButton openButton { "Open..." };

@@ -83,7 +83,8 @@ struct Track
     std::vector<MidiClip> midiClips;              // synth tracks
     std::shared_ptr<const engine::SynthParams> synthParams;
 
-    float gain = 1.0f;
+    float gain = 1.0f;       // linear, 0..2
+    float pan = 0.0f;        // -1..1
     bool mute = false;
     bool solo = false;
 
@@ -147,6 +148,8 @@ private:
     friend class AddMidiClipCommand;
     friend class ReplaceMidiSequenceCommand;
     friend class SetSynthParamsCommand;
+    friend class SetTrackMixCommand;
+    friend class ReplaceDrumKitCommand;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
 
@@ -338,6 +341,39 @@ private:
     int index, pad;
     engine::DrumSample sample;
     std::shared_ptr<const engine::DrumKit> oldKit;
+};
+
+class SetTrackMixCommand final : public Command
+{
+public:
+    SetTrackMixCommand (int trackIndex, float newGain, float newPan)
+        : index (trackIndex), gain (juce::jlimit (0.0f, 2.0f, newGain)), pan (juce::jlimit (-1.0f, 1.0f, newPan)) {}
+    juce::String getName() const override { return "Adjust Volume/Pan"; }
+    void execute (Session& s) override
+    {
+        auto& t = s.tracks[(size_t) index];
+        oldGain = t.gain; oldPan = t.pan;
+        t.gain = gain; t.pan = pan;
+    }
+    void undo (Session& s) override { auto& t = s.tracks[(size_t) index]; t.gain = oldGain; t.pan = oldPan; }
+private:
+    int index;
+    float gain, pan, oldGain = 1.0f, oldPan = 0.0f;
+};
+
+// Copy-on-write replacement of the whole kit (pad levels etc.).
+class ReplaceDrumKitCommand final : public Command
+{
+public:
+    ReplaceDrumKitCommand (int trackIndex, std::shared_ptr<const engine::DrumKit> kit, juce::String actionName = "Adjust Kit")
+        : index (trackIndex), newKit (std::move (kit)), name (std::move (actionName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override { auto& t = s.tracks[(size_t) index]; oldKit = t.drumKit; t.drumKit = newKit; }
+    void undo (Session& s) override    { s.tracks[(size_t) index].drumKit = oldKit; }
+private:
+    int index;
+    std::shared_ptr<const engine::DrumKit> newKit, oldKit;
+    juce::String name;
 };
 
 class AddMidiClipCommand final : public Command

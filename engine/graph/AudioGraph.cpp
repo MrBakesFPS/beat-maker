@@ -135,6 +135,7 @@ void AudioGraph::rebindSynthSlots()
 
         if (slot->id < 0) { slot->id = rs.instrumentId; slot->synth.prepare (transport.getSampleRate()); }
         slot->synth.setParams (rs.params.get());
+        slot->synth.setPan (rs.pan);
     }
 }
 
@@ -215,7 +216,7 @@ void AudioGraph::mixClips (float* const* outputs, int numOutputs, juce::int64 bl
             const int srcCh = juce::jmin (ch, srcChannels - 1);
             juce::FloatVectorOperations::addWithMultiply (outputs[ch] + outOffset,
                                                           clip.audio->getReadPointer (srcCh, (int) srcStart),
-                                                          gain, count);
+                                                          gain * panGainForChannel (clip.pan, ch), count);
         }
     }
 }
@@ -258,7 +259,7 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
             {
                 const auto v = rp.pattern->velocity[(size_t) pad][(size_t) step];
                 if (v > 0)
-                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay);
+                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay, rp.pan);
             }
         }
     }

@@ -14,6 +14,7 @@ target_sources(BeatMaker PRIVATE
     surface/StepSequencer.cpp
     surface/LoopBrowser.cpp
     surface/PianoRoll.cpp
+    surface/SmartControls.cpp
     depth/BounceDialog.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
