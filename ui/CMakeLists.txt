@@ -8,7 +8,9 @@ juce_add_gui_app(BeatMaker
     VERSION         ${PROJECT_VERSION})
 
 target_sources(BeatMaker PRIVATE
-    main.cpp)
+    main.cpp
+    surface/TransportBar.cpp
+    surface/TrackArea.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     JUCE_WEB_BROWSER=0
@@ -20,8 +22,6 @@ target_link_libraries(BeatMaker PRIVATE
     beatmaker_engine
     beatmaker_model
     beatmaker_persistence
-    beatmaker_plugins
-    beatmaker_scripting
     juce::juce_audio_utils
     juce::juce_gui_extra
     PUBLIC

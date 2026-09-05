@@ -26,11 +26,28 @@ automatically on first configure.
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
-"./build/ui/BeatMaker_artefacts/Debug/Beat Maker"
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "assets/loops/Drum Loop 120.wav"
 ```
+
+Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-Phase 0 in progress. The app opens a window with a transport bar and plays a
-440 Hz test tone through the default audio device. Next: play a WAV file on a
-track. See the roadmap in PLAN.md §5.
+**Phase 0 complete.** The app opens a window, imports audio files (open dialog,
+drag-and-drop, or command line), shows them as waveform clips on colour-coded
+tracks, and plays them through the default audio device with a bar|beat|tick
+transport. Tracks have mute/solo; every edit is an undoable command.
+
+Keys: Space play/stop, Return back to start, Ctrl+Z / Ctrl+Shift+Z undo/redo,
+Ctrl+O open, Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
+
+Next up is Phase 1 (recording, loop browser, step sequencer). See PLAN.md §5.
+
+## Architecture in one paragraph
+
+`engine/` runs on the audio thread and never allocates or locks: the
+`AudioGraph` mixes an immutable `RenderSnapshot` and advances the `Transport`.
+`model/` is the undoable `Session` document; the UI only ever mutates it
+through `Command` objects. Whenever the session changes, the message thread
+builds a new `RenderSnapshot` and hands it to the graph through a lock-free
+exchange; retired snapshots are freed back on the message thread.

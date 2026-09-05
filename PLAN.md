@@ -183,11 +183,11 @@ beat-maker/
 ## 5. Roadmap
 
 ### Phase 0 — Foundation (Weeks 1–4)
-- [ ] Repo, CMake, CI (Linux/macOS/Windows), coding standards, license decision.
-- [ ] JUCE integration; audio device enumeration and a test tone.
-- [ ] Session model skeleton with undo/redo command system.
-- [ ] Basic window with transport bar and empty track area.
-- **Milestone:** Play a WAV file on a single track with transport control.
+- [x] Repo, CMake, coding standards. (CI and license decision still open.)
+- [x] JUCE integration; audio device enumeration and a test tone.
+- [x] Session model skeleton with undo/redo command system.
+- [x] Basic window with transport bar and track area.
+- [x] **Milestone:** Play a WAV file on a single track with transport control. *(Done 2026-09-05)*
 
 ### Phase 1 — Surface MVP (Weeks 5–12)
 - [ ] Audio & Instrument tracks; record from input; clip display with waveforms.

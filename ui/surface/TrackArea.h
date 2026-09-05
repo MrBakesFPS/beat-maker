@@ -1,0 +1,83 @@
+// TrackArea: ruler, track headers, clip lanes with waveforms, and the
+// playhead. Reads the Session; all edits go back through callbacks so the
+// owner can issue Commands.
+#pragma once
+
+#include "../shared/Theme.h"
+#include <Session.h>
+#include <transport/Transport.h>
+
+#include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <functional>
+#include <map>
+
+namespace beatmaker::ui
+{
+
+class TrackArea final : public juce::Component,
+                        public juce::FileDragAndDropTarget,
+                        private juce::Timer,
+                        private juce::ChangeListener,
+                        private model::Session::Listener
+{
+public:
+    TrackArea (model::Session& session, engine::Transport& transport, juce::AudioFormatManager& formatManager);
+    ~TrackArea() override;
+
+    // (files, trackIndex or -1 for "new track", timeline position in seconds)
+    std::function<void (const juce::StringArray&, int, double)> onFilesDropped;
+    std::function<void (int trackIndex, bool mute)> onMuteChanged;
+    std::function<void (int trackIndex, bool solo)> onSoloChanged;
+    std::function<void()> onAddTrack;
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
+    void fileDragEnter (const juce::StringArray&, int, int) override { dragHover = true; repaint(); }
+    void fileDragExit (const juce::StringArray&) override { dragHover = false; repaint(); }
+
+private:
+    struct TrackControls
+    {
+        std::unique_ptr<juce::TextButton> mute, solo;
+    };
+
+    void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
+    void sessionChanged (model::Session&) override;
+
+    void rebuildTrackControls();
+    juce::AudioThumbnail& thumbnailFor (const model::AudioClip& clip);
+
+    // Geometry
+    juce::Rectangle<int> getRulerBounds() const;
+    juce::Rectangle<int> getLaneBounds (int trackIndex) const;
+    juce::Rectangle<int> getHeaderBounds (int trackIndex) const;
+    int trackIndexAtY (int y) const;
+    float secondsToX (double seconds) const;
+    double xToSeconds (float x) const;
+    void ensurePlayheadVisible();
+
+    void paintRuler (juce::Graphics&, juce::Rectangle<int>);
+    void paintHeader (juce::Graphics&, const model::Track&, int index, juce::Rectangle<int>);
+    void paintLane (juce::Graphics&, const model::Track&, juce::Rectangle<int>);
+
+    model::Session& session;
+    engine::Transport& transport;
+    juce::AudioFormatManager& formatManager;
+    juce::AudioThumbnailCache thumbnailCache { 64 };
+    std::map<juce::String, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
+    std::vector<TrackControls> trackControls;
+    juce::TextButton addTrackButton { "+ Track" };
+
+    double pixelsPerSecond = 60.0;
+    double viewStartSeconds = 0.0;
+    bool dragHover = false;
+};
+
+} // namespace beatmaker::ui
