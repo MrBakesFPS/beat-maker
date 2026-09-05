@@ -3,10 +3,11 @@
 namespace beatmaker::ui
 {
 
-TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormatManager& fm)
-    : session (s), transport (t), formatManager (fm)
+TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormatManager& fm, EditSettings& es)
+    : session (s), transport (t), formatManager (fm), edit (es)
 {
     session.addListener (this);
+    setWantsKeyboardFocus (true);
     addAndMakeVisible (addTrackButton);
     addTrackButton.onClick = [this]
     {
@@ -205,6 +206,8 @@ void TrackArea::sessionChanged (model::Session&)
     rebuildTrackControls();
     if (selectedTrack >= session.getNumTracks())
         setSelectedTrack (session.getNumTracks() - 1);
+
+    std::erase_if (selectedClips, [this] (const model::ClipRef& r) { return ! model::ClipEdits::timing (session, r).has_value(); });
     repaint();
 }
 
@@ -256,6 +259,8 @@ void TrackArea::paint (juce::Graphics& g)
                 getHeight());
     g.setColour (theme::gridStrong);
     g.drawVerticalLine (theme::trackHeaderWidth - 1, 0.0f, (float) getHeight());
+
+    paintEditOverlays (g);
 
     // Playhead
     const float px = secondsToX (transport.getPositionSeconds());
@@ -367,9 +372,16 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
 
 void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::Rectangle<int> r)
 {
-    // Bar grid
+    // Bar grid, plus the edit grid when it is coarse enough to read
     const double secondsPerBar = transport.beatsToSeconds (transport.getBeatsPerBar());
     const double viewEnd = xToSeconds ((float) getWidth());
+    const double gridSec = gridSeconds();
+    if (edit.mode == EditSettings::Mode::grid && gridSec * pixelsPerSecond >= 8.0)
+    {
+        g.setColour (theme::grid.withAlpha (0.45f));
+        for (double t = std::floor (viewStartSeconds / gridSec) * gridSec; t <= viewEnd; t += gridSec)
+            g.drawVerticalLine ((int) secondsToX (t), (float) r.getY(), (float) r.getBottom());
+    }
     for (int bar = (int) (viewStartSeconds / secondsPerBar); bar * secondsPerBar <= viewEnd; ++bar)
     {
         g.setColour (theme::grid);
@@ -463,13 +475,18 @@ juce::Rectangle<float> TrackArea::clipRectFor (double startSeconds, double endSe
 
 void TrackArea::paintClipFrame (juce::Graphics& g, juce::Rectangle<float> clipRect, const model::Track& track, const juce::String& name)
 {
+    // Selected clips get a bright frame (drawn after the body below).
+    bool selected = false;
+    for (const auto& ref : selectedClips)
+        if (rectForClip (ref).toNearestInt() == clipRect.toNearestInt()) { selected = true; break; }
+
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillRoundedRectangle (clipRect.withHeight (16.0f), 4.0f);
     g.setColour (theme::text);
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     g.drawText (name, clipRect.withHeight (16.0f).reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, true);
-    g.setColour (track.colour.brighter (0.3f));
-    g.drawRoundedRectangle (clipRect, 4.0f, 1.0f);
+    g.setColour (selected ? theme::text : track.colour.brighter (0.3f));
+    g.drawRoundedRectangle (clipRect, 4.0f, selected ? 2.0f : 1.0f);
 }
 
 void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, const model::AudioClip& clip, juce::Rectangle<int> r)
@@ -526,20 +543,332 @@ void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, 
 }
 
 //==============================================================================
-// Interaction
+// Edit helpers
+
+double TrackArea::gridSeconds() const { return transport.beatsToSeconds (edit.gridBeats); }
+
+double TrackArea::snapSeconds (double seconds) const
+{
+    if (edit.mode != EditSettings::Mode::grid) return juce::jmax (0.0, seconds);
+    const double g = gridSeconds();
+    return juce::jmax (0.0, std::round (seconds / g) * g);
+}
+
+double TrackArea::snapDelta (double delta) const
+{
+    if (edit.mode != EditSettings::Mode::grid) return delta;
+    const double g = gridSeconds();
+    return std::round (delta / g) * g;
+}
+
+juce::int64 TrackArea::toSamples (double seconds) const
+{
+    return (juce::int64) std::llround (seconds * transport.getSampleRate());
+}
+
+juce::Rectangle<float> TrackArea::rectForClip (const model::ClipRef& ref) const
+{
+    auto t = model::ClipEdits::timing (session, ref);
+    if (! t) return {};
+    return clipRectFor ((double) t->start / t->sampleRate, (double) (t->start + t->length) / t->sampleRate, getLaneBounds (ref.track));
+}
+
+std::optional<model::ClipRef> TrackArea::clipAtPoint (juce::Point<int> p) const
+{
+    const int track = trackIndexAtY (p.y);
+    if (track < 0 || p.x < theme::trackHeaderWidth) return std::nullopt;
+    const auto sample = toSamples (xToSeconds ((float) p.x));
+    return model::ClipEdits::clipAt (session, track, sample);
+}
+
+bool TrackArea::isSelected (const model::ClipRef& ref) const
+{
+    return std::find (selectedClips.begin(), selectedClips.end(), ref) != selectedClips.end();
+}
+
+void TrackArea::selectClip (const model::ClipRef& ref, bool add)
+{
+    if (! add) selectedClips.clear();
+    if (isSelected (ref)) { if (add) std::erase (selectedClips, ref); }
+    else selectedClips.push_back (ref);
+    repaint();
+}
+
+void TrackArea::clearSelection()
+{
+    selectedClips.clear();
+    setTimeSelection ({});
+    repaint();
+}
+
+void TrackArea::setTimeSelection (TimeSelection sel)
+{
+    timeSelection = sel;
+    if (onTimeSelectionChanged) onTimeSelectionChanged();
+    repaint();
+}
+
+EditSettings::Tool TrackArea::effectiveTool (const juce::MouseEvent& e, const std::optional<model::ClipRef>& hit,
+                                             bool& nearStart, bool& nearEnd) const
+{
+    nearStart = nearEnd = false;
+    if (hit)
+    {
+        const auto r = rectForClip (*hit);
+        nearStart = std::abs (e.x - r.getX()) < 7.0f;
+        nearEnd   = std::abs (e.x - r.getRight()) < 7.0f;
+    }
+
+    if (edit.tool != EditSettings::Tool::smart) return edit.tool;
+
+    // Smart Tool: edges trim, lower half grabs, upper half selects.
+    if (! hit) return EditSettings::Tool::selector;
+    if (nearStart || nearEnd) return EditSettings::Tool::trimmer;
+    const auto r = rectForClip (*hit);
+    return e.y < r.getCentreY() ? EditSettings::Tool::selector : EditSettings::Tool::grabber;
+}
+
+void TrackArea::executeWithShuffle (std::unique_ptr<model::Command> cmd, const juce::String& name, std::initializer_list<int> tracks)
+{
+    if (edit.mode != EditSettings::Mode::shuffle)
+    {
+        session.execute (std::move (cmd));
+        return;
+    }
+    auto compound = std::make_unique<model::CompoundCommand> (name);
+    compound->add (std::move (cmd));
+    std::vector<int> done;
+    for (int t : tracks)
+        if (t >= 0 && std::find (done.begin(), done.end(), t) == done.end())
+        {
+            compound->add (std::make_unique<model::RepackTrackCommand> (t));
+            done.push_back (t);
+        }
+    session.execute (std::move (compound));
+}
+
+//==============================================================================
+// Mouse
 
 void TrackArea::mouseDown (const juce::MouseEvent& e)
 {
+    grabKeyboardFocus();
     const int track = trackIndexAtY (e.y);
-    if (track >= 0)
-        setSelectedTrack (track);
+    if (track >= 0) setSelectedTrack (track);
 
-    if (e.x < theme::trackHeaderWidth)
+    if (e.x < theme::trackHeaderWidth) return;
+
+    // Ruler: always locates
+    if (e.y < theme::rulerHeight)
+    {
+        transport.setPositionSeconds (snapSeconds (xToSeconds ((float) e.x)));
+        repaint();
         return;
+    }
 
-    // Click in ruler or lane: locate the playhead.
-    transport.setPositionSeconds (xToSeconds ((float) e.x));
+    const auto hit = clipAtPoint (e.getPosition());
+    bool nearStart = false, nearEnd = false;
+    const auto tool = effectiveTool (e, hit, nearStart, nearEnd);
+    dragStartPoint = e.getPosition();
+    dragMoved = false;
+    dragAnchorSeconds = xToSeconds ((float) e.x);
+
+    if (tool == EditSettings::Tool::zoomer)
+    {
+        if (e.mods.isAltDown()) { pixelsPerSecond = juce::jmax (5.0, pixelsPerSecond / 2.0); }
+        else drag = Drag::zoomRange;
+        repaint();
+        return;
+    }
+
+    if (tool == EditSettings::Tool::selector || ! hit)
+    {
+        drag = Drag::select;
+        timeSelection = {};
+        timeSelection.start = timeSelection.end = snapSeconds (dragAnchorSeconds);
+        timeSelection.firstTrack = timeSelection.lastTrack = track;
+        if (! e.mods.isShiftDown()) selectedClips.clear();
+        repaint();
+        return;
+    }
+
+    // Grabber / Trimmer on a clip
+    if (edit.mode == EditSettings::Mode::spot && tool == EditSettings::Tool::grabber)
+    {
+        selectClip (*hit, false);
+        showSpotDialog (*hit);
+        return;
+    }
+
+    if (! isSelected (*hit) || e.mods.isShiftDown()) selectClip (*hit, e.mods.isShiftDown());
+    dragClip = *hit;
+    dragOriginal = *model::ClipEdits::timing (session, *hit);
+    dragTargetTrack = hit->track;
+    ghostStart = (double) dragOriginal.start / dragOriginal.sampleRate;
+    ghostLength = (double) dragOriginal.length / dragOriginal.sampleRate;
+    timeSelection = {};
+
+    if (tool == EditSettings::Tool::trimmer)
+        drag = nearStart || (! nearEnd && e.x < rectForClip (*hit).getCentreX()) ? Drag::trimStart : Drag::trimEnd;
+    else
+        drag = Drag::move;
+}
+
+void TrackArea::mouseDrag (const juce::MouseEvent& e)
+{
+    if (drag == Drag::none) return;
+    if (e.getDistanceFromDragStart() > 2) dragMoved = true;
+    const double now = xToSeconds ((float) e.x);
+    const double origStart = (double) dragOriginal.start / dragOriginal.sampleRate;
+    const double origLen = (double) dragOriginal.length / dragOriginal.sampleRate;
+
+    switch (drag)
+    {
+        case Drag::select:
+        {
+            const double a = dragAnchorSeconds, b = now;
+            timeSelection.start = snapSeconds (juce::jmin (a, b));
+            timeSelection.end = snapSeconds (juce::jmax (a, b));
+            if (timeSelection.end <= timeSelection.start && edit.mode == EditSettings::Mode::grid)
+                timeSelection.end = timeSelection.start + gridSeconds();
+            const int t = trackIndexAtY (e.y);
+            if (t >= 0) { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, t); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, t); }
+            break;
+        }
+        case Drag::move:
+        {
+            const double delta = now - dragAnchorSeconds;
+            ghostStart = edit.mode == EditSettings::Mode::grid && ! edit.relativeGrid ? snapSeconds (origStart + delta)
+                                                                                      : juce::jmax (0.0, origStart + snapDelta (delta));
+            const int t = trackIndexAtY (e.y);
+            if (t >= 0 && model::ClipEdits::canPlaceOn (session, dragClip, t)) dragTargetTrack = t;
+            break;
+        }
+        case Drag::trimStart:
+        {
+            const double delta = now - dragAnchorSeconds;
+            double newStart = edit.mode == EditSettings::Mode::grid && ! edit.relativeGrid ? snapSeconds (origStart + delta)
+                                                                                           : juce::jmax (0.0, origStart + snapDelta (delta));
+            newStart = juce::jmin (newStart, origStart + origLen - 0.01);
+            if (dragClip.kind == model::ClipRef::Kind::audio)   // can't reveal audio before the file start
+                newStart = juce::jmax (newStart, origStart - (double) dragOriginal.offset / dragOriginal.sampleRate);
+            ghostStart = newStart;
+            ghostLength = origStart + origLen - newStart;
+            break;
+        }
+        case Drag::trimEnd:
+        {
+            const double delta = now - dragAnchorSeconds;
+            double newEnd = edit.mode == EditSettings::Mode::grid && ! edit.relativeGrid ? snapSeconds (origStart + origLen + delta)
+                                                                                         : origStart + origLen + snapDelta (delta);
+            newEnd = juce::jmax (newEnd, origStart + 0.01);
+            if (dragOriginal.maxLength > 0)
+                newEnd = juce::jmin (newEnd, origStart + (double) dragOriginal.maxLength / dragOriginal.sampleRate);
+            ghostLength = newEnd - origStart;
+            break;
+        }
+        case Drag::zoomRange:
+        case Drag::none:
+            break;
+    }
     repaint();
+}
+
+void TrackArea::mouseUp (const juce::MouseEvent& e)
+{
+    const auto finished = drag;
+    drag = Drag::none;
+
+    switch (finished)
+    {
+        case Drag::select:
+            if (! dragMoved || ! timeSelection.isValid())
+            {
+                // Plain click: locate, no range
+                timeSelection = {};
+                transport.setPositionSeconds (snapSeconds (dragAnchorSeconds));
+                if (onTimeSelectionChanged) onTimeSelectionChanged();
+            }
+            else
+            {
+                if (! transport.isPlaying()) transport.setPositionSeconds (timeSelection.start);
+                setTimeSelection (timeSelection);
+            }
+            break;
+
+        case Drag::zoomRange:
+        {
+            const double a = dragAnchorSeconds, b = xToSeconds ((float) e.x);
+            if (dragMoved && std::abs (b - a) > 0.01)
+            {
+                viewStartSeconds = juce::jmin (a, b);
+                pixelsPerSecond = juce::jlimit (5.0, 2000.0, (getWidth() - theme::trackHeaderWidth) / std::abs (b - a));
+            }
+            else
+            {
+                const double anchor = dragAnchorSeconds;
+                pixelsPerSecond = juce::jmin (2000.0, pixelsPerSecond * 2.0);
+                viewStartSeconds = juce::jmax (0.0, anchor - (e.x - theme::trackHeaderWidth) / pixelsPerSecond);
+            }
+            break;
+        }
+
+        case Drag::move:
+        case Drag::trimStart:
+        case Drag::trimEnd:
+            if (dragMoved) commitDrag();
+            break;
+
+        case Drag::none:
+            break;
+    }
+    repaint();
+}
+
+void TrackArea::commitDrag()
+{
+    auto t = model::ClipEdits::timing (session, dragClip);
+    if (! t) return;
+    const double sr = t->sampleRate;
+
+    if (drag == Drag::none) {}   // (state already cleared by mouseUp)
+
+    if (ghostLength <= 0.0) return;
+
+    if (dragTargetTrack != dragClip.track || std::abs (ghostStart - (double) t->start / sr) > 1e-9 || std::abs (ghostLength - (double) t->length / sr) > 1e-9)
+    {
+        const bool isMove = std::abs (ghostLength - (double) t->length / sr) < 1e-9;
+        std::unique_ptr<model::Command> cmd;
+        if (isMove)
+            cmd = std::make_unique<model::MoveClipCommand> (dragClip, dragTargetTrack, toSamples (ghostStart));
+        else
+            cmd = std::make_unique<model::TrimClipCommand> (dragClip, toSamples (ghostStart), toSamples (ghostLength));
+
+        selectedClips.clear();
+        executeWithShuffle (std::move (cmd), isMove ? "Move Clip" : "Trim Clip", { dragClip.track, dragTargetTrack });
+
+        // Re-select the edited clip (it may have moved lists)
+        const int track = isMove ? dragTargetTrack : dragClip.track;
+        if (auto ref = model::ClipEdits::clipAt (session, track, toSamples (ghostStart) + 1))
+            selectedClips.push_back (*ref);
+    }
+}
+
+void TrackArea::mouseMove (const juce::MouseEvent& e) { updateCursor (e); }
+
+void TrackArea::updateCursor (const juce::MouseEvent& e)
+{
+    if (e.x < theme::trackHeaderWidth || e.y < theme::rulerHeight) { setMouseCursor (juce::MouseCursor::NormalCursor); return; }
+    const auto hit = clipAtPoint (e.getPosition());
+    bool ns = false, ne = false;
+    switch (effectiveTool (e, hit, ns, ne))
+    {
+        case EditSettings::Tool::zoomer:   setMouseCursor (juce::MouseCursor::CrosshairCursor); break;
+        case EditSettings::Tool::trimmer:  setMouseCursor (hit ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor); break;
+        case EditSettings::Tool::selector: setMouseCursor (juce::MouseCursor::IBeamCursor); break;
+        case EditSettings::Tool::grabber:  setMouseCursor (hit ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor); break;
+        case EditSettings::Tool::smart:    setMouseCursor (juce::MouseCursor::NormalCursor); break;
+    }
 }
 
 void TrackArea::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -557,6 +886,229 @@ void TrackArea::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
         viewStartSeconds = juce::jmax (0.0, viewStartSeconds + delta);
     }
     repaint();
+}
+
+//==============================================================================
+// Spot dialog
+
+void TrackArea::showSpotDialog (const model::ClipRef& ref)
+{
+    auto t = model::ClipEdits::timing (session, ref);
+    if (! t) return;
+    const auto bb = transport.barBeatForSeconds ((double) t->start / t->sampleRate);
+
+    auto* window = new juce::AlertWindow ("Spot Clip", "New start for \"" + t->name + "\" (bar|beat, e.g. 3|2, or seconds with an s, e.g. 4.5s):",
+                                          juce::MessageBoxIconType::NoIcon);
+    window->addTextEditor ("pos", juce::String (bb.bar) + "|" + juce::String (bb.beat), "Start");
+    window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([this, ref, window] (int result)
+    {
+        if (result == 1)
+        {
+            const auto text = window->getTextEditorContents ("pos").trim();
+            double seconds = -1.0;
+            if (text.endsWithIgnoreCase ("s"))
+                seconds = text.dropLastCharacters (1).getDoubleValue();
+            else
+            {
+                const int bar = text.upToFirstOccurrenceOf ("|", false, false).getIntValue();
+                const int beat = text.contains ("|") ? text.fromFirstOccurrenceOf ("|", false, false).getIntValue() : 1;
+                if (bar >= 1) seconds = transport.beatsToSeconds ((bar - 1) * transport.getBeatsPerBar() + (juce::jmax (1, beat) - 1));
+            }
+            if (seconds >= 0.0)
+                executeWithShuffle (std::make_unique<model::MoveClipCommand> (ref, ref.track, toSamples (seconds)), "Spot Clip", { ref.track });
+        }
+    }), true);
+}
+
+//==============================================================================
+// Selection operations
+
+void TrackArea::deleteSelection()
+{
+    if (! selectedClips.empty())
+    {
+        auto compound = std::make_unique<model::CompoundCommand> ("Delete Clips");
+        // Remove highest indices first within each track so indices stay valid.
+        auto refs = selectedClips;
+        std::sort (refs.begin(), refs.end(), [] (const model::ClipRef& a, const model::ClipRef& b)
+                   { return a.track != b.track ? a.track > b.track : a.index > b.index; });
+        std::vector<int> tracks;
+        for (const auto& r : refs) { compound->add (std::make_unique<model::RemoveAnyClipCommand> (r)); tracks.push_back (r.track); }
+        if (edit.mode == EditSettings::Mode::shuffle)
+            for (int t : tracks) compound->add (std::make_unique<model::RepackTrackCommand> (t));
+        selectedClips.clear();
+        session.execute (std::move (compound));
+        return;
+    }
+
+    if (timeSelection.isValid())
+    {
+        // Clear: split at both boundaries, then remove what lies inside.
+        auto compound = std::make_unique<model::CompoundCommand> ("Clear Selection");
+        const auto s0 = toSamples (timeSelection.start), s1 = toSamples (timeSelection.end);
+        for (int track = timeSelection.firstTrack; track <= timeSelection.lastTrack; ++track)
+        {
+            // Work on a scratch copy of the session state is not possible; instead
+            // execute step by step through the compound in a deterministic order.
+            for (const auto& ref : model::ClipEdits::allClips (session, track))
+            {
+                auto t = model::ClipEdits::timing (session, ref);
+                if (! t) continue;
+                const auto cStart = t->start, cEnd = t->start + t->length;
+                if (cEnd <= s0 || cStart >= s1) continue;
+
+                if (cStart < s0 && cEnd > s1)
+                {
+                    // Clip spans the whole range: shorten it and add the tail after the range.
+                    compound->add (std::make_unique<model::SplitClipCommand> (ref, s1));   // tail appended
+                    compound->add (std::make_unique<model::TrimClipCommand> (ref, cStart, s0 - cStart));
+                }
+                else if (cStart < s0)
+                    compound->add (std::make_unique<model::TrimClipCommand> (ref, cStart, s0 - cStart));
+                else if (cEnd > s1)
+                    compound->add (std::make_unique<model::TrimClipCommand> (ref, s1, cEnd - s1));
+                else
+                    compound->add (std::make_unique<model::RemoveAnyClipCommand> (ref));
+            }
+        }
+        // Removing by index inside a compound is only safe if removals come last
+        // and in descending order; the loop above visits refs in ascending order,
+        // so rebuild: execute non-removals first, then removals descending.
+        if (! compound->isEmpty())
+        {
+            if (edit.mode == EditSettings::Mode::shuffle)
+                for (int t = timeSelection.firstTrack; t <= timeSelection.lastTrack; ++t)
+                    compound->add (std::make_unique<model::RepackTrackCommand> (t));
+            session.execute (std::move (compound));
+        }
+        setTimeSelection ({});
+    }
+}
+
+void TrackArea::separateAtPlayhead()
+{
+    const auto at = toSamples (transport.getPositionSeconds());
+    auto compound = std::make_unique<model::CompoundCommand> ("Separate Clip");
+
+    if (timeSelection.isValid())
+    {
+        const auto s0 = toSamples (timeSelection.start), s1 = toSamples (timeSelection.end);
+        for (int track = timeSelection.firstTrack; track <= timeSelection.lastTrack; ++track)
+        {
+            if (auto ref = model::ClipEdits::clipAt (session, track, s1)) compound->add (std::make_unique<model::SplitClipCommand> (*ref, s1));
+            if (auto ref = model::ClipEdits::clipAt (session, track, s0)) compound->add (std::make_unique<model::SplitClipCommand> (*ref, s0));
+        }
+    }
+    else if (! selectedClips.empty())
+    {
+        for (const auto& ref : selectedClips) compound->add (std::make_unique<model::SplitClipCommand> (ref, at));
+    }
+    else
+    {
+        for (int track = 0; track < session.getNumTracks(); ++track)
+            if (auto ref = model::ClipEdits::clipAt (session, track, at))
+                compound->add (std::make_unique<model::SplitClipCommand> (*ref, at));
+    }
+
+    if (! compound->isEmpty()) { selectedClips.clear(); session.execute (std::move (compound)); }
+}
+
+void TrackArea::duplicateSelectedClips()
+{
+    if (selectedClips.empty()) return;
+    auto compound = std::make_unique<model::CompoundCommand> ("Duplicate");
+    std::vector<int> tracks;
+    for (const auto& ref : selectedClips) { compound->add (std::make_unique<model::DuplicateClipCommand> (ref)); tracks.push_back (ref.track); }
+    if (edit.mode == EditSettings::Mode::shuffle) for (int t : tracks) compound->add (std::make_unique<model::RepackTrackCommand> (t));
+    session.execute (std::move (compound));
+}
+
+void TrackArea::nudgeSelectedClips (int direction)
+{
+    if (selectedClips.empty()) return;
+    const double delta = gridSeconds() * direction;
+    auto compound = std::make_unique<model::CompoundCommand> ("Nudge");
+    for (const auto& ref : selectedClips)
+        if (auto t = model::ClipEdits::timing (session, ref))
+            compound->add (std::make_unique<model::MoveClipCommand> (ref, ref.track, t->start + toSamples (delta)));
+    session.execute (std::move (compound));
+}
+
+void TrackArea::zoomToFit()
+{
+    const double len = juce::jmax (4.0, session.getLengthSeconds() * 1.05);
+    viewStartSeconds = 0.0;
+    pixelsPerSecond = juce::jlimit (5.0, 2000.0, (getWidth() - theme::trackHeaderWidth) / len);
+    repaint();
+}
+
+bool TrackArea::keyPressed (const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) { deleteSelection(); return true; }
+    if (key == juce::KeyPress::escapeKey)                                        { clearSelection(); return true; }
+    if (key == juce::KeyPress ('e', juce::ModifierKeys::commandModifier, 0))    { separateAtPlayhead(); return true; }
+    if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))    { duplicateSelectedClips(); return true; }
+    if (key == juce::KeyPress (','))                                             { nudgeSelectedClips (-1); return true; }
+    if (key == juce::KeyPress ('.'))                                             { nudgeSelectedClips (1); return true; }
+    if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0))
+    {
+        selectedClips.clear();
+        for (int t = 0; t < session.getNumTracks(); ++t)
+            for (const auto& r : model::ClipEdits::allClips (session, t)) selectedClips.push_back (r);
+        repaint();
+        return true;
+    }
+    return false;
+}
+
+//==============================================================================
+// Overlays
+
+void TrackArea::paintEditOverlays (juce::Graphics& g)
+{
+    // Time selection
+    if (timeSelection.isValid() || drag == Drag::select)
+    {
+        const float x1 = secondsToX (timeSelection.start), x2 = secondsToX (timeSelection.end);
+        const int t0 = juce::jmax (0, timeSelection.firstTrack), t1 = juce::jmax (t0, timeSelection.lastTrack);
+        const int y0 = getLaneBounds (t0).getY(), y1 = getLaneBounds (t1).getBottom();
+        if (x2 > x1)
+        {
+            g.setColour (theme::accent.withAlpha (0.18f));
+            g.fillRect (juce::Rectangle<float> (x1, (float) y0, x2 - x1, (float) (y1 - y0)));
+            g.setColour (theme::accent.withAlpha (0.7f));
+            g.drawRect (juce::Rectangle<float> (x1, (float) y0, x2 - x1, (float) (y1 - y0)), 1.0f);
+            // Ruler marker
+            g.fillRect (juce::Rectangle<float> (x1, 2.0f, x2 - x1, 5.0f));
+        }
+    }
+
+    // Ghost of the clip being moved/trimmed
+    if ((drag == Drag::move || drag == Drag::trimStart || drag == Drag::trimEnd) && dragMoved)
+    {
+        auto lane = getLaneBounds (dragTargetTrack >= 0 ? dragTargetTrack : dragClip.track);
+        auto r = clipRectFor (ghostStart, ghostStart + ghostLength, lane);
+        g.setColour (theme::text.withAlpha (0.15f));
+        g.fillRoundedRectangle (r, 4.0f);
+        g.setColour (theme::text.withAlpha (0.9f));
+        g.drawRoundedRectangle (r, 4.0f, 1.5f);
+
+        const auto bb = transport.barBeatForSeconds (ghostStart);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (juce::String (bb.bar) + "|" + juce::String (bb.beat) + "|" + juce::String (bb.tick).paddedLeft ('0', 3),
+                    r.withHeight (16.0f).translated (0.0f, -18.0f).toNearestInt(), juce::Justification::centredLeft);
+    }
+
+    // Zoom range
+    if (drag == Drag::zoomRange && dragMoved)
+    {
+        const float x1 = secondsToX (dragAnchorSeconds), x2 = (float) getMouseXYRelative().x;
+        g.setColour (theme::accent.withAlpha (0.2f));
+        g.fillRect (juce::Rectangle<float> (juce::jmin (x1, x2), (float) theme::rulerHeight, std::abs (x2 - x1), (float) getHeight()));
+    }
 }
 
 void TrackArea::timerCallback()

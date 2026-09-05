@@ -36,7 +36,17 @@ Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-**Phase 0 and Phase 1 complete.**
+**Phase 0 and Phase 1 complete. Phase 2 in progress.**
+
+- Edit modes and tools (Pro Tools layout): Shuffle, Slip, Spot and Grid modes
+  (F1-F4; Grid has a value selector and Absolute/Relative toggle), and the
+  Zoomer, Trimmer, Selector, Grabber and Smart Tool (F5-F9). Clips can be
+  moved (also across compatible tracks), trimmed non-destructively at either
+  edge, separated at the playhead or selection (Ctrl+E), duplicated (Ctrl+D),
+  nudged by the grid value (, and .), deleted, or cleared from a time
+  selection; every edit is one undo step, Shuffle re-packs the track. A time
+  selection sets the Cycle range and the play start. Spot opens a dialog to
+  type a bar|beat or seconds position. Alt+Z zooms to fit.
 
 - Audio tracks: import files (open dialog, drag-and-drop, command line), shown
   as waveform clips on colour-coded tracks.
@@ -77,11 +87,12 @@ Run the tests with `ctest --test-dir build`.
 - Tracks have mute/solo; every edit is an undoable command.
 
 Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Smart Controls, E editor panel,
-Ctrl+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
+Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Next is Phase 2: edit modes and tools, the full mixer with inserts, sends,
-buses and automation, I/O Setup and delay compensation. See PLAN.md §5.
+Still to come in Phase 2: fades and clip gain, Scrubber and Pencil tools,
+the full mixer with inserts, sends, buses and automation, I/O Setup and delay
+compensation. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

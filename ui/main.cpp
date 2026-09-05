@@ -5,6 +5,8 @@
 // together. All edits flow: UI -> Command -> Session -> RenderSnapshot -> engine.
 
 #include "depth/BounceDialog.h"
+#include "depth/EditToolbar.h"
+#include "shared/EditSettings.h"
 #include "shared/Theme.h"
 #include "surface/LoopBrowser.h"
 #include "surface/PianoRoll.h"
@@ -58,7 +60,10 @@ public:
         };
 
         addAndMakeVisible (transportBar);
+        addAndMakeVisible (editToolbar);
         addAndMakeVisible (trackArea);
+        editSettings.onChanged = [this] { editToolbar.refresh(); trackArea.repaint(); };
+        trackArea.onTimeSelectionChanged = [this] { updateLoopRange(); };
         addAndMakeVisible (sequencer);
         addAndMakeVisible (pianoRoll);
         pianoRoll.setVisible (false);
@@ -231,6 +236,7 @@ public:
     {
         auto area = getLocalBounds();
         transportBar.setBounds (area.removeFromTop (ui::theme::transportHeight));
+        editToolbar.setBounds (area.removeFromTop (ui::EditToolbar::preferredHeight));
         statusLabel.setBounds (area.removeFromBottom (22).reduced (8, 0));
 
         if (editorVisible)
@@ -264,8 +270,24 @@ public:
         if (key == juce::KeyPress ('l'))                      { setLibraryVisible (! libraryVisible); return true; }
         if (key == juce::KeyPress ('b'))                      { setControlsVisible (! controlsVisible); return true; }
         if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
-        if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { addDrumMachineTrack(); return true; }
+        if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { addDrumMachineTrack(); return true; }
         if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addSynthTrack(); return true; }
+
+        // Edit modes F1-F4, tools F5-F9 (Pro Tools layout)
+        using Mode = ui::EditSettings::Mode; using Tool = ui::EditSettings::Tool;
+        if (key == juce::KeyPress::F1Key) { editSettings.mode = Mode::shuffle; editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F2Key) { editSettings.mode = Mode::slip;    editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F3Key) { editSettings.mode = Mode::spot;    editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F4Key) { editSettings.mode = Mode::grid;    editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F5Key) { editSettings.tool = Tool::zoomer;   editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F6Key) { editSettings.tool = Tool::trimmer;  editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F7Key) { editSettings.tool = Tool::selector; editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F8Key) { editSettings.tool = Tool::grabber;  editSettings.notify(); return true; }
+        if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::smart;    editSettings.notify(); return true; }
+        if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
+
+        // Clip edits reach the track area even when it doesn't have focus
+        if (trackArea.keyPressed (key)) return true;
         if (key == juce::KeyPress ('b', juce::ModifierKeys::commandModifier, 0)) { showBounceDialogImpl(); return true; }
 
         return false;
@@ -798,12 +820,21 @@ private:
         engine.setSnapshot (std::move (snapshot));
     }
 
-    void sessionChanged (model::Session& s) override
+    // Cycle range: the time selection when there is one, else the arrangement.
+    void updateLoopRange()
+    {
+        const auto& sel = trackArea.getTimeSelection();
+        const double sr = engine.getSampleRate();
+        if (sel.isValid())
+            engine.getTransport().setLoopRange ((juce::int64) std::llround (sel.start * sr), (juce::int64) std::llround (sel.end * sr));
+        else
+            engine.getTransport().setLoopRange (0, (juce::int64) std::llround (session.getLengthSeconds() * sr));
+    }
+
+    void sessionChanged (model::Session&) override
     {
         pushSnapshot();
-
-        // Cycle range follows the arrangement until a user-defined range exists.
-        engine.getTransport().setLoopRange (0, (juce::int64) std::llround (s.getLengthSeconds() * engine.getSampleRate()));
+        updateLoopRange();
 
         updateSequencerTarget();
         updateStatus();
@@ -816,7 +847,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   B: controls   E: editor   Ctrl+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   B: controls   E: editor   Ctrl+Shift+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce   Alt+Z: zoom to fit";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -825,7 +856,9 @@ private:
     persistence::AudioFileLoader loader;
 
     ui::TransportBar transportBar { engine.getTransport() };
-    ui::TrackArea trackArea { session, engine.getTransport(), loader.getFormatManager() };
+    ui::EditSettings editSettings;
+    ui::EditToolbar editToolbar { editSettings };
+    ui::TrackArea trackArea { session, engine.getTransport(), loader.getFormatManager(), editSettings };
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
     ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
     ui::SmartControls smartControls { session };

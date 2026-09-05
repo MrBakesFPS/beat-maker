@@ -45,6 +45,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rp.kit           = track.drumKit;
             rp.timelineStart = clip.timelineStart;
             rp.length        = audible ? clip.length : 0;
+            rp.loopOffset    = clip.loopOffset;
             rp.gain          = clip.gain * track.gain;
             rp.pan           = track.pan;
             snapshot->patterns.push_back (std::move (rp));
@@ -64,6 +65,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
                 rm.instrumentId  = track.id;
                 rm.timelineStart = clip.timelineStart;
                 rm.length        = audible ? clip.length : 0;
+                rm.loopOffset    = clip.loopOffset;
                 rm.gain          = clip.gain * track.gain;
                 snapshot->midiClips.push_back (std::move (rm));
             }

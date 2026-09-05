@@ -199,7 +199,7 @@ beat-maker/
 - [x] **Milestone:** A beginner can make and export a beat in under 10 minutes. *(Reached 2026-09-05: drum track + synth track + loops from the Library, edit, Cycle, Bounce.)*
 
 ### Phase 2 — Depth: Editing & Mixing (Weeks 13–22)
-- [ ] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set.
+- [~] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set. *(2026-09-05: all four modes incl. Absolute/Relative grid; Zoomer, Trimmer, Selector, Grabber, Smart Tool; move/trim/separate/duplicate/nudge/delete/clear as undoable commands. Scrubber and Pencil pending.)*
 - [ ] Clip gain, fades, nudge, tab-to-transient, playlists/takes/comping.
 - [ ] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups.
 - [ ] I/O Setup window; automatic delay compensation.

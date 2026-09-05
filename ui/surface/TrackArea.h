@@ -3,7 +3,9 @@
 // owner can issue Commands.
 #pragma once
 
+#include "../shared/EditSettings.h"
 #include "../shared/Theme.h"
+#include <ClipEdits.h>
 #include <Session.h>
 #include <transport/Transport.h>
 
@@ -23,8 +25,30 @@ class TrackArea final : public juce::Component,
                         private model::Session::Listener
 {
 public:
-    TrackArea (model::Session& session, engine::Transport& transport, juce::AudioFormatManager& formatManager);
+    TrackArea (model::Session& session, engine::Transport& transport, juce::AudioFormatManager& formatManager,
+               EditSettings& editSettings);
     ~TrackArea() override;
+
+    // ---- Editing state ----
+    struct TimeSelection
+    {
+        double start = 0.0, end = 0.0;     // seconds
+        int firstTrack = -1, lastTrack = -1;
+        bool isValid() const noexcept { return end > start; }
+    };
+    const TimeSelection& getTimeSelection() const noexcept { return timeSelection; }
+    const std::vector<model::ClipRef>& getSelectedClips() const noexcept { return selectedClips; }
+    void clearSelection();
+    std::function<void()> onTimeSelectionChanged;
+
+    // Edit operations on the current selection (bound to keys by the owner)
+    void deleteSelection();
+    void separateAtPlayhead();
+    void duplicateSelectedClips();
+    void nudgeSelectedClips (int direction);
+    void zoomToFit();
+
+    bool keyPressed (const juce::KeyPress&) override;
 
     // (files, trackIndex or -1 for "new track", timeline position in seconds)
     std::function<void (const juce::StringArray&, int, double)> onFilesDropped;
@@ -53,6 +77,9 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
@@ -95,6 +122,24 @@ private:
     void paintPatternClip (juce::Graphics&, const model::Track&, const model::PatternClip&, juce::Rectangle<int> lane);
     void paintMidiClip (juce::Graphics&, const model::Track&, const model::MidiClip&, juce::Rectangle<int> lane);
     void paintLiveRecording (juce::Graphics&, const model::Track&, juce::Rectangle<int> lane);
+    void paintEditOverlays (juce::Graphics&);
+
+    // ---- Edit helpers ----
+    enum class Drag { none, move, trimStart, trimEnd, select, zoomRange };
+    EditSettings::Tool effectiveTool (const juce::MouseEvent&, const std::optional<model::ClipRef>& hit, bool& nearStart, bool& nearEnd) const;
+    std::optional<model::ClipRef> clipAtPoint (juce::Point<int>) const;
+    juce::Rectangle<float> rectForClip (const model::ClipRef&) const;
+    double snapSeconds (double seconds) const;
+    double snapDelta (double deltaSeconds) const;
+    double gridSeconds() const;
+    juce::int64 toSamples (double seconds) const;
+    bool isSelected (const model::ClipRef&) const;
+    void selectClip (const model::ClipRef&, bool addToSelection);
+    void commitDrag();
+    void executeWithShuffle (std::unique_ptr<model::Command>, const juce::String& name, std::initializer_list<int> tracksToRepack);
+    void showSpotDialog (const model::ClipRef&);
+    void setTimeSelection (TimeSelection);
+    void updateCursor (const juce::MouseEvent&);
     juce::Rectangle<float> clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> lane) const;
     void paintClipFrame (juce::Graphics&, juce::Rectangle<float>, const model::Track&, const juce::String& name);
 
@@ -108,7 +153,20 @@ private:
     std::map<int, std::unique_ptr<juce::AudioThumbnail>> liveThumbnails;
     juce::TextButton addTrackButton { "+ Track" };
 
+    EditSettings& edit;
     int selectedTrack = -1;
+    std::vector<model::ClipRef> selectedClips;
+    TimeSelection timeSelection;
+
+    Drag drag = Drag::none;
+    model::ClipRef dragClip;
+    model::ClipTiming dragOriginal;
+    juce::Point<int> dragStartPoint;
+    int dragTargetTrack = -1;
+    double ghostStart = 0.0, ghostLength = 0.0;   // seconds
+    bool dragMoved = false;
+    double dragAnchorSeconds = 0.0;
+
     double pixelsPerSecond = 60.0;
     double viewStartSeconds = 0.0;
     bool dragHover = false;

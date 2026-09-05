@@ -49,6 +49,7 @@ struct RenderPattern
     juce::int64 length        = 0;
     float gain                = 1.0f;
     float pan                 = 0.0f;
+    juce::int64 loopOffset    = 0;    // pattern position at timelineStart
 };
 
 // A synth instrument: the graph keeps a voice pool per instrumentId.
@@ -67,6 +68,7 @@ struct RenderMidiClip
     juce::int64 timelineStart = 0;
     juce::int64 length        = 0;
     float gain                = 1.0f;
+    juce::int64 loopOffset    = 0;    // sequence position at timelineStart
 };
 
 // Pass a device input straight to the outputs (input monitoring).

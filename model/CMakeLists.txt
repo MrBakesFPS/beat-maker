@@ -3,7 +3,8 @@ add_library(beatmaker_model INTERFACE)
 
 target_sources(beatmaker_model INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/Session.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/RenderSnapshotBuilder.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/RenderSnapshotBuilder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ClipEdits.cpp)
 
 target_include_directories(beatmaker_model INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 

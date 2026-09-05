@@ -43,6 +43,7 @@ struct PatternClip
     double sampleRate = 44100.0;
     juce::int64 timelineStart = 0;
     juce::int64 length        = 0;
+    juce::int64 loopOffset    = 0;   // pattern position (samples) at timelineStart; lets trims/splits keep phase
     float gain = 1.0f;
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
@@ -58,6 +59,7 @@ struct MidiClip
     double sampleRate = 44100.0;
     juce::int64 timelineStart = 0;
     juce::int64 length        = 0;
+    juce::int64 loopOffset    = 0;   // sequence position (samples) at timelineStart
     float gain = 1.0f;
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
@@ -150,6 +152,7 @@ private:
     friend class SetSynthParamsCommand;
     friend class SetTrackMixCommand;
     friend class ReplaceDrumKitCommand;
+    friend struct EditAccess;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
 
@@ -159,6 +162,12 @@ private:
     int beatsPerBar = 4;
     CommandHistory history;
     juce::ListenerList<Listener> listeners;
+};
+
+// Gateway for commands defined outside this header (see ClipEdits.h).
+struct EditAccess
+{
+    static std::vector<Track>& tracks (Session& s) noexcept { return s.tracks; }
 };
 
 //==============================================================================

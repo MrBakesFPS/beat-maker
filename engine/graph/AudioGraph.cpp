@@ -242,17 +242,18 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
         if (from >= to)
             continue;
 
-        // First step index that could fall at or after `from`.
-        juce::int64 k = (juce::int64) std::floor ((double) (from - rp.timelineStart) / stepDur);
-        if (k < 0) k = 0;
+        // Pattern time zero sits `loopOffset` samples before the clip start.
+        const juce::int64 origin = rp.timelineStart - rp.loopOffset;
+        juce::int64 k = (juce::int64) std::floor ((double) (from - origin) / stepDur);
 
         for (;; ++k)
         {
-            const juce::int64 t = rp.timelineStart + (juce::int64) std::llround ((double) k * stepDur);
+            const juce::int64 t = origin + (juce::int64) std::llround ((double) k * stepDur);
             if (t >= to) break;
             if (t < from) continue;
 
-            const int step = (int) (k % rp.pattern->numSteps);
+            const int numSteps = rp.pattern->numSteps;
+            const int step = (int) (((k % numSteps) + numSteps) % numSteps);
             const int delay = (int) (t - rangeStart);
 
             for (int pad = 0; pad < juce::jmin (DrumKit::numPads, StepPattern::maxPads); ++pad)
@@ -284,12 +285,12 @@ void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
 
         const double periodSamples = seq.lengthBeats * samplesPerBeat;
         const bool loops = periodSamples >= 1.0;
-        juce::int64 firstIteration = loops ? (juce::int64) std::floor ((double) (from - clip.timelineStart) / periodSamples) : 0;
-        if (firstIteration < 0) firstIteration = 0;
+        const juce::int64 origin = clip.timelineStart - clip.loopOffset;
+        juce::int64 firstIteration = loops ? (juce::int64) std::floor ((double) (from - origin) / periodSamples) : 0;
 
         for (juce::int64 k = firstIteration; ; ++k)
         {
-            const juce::int64 iterationStart = clip.timelineStart + (juce::int64) std::llround ((double) k * periodSamples);
+            const juce::int64 iterationStart = origin + (juce::int64) std::llround ((double) k * periodSamples);
             if (iterationStart >= to) break;
 
             for (const auto& note : seq.notes)
