@@ -31,15 +31,23 @@ target_sources(beatmaker_tests PRIVATE
     trim_master_test.cpp
     clip_gain_scrub_pencil_test.cpp
     plugin_host_test.cpp
+    clap_host_test.cpp
     effects_suite_test.cpp
     recorder_test.cpp
     bounce_test.cpp
     loop_library_test.cpp
     audio_file_loader_test.cpp)
 
+# A tiny CLAP plugin (.clap shared library) the host tests load with dlopen.
+add_library(fake_clap MODULE fake_clap/fake_clap_plugin.cpp)
+target_link_libraries(fake_clap PRIVATE clap_headers)
+set_target_properties(fake_clap PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "fake_gain")
+add_dependencies(beatmaker_tests fake_clap)
+
 target_compile_definitions(beatmaker_tests PRIVATE
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0)
+    JUCE_USE_CURL=0
+    BEATMAKER_FAKE_CLAP_PATH="$<TARGET_FILE:fake_clap>")
 
 # Tests deliberately compare exact sample values, so use plain warnings rather
 # than juce_recommended_warning_flags (which enables -Wfloat-equal).

@@ -1,4 +1,5 @@
 #include "PluginHost.h"
+#include "ClapHost.h"
 
 namespace beatmaker::plugins
 {
@@ -148,7 +149,7 @@ private:
 int PluginManager::runScanChild (const juce::String& formatName, const juce::String& fileOrIdentifier)
 {
     juce::AudioPluginFormatManager fm;
-    juce::addDefaultFormatsToManager (fm);
+    addAllPluginFormats (fm);
     for (auto* format : fm.getFormats())
     {
         if (format->getName() != formatName) continue;
@@ -202,7 +203,7 @@ private:
 PluginManager::PluginManager (juce::File settingsFile, juce::File hostExecutable)
     : settings (std::move (settingsFile)), executable (std::move (hostExecutable))
 {
-    juce::addDefaultFormatsToManager (formats);
+    addAllPluginFormats (formats);
     known.setCustomScanner (std::make_unique<OutOfProcessScanner> (executable));
     load();
 }

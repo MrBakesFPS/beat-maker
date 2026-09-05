@@ -57,15 +57,22 @@ Run the tests with `ctest --test-dir build`.
   Flanger, Phaser, Saturation (soft, hard, tube), Amp Sim (drive, tone stack,
   presence, cabinet) and Utility (gain, phase, width, mono). Dynamics show a
   gain-reduction bar on their slot; every parameter is automatable.
-- Plugin hosting: VST3 and LV2 on Linux (AU on macOS) through JUCE. From any
-  insert slot choose Plugins > Scan for Plugins..., then pick a plugin by
-  format. Scanning validates each plugin in a separate process (the app
-  relaunches itself with --scan-plugin=...), so a plugin that crashes or hangs
-  is blacklisted instead of taking the host down; the list persists in
-  ~/.config/Beat Maker/plugins.xml. Loaded plugins report their latency to
-  delay compensation, expose their parameters to automation lanes, and open
-  their own editor window (or a generic one) when clicked. CLAP has no JUCE
-  host yet and is deferred; plugins run in-process once loaded.
+- Plugin hosting: VST3, LV2 and CLAP on Linux (AU on macOS). VST3/LV2/AU go
+  through JUCE; CLAP has its own host (plugins/ClapHost) that loads .clap
+  libraries from ~/.clap, /usr/lib/clap, /usr/local/lib/clap and $CLAP_PATH,
+  and presents each plugin to the same machinery: parameters, state, latency,
+  audio ports (a second input port becomes the sidechain bus) and an
+  X11-embedded editor when the plugin has one. From any insert slot choose
+  Plugins > Scan for Plugins..., then pick a plugin by format. Scanning
+  validates each plugin in a separate process (the app relaunches itself with
+  --scan-plugin=...), so a plugin that crashes or hangs is blacklisted instead
+  of taking the host down; the list persists in ~/.config/Beat Maker/plugins.xml.
+  Loaded plugins report their latency to delay compensation, expose their
+  parameters to automation lanes, and open their own editor window (or a
+  generic one) when clicked. Plugins run in-process once loaded. The CLAP host
+  is verified against a fake .clap built by the test suite; the native-GUI
+  embedding path has not yet been exercised with a real plugin.
+  --insert-plugin=<name> inserts a known plugin from the command line.
 
 - Edit modes and tools (Pro Tools layout): Shuffle, Slip, Spot and Grid modes
   (F1-F4; Grid has a value selector and Absolute/Relative toggle), and the
@@ -249,7 +256,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: CLAP hosting. See PLAN.md §5.
+Phase 3 is complete. Next is Phase 4 (record modes, MIDI event list and
+sync, memory locations, arrangement track, templates, deep preferences,
+command palette, scripting). See PLAN.md §5.
 
 ## Architecture in one paragraph
 

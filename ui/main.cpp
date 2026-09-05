@@ -256,6 +256,25 @@ public:
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
     void scanPluginsFromCommandLine() { scanPlugins(); }
+    // --insert-plugin=<name>: put the first known plugin whose name contains <name> on track 1, slot 1.
+    void insertPluginFromCommandLine (const juce::String& name)
+    {
+        for (const auto& d : pluginManager.getKnownPlugins().getTypes())
+            if (d.name.containsIgnoreCase (name))
+            {
+                if (session.getNumTracks() == 0) addTrack ("Audio 1");
+                insertPlugin (0, 0, d);
+                return;
+            }
+        statusMessage = "No known plugin matches \"" + name + "\" (scan first)";
+        updateStatus();
+    }
+    // Waits for a running scan, then runs `then` (smoke tests chain --scan-plugins with --insert-plugin).
+    void afterScan (std::function<void()> then)
+    {
+        if (! pluginManager.isScanning()) { then(); return; }
+        juce::Timer::callAfterDelay (200, [this, then] { afterScan (then); });
+    }
 
     // Convolution Reverb: pick an impulse response file for an insert.
     void chooseImpulseResponse (int trackIndex, int slot)
@@ -1614,6 +1633,7 @@ public:
             else if (arg == "--playlist-demo") main.playlistDemoFromCommandLine();
             else if (arg == "--clip-gain-demo") main.clipGainDemoFromCommandLine();
             else if (arg == "--scan-plugins") main.scanPluginsFromCommandLine();
+            else if (arg.startsWith ("--insert-plugin=")) main.afterScan ([&main, name = arg.fromFirstOccurrenceOf ("=", false, false)] { main.insertPluginFromCommandLine (name); });
             else if (arg == "--insert-demo") main.insertDemoFromCommandLine();
             else if (arg == "--elastic-demo") main.elasticDemoFromCommandLine();
             else if (arg == "--sidechain-demo") main.sidechainDemoFromCommandLine();
