@@ -38,7 +38,31 @@ void AudioGraph::triggerPadPreview (const DrumKit* kit, int pad, float velocity)
     const auto scope = previewFifo.write (1);
     const int index = scope.blockSize1 == 1 ? scope.startIndex1 : scope.blockSize2 == 1 ? scope.startIndex2 : -1;
     if (index >= 0)
-        previewEvents[(size_t) index] = { kit, pad, velocity };
+    {
+        PreviewEvent e;
+        e.kit = kit; e.pad = pad; e.velocity = velocity;
+        previewEvents[(size_t) index] = e;
+    }
+}
+
+void AudioGraph::triggerNotePreview (int instrumentId, int pitch, float velocity, double seconds)
+{
+    const auto scope = previewFifo.write (1);
+    const int index = scope.blockSize1 == 1 ? scope.startIndex1 : scope.blockSize2 == 1 ? scope.startIndex2 : -1;
+    if (index >= 0)
+    {
+        PreviewEvent e;
+        e.instrumentId = instrumentId; e.pitch = pitch; e.velocity = velocity;
+        e.gateSamples = (int) std::llround (seconds * transport.getSampleRate());
+        previewEvents[(size_t) index] = e;
+    }
+}
+
+int AudioGraph::getNumSynthVoices() const noexcept
+{
+    int n = 0;
+    for (const auto& slot : synthSlots) if (slot.id >= 0) n += slot.synth.getNumActiveVoices();
+    return n;
 }
 
 //==============================================================================
@@ -78,6 +102,8 @@ void AudioGraph::swapInPendingSnapshot() noexcept
         previewPosition = 0;
     }
 
+    rebindSynthSlots();
+
     // Voices may only reference kits the new snapshot keeps alive.
     std::array<const DrumKit*, 64> kits {};
     int numKits = 0;
@@ -85,6 +111,42 @@ void AudioGraph::swapInPendingSnapshot() noexcept
         if (p.kit != nullptr && numKits < (int) kits.size())
             kits[(size_t) numKits++] = p.kit.get();
     drums.killVoicesNotUsing (kits.data(), numKits);
+}
+
+void AudioGraph::rebindSynthSlots()
+{
+    // Drop slots whose instrument left the snapshot.
+    for (auto& slot : synthSlots)
+    {
+        if (slot.id < 0) continue;
+        bool present = false;
+        for (const auto& rs : current->synths) if (rs.instrumentId == slot.id) { present = true; break; }
+        if (! present) { slot.synth.reset(); slot.synth.setParams (nullptr); slot.id = -1; }
+    }
+
+    // Bind every synth in the snapshot to a slot (existing or free).
+    for (const auto& rs : current->synths)
+    {
+        SynthSlot* slot = nullptr;
+        for (auto& s : synthSlots) if (s.id == rs.instrumentId) { slot = &s; break; }
+        if (slot == nullptr)
+            for (auto& s : synthSlots) if (s.id < 0) { slot = &s; break; }
+        if (slot == nullptr) continue;   // more than maxSynths instruments: extras are silent
+
+        if (slot->id < 0) { slot->id = rs.instrumentId; slot->synth.prepare (transport.getSampleRate()); }
+        slot->synth.setParams (rs.params.get());
+    }
+}
+
+Synth* AudioGraph::synthForId (int instrumentId) noexcept
+{
+    for (auto& s : synthSlots) if (s.id == instrumentId) return &s.synth;
+    return nullptr;
+}
+
+void AudioGraph::releaseAllSynths (bool immediate) noexcept
+{
+    for (auto& s : synthSlots) if (s.id >= 0) s.synth.allNotesOff (immediate);
 }
 
 bool AudioGraph::snapshotHasKit (const DrumKit* kit) const noexcept
@@ -104,8 +166,13 @@ void AudioGraph::processPreviewEvents()
         for (int i = 0; i < count; ++i)
         {
             const auto& e = previewEvents[(size_t) (start + i)];
-            if (snapshotHasKit (e.kit))
-                drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0);
+            if (e.kit != nullptr)
+            {
+                if (snapshotHasKit (e.kit))
+                    drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0);
+            }
+            else if (auto* synth = synthForId (e.instrumentId))
+                synth->noteOn (e.pitch, e.velocity * current->masterGain, 0, juce::jmax (1, e.gateSamples));
         }
     };
     handle (scope.startIndex1, scope.blockSize1);
@@ -197,6 +264,48 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
     }
 }
 
+void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
+{
+    const juce::int64 rangeEnd = rangeStart + numSamples;
+    const double samplesPerBeat = transport.getSampleRate() * 60.0 / transport.getBpm();
+
+    for (const auto& clip : current->midiClips)
+    {
+        if (clip.sequence == nullptr || clip.length <= 0) continue;
+        auto* synth = synthForId (clip.instrumentId);
+        if (synth == nullptr) continue;
+
+        const auto& seq = *clip.sequence;
+        const juce::int64 clipEnd = clip.timelineStart + clip.length;
+        const juce::int64 from = juce::jmax (rangeStart, clip.timelineStart);
+        const juce::int64 to   = juce::jmin (rangeEnd, clipEnd);
+        if (from >= to) continue;
+
+        const double periodSamples = seq.lengthBeats * samplesPerBeat;
+        const bool loops = periodSamples >= 1.0;
+        juce::int64 firstIteration = loops ? (juce::int64) std::floor ((double) (from - clip.timelineStart) / periodSamples) : 0;
+        if (firstIteration < 0) firstIteration = 0;
+
+        for (juce::int64 k = firstIteration; ; ++k)
+        {
+            const juce::int64 iterationStart = clip.timelineStart + (juce::int64) std::llround ((double) k * periodSamples);
+            if (iterationStart >= to) break;
+
+            for (const auto& note : seq.notes)
+            {
+                const juce::int64 t = iterationStart + (juce::int64) std::llround (note.startBeat * samplesPerBeat);
+                if (t < from || t >= to) continue;
+
+                const juce::int64 gate = juce::jmin ((juce::int64) std::llround (note.lengthBeats * samplesPerBeat), clipEnd - t);
+                synth->noteOn (note.pitch, (float) note.velocity / 127.0f * clip.gain * current->masterGain,
+                               (int) (t - rangeStart), (int) juce::jmax<juce::int64> (1, gate));
+            }
+
+            if (! loops) break;
+        }
+    }
+}
+
 void AudioGraph::renderRange (float* const* outputs, int numOutputs, int numSamples)
 {
     for (int ch = 0; ch < numOutputs; ++ch)
@@ -205,21 +314,29 @@ void AudioGraph::renderRange (float* const* outputs, int numOutputs, int numSamp
 
     swapInPendingSnapshot();
 
+    const bool playing = transport.isPlaying();
+    if (wasPlaying && ! playing)
+        releaseAllSynths (false);       // stop: let held notes release
+    wasPlaying = playing;
+
     if (current != nullptr)
     {
         processPreviewEvents();
 
-        if (transport.isPlaying())
+        if (playing)
         {
             const juce::int64 pos = transport.getPositionSamples();
             mixClips (outputs, numOutputs, pos, numSamples);
             scheduleSequencer (pos, numSamples);
+            scheduleMidi (pos, numSamples);
         }
     }
 
-    // Drum voices always render so previews sound while stopped and tails
-    // ring out after stop. Library preview likewise ignores the transport.
+    // Instrument voices always render so previews sound while stopped and
+    // tails ring out after stop. Library preview likewise ignores the transport.
     drums.render (outputs, numOutputs, numSamples);
+    for (auto& slot : synthSlots)
+        if (slot.id >= 0) slot.synth.render (outputs, numOutputs, numSamples);
     mixPreview (outputs, numOutputs, numSamples);
 
     for (int ch = 0; ch < juce::jmin (numOutputs, (int) outputPeak.size()); ++ch)
@@ -314,7 +431,10 @@ void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
         }
 
         if (wrapAfter)
+        {
             transport.setPositionSamples (transport.getLoopStart());
+            releaseAllSynths (false);   // notes don't hang across the loop point
+        }
 
         if (count <= 0)
             break;
@@ -342,6 +462,8 @@ void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)
     if (device != nullptr)
         transport.setSampleRate (device->getCurrentSampleRate());
     drums.reset();
+    for (auto& slot : synthSlots)
+        if (slot.id >= 0) slot.synth.prepare (transport.getSampleRate());
 }
 
 void AudioGraph::audioDeviceStopped() {}

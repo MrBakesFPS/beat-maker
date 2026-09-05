@@ -27,7 +27,7 @@ automatically on first configure.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "assets/loops/Drum Loop 120.wav"
-"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --cycle --play   # instant beat
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --synth --cycle --play   # instant beat
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --bounce=beat.wav # batch render, no UI interaction
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--loop=assets/loops/Hip Hop Beat 90.wav"  # conformed to 120
 ```
@@ -44,6 +44,12 @@ Run the tests with `ctest --test-dir build`.
   starter beat, and a step-sequencer editor panel. Click a step to toggle it,
   Shift-click for a soft hit, drag to paint, click a pad name to audition it,
   drop an audio file on a pad row to replace its sample.
+- Synth tracks (Ctrl+I): a polyphonic subtractive synth (PolyBLEP saw, square,
+  triangle, sine; detuned second oscillator; state-variable low-pass with
+  envelope; ADSR) with presets, driven by MIDI clips edited in a piano roll:
+  click to add a note, drag to move, drag the right edge to resize, right-click
+  or Delete to remove, click a key to audition. New synth tracks start with a
+  two-bar arpeggio.
 - Loop Library (L): a GarageBand-style browser over bundled loops plus
   `~/Music/Beat Maker/Loops` and any folders you add. Tempo, key and category
   are read from file names (with tempo estimated from length when missing).
@@ -66,10 +72,10 @@ Run the tests with `ctest --test-dir build`.
 - Tracks have mute/solo; every edit is an undoable command.
 
 Keys: Space play/stop, R record, Return back to start, C cycle, L library, E editor panel,
-Ctrl+D new drum track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
+Ctrl+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 1: piano roll and Smart Controls. See PLAN.md §5.
+Still to come in Phase 1: Smart Controls. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -82,7 +88,9 @@ exchange; retired snapshots are freed back on the message thread. Step
 patterns and drum kits are immutable and replaced copy-on-write; the graph
 schedules pattern hits into a `DrumMachine` voice pool and kills any voice
 whose kit is no longer referenced by the active snapshot before that snapshot
-is retired. The `Recorder` receives every input block on the audio thread and
+is retired. Synth tracks get a `Synth` slot in the graph keyed by track id;
+MIDI notes carry their own gate length so no note-off has to be scheduled
+across blocks, and all synths release on stop and at the cycle wrap. The `Recorder` receives every input block on the audio thread and
 pushes it into per-track lock-free ring buffers that a background thread
 flushes to WAV; start/stop hand the session across threads with an atomic
 pointer plus a busy flag so teardown never races the callback. `Bouncer`

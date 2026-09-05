@@ -44,7 +44,7 @@ public:
     juce::AudioThumbnail& createLiveThumbnail (int trackId);
     void clearLiveThumbnails();
     std::function<double()> getRecordStartSeconds;   // -1 when not yet started
-    std::function<void (model::Track::Type)> onAddTrack;
+    std::function<void (model::Track::Type, model::Track::InstrumentKind)> onAddTrack;
     std::function<void (int trackIndex)> onSelectionChanged;
 
     int getSelectedTrack() const noexcept { return selectedTrack; }
@@ -93,6 +93,7 @@ private:
     void paintLane (juce::Graphics&, const model::Track&, juce::Rectangle<int>);
     void paintAudioClip (juce::Graphics&, const model::Track&, const model::AudioClip&, juce::Rectangle<int> lane);
     void paintPatternClip (juce::Graphics&, const model::Track&, const model::PatternClip&, juce::Rectangle<int> lane);
+    void paintMidiClip (juce::Graphics&, const model::Track&, const model::MidiClip&, juce::Rectangle<int> lane);
     void paintLiveRecording (juce::Graphics&, const model::Track&, juce::Rectangle<int> lane);
     juce::Rectangle<float> clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> lane) const;
     void paintClipFrame (juce::Graphics&, juce::Rectangle<float>, const model::Track&, const juce::String& name);

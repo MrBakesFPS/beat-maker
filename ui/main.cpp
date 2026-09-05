@@ -7,6 +7,7 @@
 #include "depth/BounceDialog.h"
 #include "shared/Theme.h"
 #include "surface/LoopBrowser.h"
+#include "surface/PianoRoll.h"
 #include "surface/StepSequencer.h"
 #include "surface/TrackArea.h"
 #include "surface/TransportBar.h"
@@ -58,6 +59,8 @@ public:
         addAndMakeVisible (transportBar);
         addAndMakeVisible (trackArea);
         addAndMakeVisible (sequencer);
+        addAndMakeVisible (pianoRoll);
+        pianoRoll.setVisible (false);
         addAndMakeVisible (loopBrowser);
         addAndMakeVisible (statusLabel);
 
@@ -92,10 +95,11 @@ public:
                 trackIndex = -1; // subsequent files each get their own track
             }
         };
-        trackArea.onAddTrack = [this] (model::Track::Type type)
+        trackArea.onAddTrack = [this] (model::Track::Type type, model::Track::InstrumentKind kind)
         {
-            if (type == model::Track::Type::instrument) addDrumMachineTrack();
-            else addTrack ("Audio " + juce::String (session.getNumTracks() + 1));
+            if (type != model::Track::Type::instrument)                       addTrack ("Audio " + juce::String (session.getNumTracks() + 1));
+            else if (kind == model::Track::InstrumentKind::synth)             addSynthTrack();
+            else                                                              addDrumMachineTrack();
         };
         trackArea.onSelectionChanged = [this] (int) { updateSequencerTarget(); };
 
@@ -104,6 +108,15 @@ public:
             session.execute (std::make_unique<model::SetStepCommand> (track, clip, pad, step, velocity));
         };
         sequencer.onPadSampleDropped = [this] (int track, int pad, const juce::File& file) { loadPadSample (track, pad, file); };
+
+        pianoRoll.onSequenceChanged = [this] (int track, int clip, std::shared_ptr<const engine::MidiSequence> seq, juce::String name)
+        {
+            session.execute (std::make_unique<model::ReplaceMidiSequenceCommand> (track, clip, std::move (seq), std::move (name)));
+        };
+        pianoRoll.onPresetChanged = [this] (int track, int preset)
+        {
+            session.execute (std::make_unique<model::SetSynthParamsCommand> (track, engine::SynthParams::preset (preset)));
+        };
         trackArea.onMuteChanged = [this] (int i, bool on)
         {
             session.execute (std::make_unique<model::SetTrackFlagCommand> (i, model::SetTrackFlagCommand::Flag::mute, on));
@@ -140,6 +153,7 @@ public:
 
     // Command-line entry points (also handy for smoke tests and demos).
     void addDrumMachineTrackFromCommandLine() { addDrumMachineTrack(); }
+    void addSynthTrackFromCommandLine() { addSynthTrack(); }
     void startPlayback() { engine.getTransport().play(); }
     void addArmedAudioTrackAndRecord()
     {
@@ -212,7 +226,9 @@ public:
 
         if (editorVisible)
         {
-            sequencer.setBounds (area.removeFromBottom (juce::jmin (300, area.getHeight() / 2)));
+            auto editor = area.removeFromBottom (juce::jmin (300, area.getHeight() / 2));
+            sequencer.setBounds (editor);
+            pianoRoll.setBounds (editor);
             area.removeFromBottom (2);
         }
         if (libraryVisible)
@@ -237,6 +253,7 @@ public:
         if (key == juce::KeyPress ('l'))                      { setLibraryVisible (! libraryVisible); return true; }
         if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { addDrumMachineTrack(); return true; }
+        if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addSynthTrack(); return true; }
         if (key == juce::KeyPress ('b', juce::ModifierKeys::commandModifier, 0)) { showBounceDialogImpl(); return true; }
 
         return false;
@@ -635,6 +652,7 @@ private:
         model::Track track;
         track.name    = "Drums " + juce::String (countTracks (model::Track::Type::instrument) + 1);
         track.type    = model::Track::Type::instrument;
+        track.instrumentKind = model::Track::InstrumentKind::drumMachine;
         track.colour  = model::Session::colourForTrackIndex (session.getNumTracks());
         track.drumKit = defaultKit;
 
@@ -655,6 +673,41 @@ private:
         trackArea.setSelectedTrack (index);
         updateSequencerTarget();
         setEditorVisible (true);
+    }
+
+    void addSynthTrack()
+    {
+        model::Track track;
+        track.name           = "Synth " + juce::String (countTracks (model::Track::InstrumentKind::synth) + 1);
+        track.type           = model::Track::Type::instrument;
+        track.instrumentKind = model::Track::InstrumentKind::synth;
+        track.colour         = model::Session::colourForTrackIndex (session.getNumTracks());
+        track.synthParams    = engine::SynthParams::preset (1);   // Pluck
+
+        auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
+        auto* raw = cmd.get();
+        session.execute (std::move (cmd));
+        const int index = raw->getTrackIndex();
+
+        // A 4-bar clip looping a 2-bar arpeggio so Play makes sound immediately.
+        const auto& transport = engine.getTransport();
+        model::MidiClip clip;
+        clip.name       = "Arp";
+        clip.sequence   = std::make_shared<const engine::MidiSequence> (engine::MidiSequence::createDefaultArpeggio());
+        clip.sampleRate = engine.getSampleRate();
+        clip.length     = (juce::int64) std::llround (transport.beatsToSeconds (4.0 * transport.getBeatsPerBar()) * clip.sampleRate);
+        session.execute (std::make_unique<model::AddMidiClipCommand> (index, std::move (clip)));
+
+        trackArea.setSelectedTrack (index);
+        updateSequencerTarget();
+        setEditorVisible (true);
+    }
+
+    int countTracks (model::Track::InstrumentKind kind) const
+    {
+        int n = 0;
+        for (const auto& t : session.getTracks()) n += t.instrumentKind == kind ? 1 : 0;
+        return n;
     }
 
     void loadPadSample (int trackIndex, int pad, const juce::File& file)
@@ -679,21 +732,25 @@ private:
         return n;
     }
 
+    // The editor panel shows whichever editor fits the selected track.
     void updateSequencerTarget()
     {
         const int sel = trackArea.getSelectedTrack();
         auto* track = session.getTrack (sel);
-        if (track != nullptr && track->isInstrument() && ! track->patternClips.empty())
-            sequencer.setTarget (sel, 0);
-        else
-            sequencer.setTarget (-1, -1);
+        const bool drums = track != nullptr && track->isDrumMachine() && ! track->patternClips.empty();
+        const bool synth = track != nullptr && track->isSynth() && ! track->midiClips.empty();
+
+        sequencer.setTarget (drums ? sel : -1, drums ? 0 : -1);
+        pianoRoll.setTarget (synth ? sel : -1, synth ? 0 : -1);
+        pianoRoll.setVisible (editorVisible && synth);
+        sequencer.setVisible (editorVisible && ! synth);
     }
 
     void setEditorVisible (bool visible)
     {
         editorVisible = visible;
-        sequencer.setVisible (visible);
         transportBar.setEditorVisible (visible);
+        updateSequencerTarget();
         resized();
     }
 
@@ -738,7 +795,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   E: editor   Ctrl+D: drum track   Ctrl+O: open   Ctrl+B: bounce   Ctrl+wheel: zoom";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   E: editor   Ctrl+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -749,6 +806,7 @@ private:
     ui::TransportBar transportBar { engine.getTransport() };
     ui::TrackArea trackArea { session, engine.getTransport(), loader.getFormatManager() };
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
+    ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
     persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
     ui::LoopBrowser loopBrowser { loopLibrary };
     std::unique_ptr<juce::PropertiesFile> appSettings;
@@ -782,7 +840,7 @@ public:
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
 
         // Command line: audio files are imported; --drums adds a Drum Machine
-        // track with the starter beat; --record adds an armed audio track and
+        // track with the starter beat; --synth adds a Synth track with an arpeggio; --record adds an armed audio track and
         // starts recording; --cycle enables looping; --play starts the
         // transport; --loop=<file> adds a library loop tempo-conformed at the
         // playhead; --bounce=<file> renders the arrangement and quits.
@@ -795,6 +853,7 @@ public:
         for (const auto& arg : getCommandLineParameterArray())
         {
             if (arg == "--drums")       main.addDrumMachineTrackFromCommandLine();
+            else if (arg == "--synth")  main.addSynthTrackFromCommandLine();
             else if (arg == "--record") main.addArmedAudioTrackAndRecord();
             else if (arg == "--cycle")  main.setCycleEnabled (true);
             else if (arg == "--play")   play = true;

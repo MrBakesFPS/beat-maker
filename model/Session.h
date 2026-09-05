@@ -7,6 +7,8 @@
 #include "Command.h"
 
 #include <dsp/DrumKit.h>
+#include <dsp/SynthParams.h>
+#include <sequencer/MidiSequence.h>
 #include <sequencer/StepPattern.h>
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -48,9 +50,25 @@ struct PatternClip
     double getEndSeconds() const noexcept    { return getStartSeconds() + getLengthSeconds(); }
 };
 
+// Notes placed on the timeline. The sequence loops for `length`.
+struct MidiClip
+{
+    juce::String name;
+    std::shared_ptr<const engine::MidiSequence> sequence;
+    double sampleRate = 44100.0;
+    juce::int64 timelineStart = 0;
+    juce::int64 length        = 0;
+    float gain = 1.0f;
+
+    double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
+    double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
+    double getEndSeconds() const noexcept    { return getStartSeconds() + getLengthSeconds(); }
+};
+
 struct Track
 {
     enum class Type { audio, instrument, aux, master };
+    enum class InstrumentKind { none, drumMachine, synth };
 
     int id = 0;                       // stable identity, assigned by the Session
     juce::String name;
@@ -58,8 +76,12 @@ struct Track
     juce::Colour colour { 0xff3498db };
 
     std::vector<AudioClip> clips;                 // audio tracks
-    std::vector<PatternClip> patternClips;        // instrument tracks
-    std::shared_ptr<const engine::DrumKit> drumKit; // instrument tracks
+
+    InstrumentKind instrumentKind = InstrumentKind::none;
+    std::vector<PatternClip> patternClips;        // drum machine tracks
+    std::shared_ptr<const engine::DrumKit> drumKit;
+    std::vector<MidiClip> midiClips;              // synth tracks
+    std::shared_ptr<const engine::SynthParams> synthParams;
 
     float gain = 1.0f;
     bool mute = false;
@@ -71,9 +93,11 @@ struct Track
     int firstInput = 0;      // device input channel
     int numInputs = 1;       // 1 mono, 2 stereo pair
 
-    bool isInstrument() const noexcept { return type == Type::instrument; }
-    bool isAudio() const noexcept      { return type == Type::audio; }
-    bool hasContent() const noexcept   { return ! clips.empty() || ! patternClips.empty(); }
+    bool isInstrument() const noexcept  { return type == Type::instrument; }
+    bool isDrumMachine() const noexcept { return isInstrument() && instrumentKind == InstrumentKind::drumMachine; }
+    bool isSynth() const noexcept       { return isInstrument() && instrumentKind == InstrumentKind::synth; }
+    bool isAudio() const noexcept       { return type == Type::audio; }
+    bool hasContent() const noexcept    { return ! clips.empty() || ! patternClips.empty() || ! midiClips.empty(); }
 };
 
 class Session
@@ -120,6 +144,9 @@ private:
     friend class AddPatternClipCommand;
     friend class SetStepCommand;
     friend class SetPadSampleCommand;
+    friend class AddMidiClipCommand;
+    friend class ReplaceMidiSequenceCommand;
+    friend class SetSynthParamsCommand;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
 
@@ -311,6 +338,63 @@ private:
     int index, pad;
     engine::DrumSample sample;
     std::shared_ptr<const engine::DrumKit> oldKit;
+};
+
+class AddMidiClipCommand final : public Command
+{
+public:
+    AddMidiClipCommand (int trackIndex, MidiClip c) : index (trackIndex), clip (std::move (c)) {}
+    juce::String getName() const override { return "Add MIDI Clip"; }
+    void execute (Session& s) override
+    {
+        auto& clips = s.tracks[(size_t) index].midiClips;
+        clipIndex = (int) clips.size();
+        clips.push_back (clip);
+    }
+    void undo (Session& s) override
+    {
+        auto& clips = s.tracks[(size_t) index].midiClips;
+        clips.erase (clips.begin() + clipIndex);
+    }
+private:
+    int index;
+    MidiClip clip;
+    int clipIndex = -1;
+};
+
+// Copy-on-write replacement of a clip's notes (add/move/resize/delete are all
+// expressed as "here is the new sequence").
+class ReplaceMidiSequenceCommand final : public Command
+{
+public:
+    ReplaceMidiSequenceCommand (int trackIndex, int midiClipIndex, std::shared_ptr<const engine::MidiSequence> seq,
+                                juce::String actionName)
+        : index (trackIndex), clipIndex (midiClipIndex), newSequence (std::move (seq)), name (std::move (actionName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override
+    {
+        auto& clip = s.tracks[(size_t) index].midiClips[(size_t) clipIndex];
+        oldSequence = clip.sequence;
+        clip.sequence = newSequence;
+    }
+    void undo (Session& s) override { s.tracks[(size_t) index].midiClips[(size_t) clipIndex].sequence = oldSequence; }
+private:
+    int index, clipIndex;
+    std::shared_ptr<const engine::MidiSequence> newSequence, oldSequence;
+    juce::String name;
+};
+
+class SetSynthParamsCommand final : public Command
+{
+public:
+    SetSynthParamsCommand (int trackIndex, std::shared_ptr<const engine::SynthParams> p)
+        : index (trackIndex), newParams (std::move (p)) {}
+    juce::String getName() const override { return "Change Synth Sound"; }
+    void execute (Session& s) override { auto& t = s.tracks[(size_t) index]; oldParams = t.synthParams; t.synthParams = newParams; }
+    void undo (Session& s) override    { s.tracks[(size_t) index].synthParams = oldParams; }
+private:
+    int index;
+    std::shared_ptr<const engine::SynthParams> newParams, oldParams;
 };
 
 } // namespace beatmaker::model

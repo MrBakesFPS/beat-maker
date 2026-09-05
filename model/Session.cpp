@@ -17,6 +17,7 @@ double Session::getLengthSeconds() const
     {
         for (const auto& c : t.clips)        end = juce::jmax (end, c.getEndSeconds());
         for (const auto& c : t.patternClips) end = juce::jmax (end, c.getEndSeconds());
+        for (const auto& c : t.midiClips)    end = juce::jmax (end, c.getEndSeconds());
     }
     return end;
 }

@@ -181,3 +181,50 @@ TEST_CASE ("Arm, monitor and input changes apply but are not undoable")
     CHECK (buildRenderSnapshot (s)->monitors.empty());     // muted tracks don't monitor
     CHECK (s.getHistory().getUndoName() == "Mute");
 }
+
+TEST_CASE ("Synth tracks: MIDI clips, copy-on-write sequences and sound changes are undoable")
+{
+    using beatmaker::engine::MidiSequence;
+    using beatmaker::engine::SynthParams;
+
+    Session s;
+    Track t; t.type = Track::Type::instrument; t.instrumentKind = Track::InstrumentKind::synth;
+    t.synthParams = SynthParams::preset (0);
+    s.execute (std::make_unique<AddTrackCommand> (t));
+    CHECK (s.getTracks()[0].isSynth());
+    CHECK_FALSE (s.getTracks()[0].isDrumMachine());
+
+    MidiClip clip;
+    clip.sequence = std::make_shared<const MidiSequence> (MidiSequence::createDefaultArpeggio());
+    clip.sampleRate = 48000.0;
+    clip.length = 48000 * 8;
+    s.execute (std::make_unique<AddMidiClipCommand> (0, clip));
+    REQUIRE (s.getTracks()[0].midiClips.size() == 1);
+    CHECK (s.getLengthSeconds() == 8.0);
+
+    auto original = s.getTracks()[0].midiClips[0].sequence;
+    auto edited = std::make_shared<MidiSequence> (*original);
+    edited->notes.push_back ({ 72, 100, 2.0, 1.0 });
+    s.execute (std::make_unique<ReplaceMidiSequenceCommand> (0, 0, edited, "Add Note"));
+    CHECK (s.getHistory().getUndoName() == "Add Note");
+    CHECK (s.getTracks()[0].midiClips[0].sequence == edited);
+    CHECK (original->notes.size() == 16);
+    s.undo();
+    CHECK (s.getTracks()[0].midiClips[0].sequence == original);
+
+    auto snap = buildRenderSnapshot (s);
+    REQUIRE (snap->synths.size() == 1);
+    CHECK (snap->synths[0].instrumentId == s.getTracks()[0].id);
+    REQUIRE (snap->midiClips.size() == 1);
+    CHECK (snap->midiClips[0].length == 48000 * 8);
+
+    s.execute (std::make_unique<SetSynthParamsCommand> (0, SynthParams::preset (2)));
+    CHECK (s.getTracks()[0].synthParams->name == "Soft Pad");
+    s.undo();
+    CHECK (s.getTracks()[0].synthParams->name == "Init Saw");
+
+    s.execute (std::make_unique<SetTrackFlagCommand> (0, SetTrackFlagCommand::Flag::mute, true));
+    snap = buildRenderSnapshot (s);
+    REQUIRE (snap->synths.size() == 1);            // instrument kept for auditioning
+    CHECK (snap->midiClips[0].length == 0);        // but nothing plays
+}

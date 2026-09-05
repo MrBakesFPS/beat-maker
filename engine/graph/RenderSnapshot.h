@@ -6,6 +6,8 @@
 #pragma once
 
 #include "../dsp/DrumKit.h"
+#include "../dsp/SynthParams.h"
+#include "../sequencer/MidiSequence.h"
 #include "../sequencer/StepPattern.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -35,6 +37,23 @@ struct RenderPattern
     float gain                = 1.0f;
 };
 
+// A synth instrument: the graph keeps a voice pool per instrumentId.
+struct RenderSynth
+{
+    int instrumentId = 0;
+    std::shared_ptr<const SynthParams> params;
+};
+
+// A MIDI clip driving a synth: the sequence loops for `length` samples.
+struct RenderMidiClip
+{
+    std::shared_ptr<const MidiSequence> sequence;
+    int instrumentId = 0;
+    juce::int64 timelineStart = 0;
+    juce::int64 length        = 0;
+    float gain                = 1.0f;
+};
+
 // Pass a device input straight to the outputs (input monitoring).
 struct MonitorInput
 {
@@ -47,6 +66,8 @@ struct RenderSnapshot
 {
     std::vector<RenderClip> clips;
     std::vector<RenderPattern> patterns;
+    std::vector<RenderSynth> synths;
+    std::vector<RenderMidiClip> midiClips;
     std::vector<MonitorInput> monitors;
 
     // Library audition: played from its start whenever the pointer changes,

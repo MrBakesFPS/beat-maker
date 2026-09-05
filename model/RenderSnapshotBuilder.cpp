@@ -47,6 +47,25 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rp.gain          = clip.gain * track.gain;
             snapshot->patterns.push_back (std::move (rp));
         }
+
+        // Synth tracks: the instrument is always present (for auditioning);
+        // muted tracks get zero-length clips so nothing fires.
+        if (track.isSynth() && track.synthParams != nullptr)
+        {
+            snapshot->synths.push_back ({ track.id, track.synthParams });
+
+            for (const auto& clip : track.midiClips)
+            {
+                if (clip.sequence == nullptr) continue;
+                engine::RenderMidiClip rm;
+                rm.sequence      = clip.sequence;
+                rm.instrumentId  = track.id;
+                rm.timelineStart = clip.timelineStart;
+                rm.length        = audible ? clip.length : 0;
+                rm.gain          = clip.gain * track.gain;
+                snapshot->midiClips.push_back (std::move (rm));
+            }
+        }
     }
 
     return snapshot;

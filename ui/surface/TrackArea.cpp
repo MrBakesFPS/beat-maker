@@ -13,11 +13,13 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormat
         juce::PopupMenu menu;
         menu.addItem (1, "Audio Track");
         menu.addItem (2, "Drum Machine Track");
+        menu.addItem (3, "Synth Track");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
                             [this] (int result)
                             {
-                                if (result == 1 && onAddTrack) onAddTrack (model::Track::Type::audio);
-                                if (result == 2 && onAddTrack) onAddTrack (model::Track::Type::instrument);
+                                if (result == 1 && onAddTrack)      onAddTrack (model::Track::Type::audio, model::Track::InstrumentKind::none);
+                                else if (result == 2 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::drumMachine);
+                                else if (result == 3 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::synth);
                             });
     };
     rebuildTrackControls();
@@ -356,7 +358,7 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
 
     g.setColour (track.armed ? theme::record.brighter (0.2f) : theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText (juce::String (index + 1) + (track.isInstrument() ? "  Drum Machine" : track.armed ? "  Audio  REC" : "  Audio"),
+    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth" : track.armed ? "  Audio  REC" : "  Audio"),
                 content.removeFromTop (14), juce::Justification::centredLeft);
 
     g.setColour (theme::grid);
@@ -378,7 +380,47 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
 
     for (const auto& clip : track.clips)        paintAudioClip (g, track, clip, r);
     for (const auto& clip : track.patternClips) paintPatternClip (g, track, clip, r);
+    for (const auto& clip : track.midiClips)    paintMidiClip (g, track, clip, r);
     paintLiveRecording (g, track, r);
+}
+
+void TrackArea::paintMidiClip (juce::Graphics& g, const model::Track& track, const model::MidiClip& clip, juce::Rectangle<int> r)
+{
+    auto clipRect = clipRectFor (clip.getStartSeconds(), clip.getEndSeconds(), r);
+    if (clipRect.getRight() < r.getX() || clipRect.getX() > r.getRight() || clip.sequence == nullptr) return;
+
+    g.setColour (track.colour.withMultipliedBrightness (track.mute ? 0.35f : 0.55f));
+    g.fillRoundedRectangle (clipRect, 4.0f);
+
+    const auto& seq = *clip.sequence;
+    if (! seq.notes.empty() && seq.lengthBeats > 0.0)
+    {
+        int lo = 127, hi = 0;
+        for (const auto& n : seq.notes) { lo = juce::jmin (lo, n.pitch); hi = juce::jmax (hi, n.pitch); }
+        lo = juce::jmax (0, lo - 2); hi = juce::jmin (127, hi + 2);
+
+        auto area = clipRect.reduced (2.0f).withTrimmedTop (17.0f);
+        const float rowH = area.getHeight() / (float) (hi - lo + 1);
+        const double periodSeconds = transport.beatsToSeconds (seq.lengthBeats);
+        const float periodWidth = (float) (periodSeconds * pixelsPerSecond);
+        const int iterations = (int) std::ceil (clip.getLengthSeconds() / periodSeconds);
+
+        g.setColour (track.colour.contrasting (0.9f).withAlpha (0.9f));
+        for (int k = 0; k < iterations; ++k)
+        {
+            const float x0 = area.getX() + k * periodWidth;
+            if (x0 > r.getRight()) break;
+            for (const auto& n : seq.notes)
+            {
+                const float x = x0 + (float) (n.startBeat / seq.lengthBeats) * periodWidth;
+                const float w = juce::jmax (1.5f, (float) (n.lengthBeats / seq.lengthBeats) * periodWidth - 1.0f);
+                if (x + w > clipRect.getRight() - 2.0f) continue;   // clip trims the last iteration
+                g.fillRect (x, area.getBottom() - (n.pitch - lo + 1) * rowH + 0.5f, w, juce::jmax (1.0f, rowH - 1.0f));
+            }
+        }
+    }
+
+    paintClipFrame (g, clipRect, track, clip.name);
 }
 
 void TrackArea::paintLiveRecording (juce::Graphics& g, const model::Track& track, juce::Rectangle<int> r)

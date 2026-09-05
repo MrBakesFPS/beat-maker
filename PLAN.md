@@ -193,7 +193,7 @@ beat-maker/
 - [x] Audio & Instrument tracks; record from input; clip display with waveforms. *(Recording done 2026-09-05: per-track arm, input select, input monitoring, threaded WAV writer, live waveform, punch-out)*
 - [x] Loop browser with bundled loops; drag-to-track; tempo conform. *(Done 2026-09-05: LoopLibrary scanner with name/length metadata, Library panel with search/category filters/audition/drag/double-click, varispeed conform + beat snap; 7 bundled loops. Polyphonic stretch remains a Phase 3 item.)*
 - [x] Step sequencer + Drum Machine instrument. *(Done 2026-09-05: synthesised 16-pad kit, pattern clips, step editor, pad audition, per-pad sample load, Cycle mode)*
-- [ ] Piano roll editor.
+- [x] Piano roll editor. *(Done 2026-09-05, together with a polyphonic subtractive Synth instrument with presets; MIDI clips loop like pattern clips)*
 - [ ] Simple mixer (volume/pan/mute/solo) and Smart Controls panel.
 - [x] Bounce to WAV (also AIFF/FLAC; MP3 deferred, needs an encoder). *(Done 2026-09-05: Bounce to Disk dialog, range/format/depth/tail/normalise, offline render bit-identical to playback, `--bounce=` batch flag)*
 - **Milestone:** A beginner can make and export a beat in under 10 minutes.

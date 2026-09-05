@@ -14,6 +14,7 @@
 
 #include "RenderSnapshot.h"
 #include "../dsp/DrumMachine.h"
+#include "../dsp/Synth.h"
 #include "../io/Recorder.h"
 #include "../transport/Transport.h"
 
@@ -40,6 +41,11 @@ public:
     // Message thread. Audition a pad. Ignored unless `kit` is part of the
     // active snapshot (that is what keeps it alive for the audio thread).
     void triggerPadPreview (const DrumKit* kit, int pad, float velocity);
+
+    // Message thread. Audition a note on a synth instrument in the snapshot.
+    void triggerNotePreview (int instrumentId, int pitch, float velocity, double seconds = 0.3);
+
+    int getNumSynthVoices() const noexcept;
 
     // Optional recorder that receives every input block (message thread, before start).
     void setRecorder (Recorder* r) noexcept { recorder = r; }
@@ -71,6 +77,10 @@ private:
     void mixPreview (float* const* outputs, int numOutputs, int numSamples);
     void mixClips (float* const* outputs, int numOutputs, juce::int64 rangeStart, int numSamples);
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
+    void scheduleMidi (juce::int64 rangeStart, int numSamples);
+    void rebindSynthSlots();
+    Synth* synthForId (int instrumentId) noexcept;
+    void releaseAllSynths (bool immediate) noexcept;
     void processPreviewEvents();
     bool snapshotHasKit (const DrumKit* kit) const noexcept;
     void swapInPendingSnapshot() noexcept;
@@ -78,6 +88,11 @@ private:
     Transport& transport;
     DrumMachine drums;
     Recorder* recorder = nullptr;
+
+    static constexpr int maxSynths = 16;
+    struct SynthSlot { int id = -1; Synth synth; };
+    std::array<SynthSlot, maxSynths> synthSlots;
+    bool wasPlaying = false;
 
     const juce::AudioBuffer<float>* previewSource = nullptr;  // identity of the current preview
     int previewPosition = 0;
@@ -89,7 +104,15 @@ private:
     std::array<RenderSnapshot*, retiredCapacity> retired {};
     juce::AbstractFifo retiredFifo { retiredCapacity }; // audio -> message
 
-    struct PreviewEvent { const DrumKit* kit = nullptr; int pad = 0; float velocity = 1.0f; };
+    struct PreviewEvent
+    {
+        const DrumKit* kit = nullptr;   // pad preview when non-null
+        int pad = 0;
+        int instrumentId = -1;          // note preview when >= 0
+        int pitch = 60;
+        int gateSamples = 0;
+        float velocity = 1.0f;
+    };
     static constexpr int previewCapacity = 64;
     std::array<PreviewEvent, previewCapacity> previewEvents {};
     juce::AbstractFifo previewFifo { previewCapacity };  // message -> audio

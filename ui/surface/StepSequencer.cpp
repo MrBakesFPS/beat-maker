@@ -90,7 +90,7 @@ void StepSequencer::paint (juce::Graphics& g)
     {
         g.setColour (theme::textDim);
         g.setFont (juce::FontOptions (15.0f));
-        g.drawText ("Select a Drum Machine track to edit its pattern", getLocalBounds(), juce::Justification::centred);
+        g.drawText ("Select a Drum Machine or Synth track to edit it", getLocalBounds(), juce::Justification::centred);
         return;
     }
 
