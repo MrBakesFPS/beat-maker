@@ -23,6 +23,7 @@ target_sources(beatmaker_tests PRIVATE
     adc_test.cpp
     metering_test.cpp
     groups_test.cpp
+    playlists_test.cpp
     recorder_test.cpp
     bounce_test.cpp
     loop_library_test.cpp

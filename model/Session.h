@@ -148,6 +148,14 @@ struct Group
     juce::String badge() const   { return juce::String::charToString ((juce::juce_wchar) ('a' + ((id - 1) % 26))); }
 };
 
+// An alternate take list for an audio track. The track's main (playing)
+// playlist is Track::clips; alternates are stored here and can be swapped in.
+struct Playlist
+{
+    juce::String name;
+    std::vector<AudioClip> clips;
+};
+
 struct Track
 {
     enum class Type { audio, instrument, aux, master, vca };
@@ -161,7 +169,9 @@ struct Track
     Type type = Type::audio;
     juce::Colour colour { 0xff3498db };
 
-    std::vector<AudioClip> clips;                 // audio tracks
+    std::vector<AudioClip> clips;                 // audio tracks: the main playlist
+    juce::String mainPlaylistName;                // e.g. "Vox.01" (empty = track name)
+    std::vector<Playlist> alternates;             // other takes
 
     InstrumentKind instrumentKind = InstrumentKind::none;
     std::vector<PatternClip> patternClips;        // drum machine tracks
@@ -296,6 +306,12 @@ private:
     friend class ReplaceGroupCommand;
     friend class SetGroupActiveCommand;
     friend class SetTrackVcaCommand;
+    friend class NewPlaylistCommand;
+    friend class DuplicatePlaylistCommand;
+    friend class SwitchPlaylistCommand;
+    friend class DeletePlaylistCommand;
+    friend class AddAlternatePlaylistCommand;
+    friend class ReplaceMainClipsCommand;
     friend struct EditAccess;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
@@ -685,6 +701,144 @@ public:
     void undo (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->vcaTrackId = old; }
 private:
     int index, vca, old = -1;
+};
+
+//==============================================================================
+// Playlists
+
+inline juce::String defaultPlaylistName (const Track& t, int number)
+{
+    return t.name + "." + juce::String (number).paddedLeft ('0', 2);
+}
+
+// Move the current main playlist to the alternates and start an empty one.
+class NewPlaylistCommand final : public Command
+{
+public:
+    NewPlaylistCommand (int trackIndex, juce::String newName = {}) : index (trackIndex), name (std::move (newName)) {}
+    juce::String getName() const override { return "New Playlist"; }
+    void execute (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr) return;
+        oldMainName = t->mainPlaylistName;
+        const auto mainName = t->mainPlaylistName.isNotEmpty() ? t->mainPlaylistName : defaultPlaylistName (*t, 1);
+        t->alternates.push_back ({ mainName, std::move (t->clips) });
+        t->clips.clear();
+        t->mainPlaylistName = name.isNotEmpty() ? name : defaultPlaylistName (*t, (int) t->alternates.size() + 1);
+    }
+    void undo (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || t->alternates.empty()) return;
+        t->clips = std::move (t->alternates.back().clips);
+        t->alternates.pop_back();
+        t->mainPlaylistName = oldMainName;
+    }
+private:
+    int index;
+    juce::String name, oldMainName;
+};
+
+// Keep a copy of the main playlist as an alternate and carry on editing the main.
+class DuplicatePlaylistCommand final : public Command
+{
+public:
+    explicit DuplicatePlaylistCommand (int trackIndex) : index (trackIndex) {}
+    juce::String getName() const override { return "Duplicate Playlist"; }
+    void execute (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr) return;
+        oldMainName = t->mainPlaylistName;
+        const auto mainName = t->mainPlaylistName.isNotEmpty() ? t->mainPlaylistName : defaultPlaylistName (*t, 1);
+        t->alternates.push_back ({ mainName, t->clips });
+        t->mainPlaylistName = defaultPlaylistName (*t, (int) t->alternates.size() + 1);
+    }
+    void undo (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || t->alternates.empty()) return;
+        t->alternates.pop_back();
+        t->mainPlaylistName = oldMainName;
+    }
+private:
+    int index;
+    juce::String oldMainName;
+};
+
+// Swap an alternate with the main playlist.
+class SwitchPlaylistCommand final : public Command
+{
+public:
+    SwitchPlaylistCommand (int trackIndex, int alternateIndex) : index (trackIndex), alt (alternateIndex) {}
+    juce::String getName() const override { return "Switch Playlist"; }
+    void execute (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || ! juce::isPositiveAndBelow (alt, (int) t->alternates.size())) return;
+        auto& a = t->alternates[(size_t) alt];
+        const auto mainName = t->mainPlaylistName.isNotEmpty() ? t->mainPlaylistName : defaultPlaylistName (*t, 1);
+        std::swap (a.clips, t->clips);
+        t->mainPlaylistName = a.name;
+        a.name = mainName;
+    }
+    void undo (Session& s) override { execute (s); }   // swapping again restores
+private:
+    int index, alt;
+};
+
+class DeletePlaylistCommand final : public Command
+{
+public:
+    DeletePlaylistCommand (int trackIndex, int alternateIndex) : index (trackIndex), alt (alternateIndex) {}
+    juce::String getName() const override { return "Delete Playlist"; }
+    void execute (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || ! juce::isPositiveAndBelow (alt, (int) t->alternates.size())) return;
+        removed = t->alternates[(size_t) alt];
+        t->alternates.erase (t->alternates.begin() + alt);
+        didRemove = true;
+    }
+    void undo (Session& s) override
+    {
+        auto* t = EditAccess::trackOrMaster (s, index);
+        if (t == nullptr || ! didRemove) return;
+        t->alternates.insert (t->alternates.begin() + juce::jmin (alt, (int) t->alternates.size()), removed);
+    }
+private:
+    int index, alt;
+    Playlist removed;
+    bool didRemove = false;
+};
+
+// Add a ready-made alternate (loop-record passes).
+class AddAlternatePlaylistCommand final : public Command
+{
+public:
+    AddAlternatePlaylistCommand (int trackIndex, Playlist p) : index (trackIndex), playlist (std::move (p)) {}
+    juce::String getName() const override { return "Add Take"; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->alternates.push_back (playlist); }
+    void undo (Session& s) override    { if (auto* t = EditAccess::trackOrMaster (s, index); t != nullptr && ! t->alternates.empty()) t->alternates.pop_back(); }
+private:
+    int index;
+    Playlist playlist;
+};
+
+// Replace the whole main clip list (comping, clearing). Copy-on-write, one undo step.
+class ReplaceMainClipsCommand final : public Command
+{
+public:
+    ReplaceMainClipsCommand (int trackIndex, std::vector<AudioClip> clips, juce::String actionName)
+        : index (trackIndex), newClips (std::move (clips)), name (std::move (actionName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) { old = t->clips; t->clips = newClips; } }
+    void undo (Session& s) override    { if (auto* t = EditAccess::trackOrMaster (s, index)) t->clips = old; }
+private:
+    int index;
+    std::vector<AudioClip> newClips, old;
+    juce::String name;
 };
 
 class SetMeterTypeCommand final : public Command

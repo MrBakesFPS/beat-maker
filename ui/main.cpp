@@ -23,6 +23,7 @@
 #include <AutomationRecorder.h>
 #include <GroupLogic.h>
 #include <LoopLibrary.h>
+#include <Playlists.h>
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
 #include <dsp/Resampler.h>
@@ -207,6 +208,23 @@ public:
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
+
+    void playlistDemoFromCommandLine()
+    {
+        for (int i = 0; i < session.getNumTracks(); ++i)
+        {
+            const auto& t = session.getTracks()[(size_t) i];
+            if (! t.isAudio() || t.clips.empty()) continue;
+            session.execute (std::make_unique<model::DuplicatePlaylistCommand> (i));
+            session.execute (std::make_unique<model::DuplicatePlaylistCommand> (i));
+            // Offset the second alternate so the lanes visibly differ
+            auto shifted = t.clips;
+            for (auto& c : shifted) { c.timelineStart += (juce::int64) (0.5 * c.sampleRate); c.name += " (late)"; }
+            session.execute (std::make_unique<model::ReplaceMainClipsCommand> (i, shifted, "Demo Take"));
+            trackArea.setPlaylistsShown (i, true);
+            break;
+        }
+    }
 
     // --group-demo: group all existing audio-carrying tracks (Edit+Mix), add a VCA and assign them to it.
     void groupDemoFromCommandLine()
@@ -848,13 +866,15 @@ private:
         }
 
         auto& transport = engine.getTransport();
-        loopWasEnabled = transport.isLoopEnabled();
-        transport.setLoopEnabled (false);          // linear takes only (loop recording comes later)
+        // Loop recording: with Cycle on, every pass becomes a take (playlist).
+        loopRecording = transport.hasValidLoop();
+        loopRecordStart = transport.getLoopStart();
+        loopRecordEnd = transport.getLoopEnd();
         transport.setRecordEnabled (true);
         if (! transport.isPlaying())
             transport.play();
 
-        statusMessage = "Recording " + juce::String (slots.size()) + (slots.size() == 1 ? " track" : " tracks") + "...";
+        statusMessage = (loopRecording ? "Loop recording " : "Recording ") + juce::String (slots.size()) + (slots.size() == 1 ? " track" : " tracks") + "...";
         updateStatus();
     }
 
@@ -866,10 +886,9 @@ private:
         const auto takes = recorder.stop();
 
         transport.setRecordEnabled (false);
-        transport.setLoopEnabled (loopWasEnabled);
         trackArea.clearLiveThumbnails();
 
-        int imported = 0;
+        int imported = 0, passesTotal = 0;
         for (const auto& take : takes)
         {
             const int trackIndex = session.indexOfTrackId (take.trackId);
@@ -879,19 +898,49 @@ private:
             const auto loaded = loader.load (take.file, engine.getSampleRate(), error);
             if (! loaded) { statusMessage = error; continue; }
 
-            model::AudioClip clip;
-            clip.name          = take.file.getFileNameWithoutExtension();
-            clip.sourceFile    = take.file;
-            clip.audio         = loaded->audio;
-            clip.sampleRate    = loaded->sampleRate;
-            clip.timelineStart = take.startSample;
-            clip.length        = loaded->numSamples;
-            session.execute (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
+            const auto passes = loopRecording
+                ? model::Playlists::loopPasses (take.startSample, loaded->numSamples, loopRecordStart, loopRecordEnd, (juce::int64) (0.1 * engine.getSampleRate()))
+                : std::vector<model::Playlists::Pass> { { 0, loaded->numSamples, take.startSample } };
+
+            auto compound = std::make_unique<model::CompoundCommand> (passes.size() > 1 ? "Loop Record" : "Record");
+            const auto* track = session.getTrack (trackIndex);
+            const int existingTakes = (int) track->alternates.size();
+
+            for (size_t p = 0; p < passes.size(); ++p)
+            {
+                model::AudioClip clip;
+                clip.name          = take.file.getFileNameWithoutExtension() + (passes.size() > 1 ? "-" + juce::String ((int) p + 1) : juce::String());
+                clip.sourceFile    = take.file;
+                clip.audio         = loaded->audio;
+                clip.sampleRate    = loaded->sampleRate;
+                clip.timelineStart = passes[p].timelineStart;
+                clip.sourceOffset  = passes[p].fileOffset;
+                clip.length        = passes[p].length;
+
+                const bool last = p + 1 == passes.size();
+                if (last)
+                {
+                    // The final pass lands on the main playlist (Pro Tools behaviour); earlier passes are alternates.
+                    if (passes.size() > 1) compound->add (std::make_unique<model::NewPlaylistCommand> (trackIndex, model::defaultPlaylistName (*track, existingTakes + (int) passes.size())));
+                    compound->add (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
+                }
+                else
+                {
+                    model::Playlist alt;
+                    alt.name = model::defaultPlaylistName (*track, existingTakes + (int) p + 1);
+                    alt.clips.push_back (std::move (clip));
+                    compound->add (std::make_unique<model::AddAlternatePlaylistCommand> (trackIndex, std::move (alt)));
+                }
+            }
+            session.execute (std::move (compound));
+            if (passes.size() > 1) trackArea.setPlaylistsShown (trackIndex, true);
+            passesTotal += (int) passes.size();
             ++imported;
         }
 
         if (imported > 0)
-            statusMessage = "Recorded " + juce::String (imported) + (imported == 1 ? " take" : " takes")
+            statusMessage = "Recorded " + juce::String (passesTotal) + (passesTotal == 1 ? " take" : " takes")
+                          + (passesTotal > imported ? " across " + juce::String (imported) + (imported == 1 ? " track" : " tracks") : juce::String())
                           + (dropouts > 0 ? "  (WARNING: " + juce::String (dropouts) + " disk dropouts)" : juce::String());
         else if (takes.empty())
             statusMessage = "Nothing recorded";
@@ -1094,7 +1143,8 @@ private:
     bool libraryVisible = true;
     std::shared_ptr<const engine::DrumKit> defaultKit;
     bool editorVisible = true;
-    bool loopWasEnabled = false;
+    bool loopRecording = false;
+    juce::int64 loopRecordStart = 0, loopRecordEnd = 0;
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -1144,6 +1194,7 @@ public:
             else if (arg == "--automation-demo") main.automationDemoFromCommandLine();
             else if (arg == "--io-setup") main.showIOSetupDialogFromCommandLine();
             else if (arg == "--vca") main.addVcaTrackFromCommandLine();
+            else if (arg == "--playlist-demo") main.playlistDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

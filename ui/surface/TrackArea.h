@@ -13,6 +13,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 #include <map>
+#include <set>
 
 namespace beatmaker::ui
 {
@@ -34,7 +35,9 @@ public:
     {
         double start = 0.0, end = 0.0;     // seconds
         int firstTrack = -1, lastTrack = -1;
+        int playlistTrack = -1, playlistIndex = -1;   // set when the selection was made on an alternate lane
         bool isValid() const noexcept { return end > start; }
+        bool isOnAlternate() const noexcept { return playlistTrack >= 0 && playlistIndex >= 0; }
     };
     const TimeSelection& getTimeSelection() const noexcept { return timeSelection; }
     const std::vector<model::ClipRef>& getSelectedClips() const noexcept { return selectedClips; }
@@ -48,6 +51,11 @@ public:
     void nudgeSelectedClips (int direction);
     void nudgeClipGain (float deltaDb);
     void zoomToFit();
+
+    // Playlists: copy the time selection made on an alternate lane into the main playlist.
+    void compSelectionToMain();
+    void setPlaylistsShown (int trackIndex, bool shown);
+    bool arePlaylistsShown (const model::Track&) const;
 
     // Fades window support
     struct FadeValues { double fadeInMs = 0.0, fadeOutMs = 0.0; engine::FadeShape inShape = engine::FadeShape::linear, outShape = engine::FadeShape::linear; float gainDb = 0.0f; };
@@ -106,9 +114,18 @@ public:
 private:
     struct TrackControls
     {
-        std::unique_ptr<juce::TextButton> mute, solo, arm, monitor;
+        std::unique_ptr<juce::TextButton> mute, solo, arm, monitor, playlists;
         std::unique_ptr<juce::ComboBox> input, autoMode, autoView;
+        std::vector<std::unique_ptr<juce::TextButton>> laneMain, laneComp;   // per alternate lane
     };
+    static constexpr int alternateLaneHeight = 56;
+    std::set<int> playlistsShown;          // track ids with expanded playlist lanes
+    int trackTop (int trackIndex) const;   // y of the track's header/lane
+    int trackHeightFor (int trackIndex) const;
+    int alternateAtY (int trackIndex, int y) const;   // -1 = the main lane
+    juce::Rectangle<int> getAlternateLaneBounds (int trackIndex, int alternate) const;
+    void paintAlternateLanes (juce::Graphics&, const model::Track&, int trackIndex);
+    void showPlaylistMenu (int trackIndex);
 
     // Automation display state per track id: which parameter lane is shown (nullopt = clips)
     std::map<int, engine::ParamId> automationView;

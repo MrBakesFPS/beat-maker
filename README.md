@@ -47,6 +47,14 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- Playlists and comping: every audio track can hold alternate playlists
+  (takes). The P button in the header offers New, Duplicate, Switch To,
+  Delete and Show Take Lanes. Recording with Cycle on is loop recording: each
+  pass becomes a take, the last pass on the main playlist and the earlier
+  ones as alternates, all from one continuous file. Show the take lanes,
+  drag a time selection on an alternate and press Comp (or Ctrl+Alt+V) to
+  copy that range into the main playlist, replacing what was there; Main
+  swaps a whole take in.
 - Groups and VCA masters: Ctrl+G creates a group from the selected track
   (Edit, Mix, or both; choose whether Volume, Mute, Solo, Pan and Record
   follow). Mix groups move member faders relatively in dB and propagate mute
@@ -140,7 +148,7 @@ Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctr
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
 Still to come in Phase 2: Trim automation and master automation, clip gain
-breakpoints, Scrubber and Pencil tools, playlists and comping. See PLAN.md §5.
+breakpoints, Scrubber and Pencil tools. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

@@ -1,5 +1,6 @@
 #include "TrackArea.h"
 #include <GroupLogic.h>
+#include <Playlists.h>
 #include <dsp/Fades.h>
 
 namespace beatmaker::ui
@@ -48,22 +49,53 @@ juce::Rectangle<int> TrackArea::getRulerBounds() const
     return { theme::trackHeaderWidth, 0, getWidth() - theme::trackHeaderWidth, theme::rulerHeight };
 }
 
+bool TrackArea::arePlaylistsShown (const model::Track& t) const { return playlistsShown.count (t.id) > 0; }
+
+int TrackArea::trackHeightFor (int i) const
+{
+    auto* t = session.getTrack (i);
+    if (t == nullptr) return theme::trackHeight;
+    return theme::trackHeight + (arePlaylistsShown (*t) ? (int) t->alternates.size() * alternateLaneHeight : 0);
+}
+
+int TrackArea::trackTop (int i) const
+{
+    int y = theme::rulerHeight;
+    for (int k = 0; k < i; ++k) y += trackHeightFor (k);
+    return y;
+}
+
 juce::Rectangle<int> TrackArea::getHeaderBounds (int i) const
 {
-    return { 0, theme::rulerHeight + i * theme::trackHeight, theme::trackHeaderWidth, theme::trackHeight };
+    return { 0, trackTop (i), theme::trackHeaderWidth, theme::trackHeight };
 }
 
 juce::Rectangle<int> TrackArea::getLaneBounds (int i) const
 {
-    return { theme::trackHeaderWidth, theme::rulerHeight + i * theme::trackHeight,
-             getWidth() - theme::trackHeaderWidth, theme::trackHeight };
+    return { theme::trackHeaderWidth, trackTop (i), getWidth() - theme::trackHeaderWidth, theme::trackHeight };
+}
+
+juce::Rectangle<int> TrackArea::getAlternateLaneBounds (int i, int alternate) const
+{
+    return { 0, trackTop (i) + theme::trackHeight + alternate * alternateLaneHeight, getWidth(), alternateLaneHeight };
 }
 
 int TrackArea::trackIndexAtY (int y) const
 {
     if (y < theme::rulerHeight) return -1;
-    const int idx = (y - theme::rulerHeight) / theme::trackHeight;
-    return idx < session.getNumTracks() ? idx : -1;
+    for (int i = 0; i < session.getNumTracks(); ++i)
+        if (y >= trackTop (i) && y < trackTop (i) + trackHeightFor (i)) return i;
+    return -1;
+}
+
+int TrackArea::alternateAtY (int i, int y) const
+{
+    auto* t = session.getTrack (i);
+    if (t == nullptr || ! arePlaylistsShown (*t)) return -1;
+    const int rel = y - (trackTop (i) + theme::trackHeight);
+    if (rel < 0) return -1;
+    const int alt = rel / alternateLaneHeight;
+    return alt < (int) t->alternates.size() ? alt : -1;
 }
 
 float TrackArea::secondsToX (double seconds) const
@@ -100,7 +132,8 @@ void TrackArea::resized()
         c.mute->setBounds (buttons.removeFromLeft (28)); buttons.removeFromLeft (4);
         c.solo->setBounds (buttons.removeFromLeft (28)); buttons.removeFromLeft (4);
         if (c.arm)     { c.arm->setBounds (buttons.removeFromLeft (28));     buttons.removeFromLeft (4); }
-        if (c.monitor) { c.monitor->setBounds (buttons.removeFromLeft (28)); }
+        if (c.monitor) { c.monitor->setBounds (buttons.removeFromLeft (28)); buttons.removeFromLeft (4); }
+        if (c.playlists) c.playlists->setBounds (buttons.removeFromLeft (28));
 
         header.removeFromBottom (3);
         auto autoRow = header.removeFromBottom (19);
@@ -112,8 +145,23 @@ void TrackArea::resized()
             c.input->setBounds (header.removeFromBottom (19));
     }
 
-    const int y = theme::rulerHeight + session.getNumTracks() * theme::trackHeight + 12;
+    const int y = trackTop (session.getNumTracks()) + 12;
     addTrackButton.setBounds (12, y, theme::trackHeaderWidth - 24, 28);
+
+    // Alternate lane buttons
+    for (int i = 0; i < (int) trackControls.size(); ++i)
+    {
+        auto& c = trackControls[(size_t) i];
+        for (int a = 0; a < (int) c.laneMain.size(); ++a)
+        {
+            auto lane = getAlternateLaneBounds (i, a).withWidth (theme::trackHeaderWidth).reduced (10, 6);
+            lane.removeFromTop (16);
+            auto row = lane.removeFromTop (20);
+            c.laneMain[(size_t) a]->setBounds (row.removeFromLeft (52));
+            row.removeFromLeft (4);
+            c.laneComp[(size_t) a]->setBounds (row.removeFromLeft (52));
+        }
+    }
 }
 
 void TrackArea::rebuildTrackControls()
@@ -189,6 +237,32 @@ void TrackArea::rebuildTrackControls()
                 };
             }
             addAndMakeVisible (*c.input);
+
+            c.playlists = std::make_unique<juce::TextButton> ("P");
+            c.playlists->setTooltip ("Playlists: new, duplicate, switch, show take lanes");
+            c.playlists->setColour (juce::TextButton::buttonColourId, arePlaylistsShown (track) ? theme::accent.darker (0.5f) : theme::panel);
+            c.playlists->onClick = [this, i] { showPlaylistMenu (i); };
+            addAndMakeVisible (*c.playlists);
+
+            if (arePlaylistsShown (track))
+                for (int a = 0; a < (int) track.alternates.size(); ++a)
+                {
+                    auto mainBtn = std::make_unique<juce::TextButton> ("Main");
+                    mainBtn->setTooltip ("Make this take the main playlist");
+                    mainBtn->onClick = [this, i, a] { session.execute (std::make_unique<model::SwitchPlaylistCommand> (i, a)); };
+                    addAndMakeVisible (*mainBtn);
+                    c.laneMain.push_back (std::move (mainBtn));
+
+                    auto compBtn = std::make_unique<juce::TextButton> ("Comp");
+                    compBtn->setTooltip ("Copy the time selection on this lane into the main playlist (Ctrl+Alt+V)");
+                    compBtn->setColour (juce::TextButton::buttonColourId, theme::accent.darker (0.55f));
+                    compBtn->onClick = [this, i, a]
+                    {
+                        if (timeSelection.isValid()) { timeSelection.playlistTrack = i; timeSelection.playlistIndex = a; compSelectionToMain(); }
+                    };
+                    addAndMakeVisible (*compBtn);
+                    c.laneComp.push_back (std::move (compBtn));
+                }
         }
 
         // Automation mode + which lane the track shows
@@ -313,14 +387,14 @@ void TrackArea::paint (juce::Graphics& g)
     {
         paintLane (g, tracks[(size_t) i], getLaneBounds (i));
         paintHeader (g, tracks[(size_t) i], i, getHeaderBounds (i));
+        paintAlternateLanes (g, tracks[(size_t) i], i);
     }
 
     paintRuler (g, getRulerBounds());
 
     // Header column background below the last track
     g.setColour (theme::panelDark);
-    g.fillRect (0, theme::rulerHeight + (int) tracks.size() * theme::trackHeight, theme::trackHeaderWidth,
-                getHeight());
+    g.fillRect (0, trackTop ((int) tracks.size()), theme::trackHeaderWidth, getHeight());
     g.setColour (theme::gridStrong);
     g.drawVerticalLine (theme::trackHeaderWidth - 1, 0.0f, (float) getHeight());
 
@@ -429,6 +503,8 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
     g.setFont (juce::FontOptions (12.0f));
     juce::String badges;
     for (const auto* grp : model::GroupLogic::groupsOf (session, track.id)) badges += (grp->active ? " [" : " (") + grp->badge() + (grp->active ? "]" : ")");
+    if (track.isAudio() && ! track.alternates.empty())
+        badges += "   " + (track.mainPlaylistName.isNotEmpty() ? track.mainPlaylistName : model::defaultPlaylistName (track, 1));
     g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth" : track.isVca() ? "  VCA Master"
                                             : track.isAux() ? "  Aux  <- " + (track.inputBus >= 0 ? session.busName (track.inputBus) : juce::String ("no input"))
                                             : track.armed ? "  Audio  REC" : "  Audio") + badges,
@@ -465,6 +541,115 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
 
     for (int i = 0; i < session.getNumTracks(); ++i)
         if (&session.getTracks()[(size_t) i] == &track) { paintAutomationLane (g, track, i, r); break; }
+}
+
+//==============================================================================
+// Playlists
+
+void TrackArea::setPlaylistsShown (int trackIndex, bool shown)
+{
+    if (auto* t = session.getTrack (trackIndex))
+    {
+        if (shown) playlistsShown.insert (t->id); else playlistsShown.erase (t->id);
+        rebuildTrackControls();
+        repaint();
+    }
+}
+
+void TrackArea::paintAlternateLanes (juce::Graphics& g, const model::Track& track, int trackIndex)
+{
+    if (! arePlaylistsShown (track)) return;
+    const double sr = transport.getSampleRate();
+
+    for (int a = 0; a < (int) track.alternates.size(); ++a)
+    {
+        const auto& alt = track.alternates[(size_t) a];
+        auto lane = getAlternateLaneBounds (trackIndex, a);
+        auto header = lane.removeFromLeft (theme::trackHeaderWidth);
+
+        g.setColour (theme::panelDark.darker (0.15f));
+        g.fillRect (header);
+        g.setColour (theme::background.darker (0.2f));
+        g.fillRect (lane);
+
+        g.setColour (theme::textDim);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.drawText (alt.name, header.reduced (10, 4).removeFromTop (14), juce::Justification::centredLeft, true);
+
+        for (const auto& clip : alt.clips)
+        {
+            auto r = clipRectFor (clip.getStartSeconds(), clip.getEndSeconds(), lane);
+            if (r.getRight() < lane.getX() || r.getX() > lane.getRight()) continue;
+            g.setColour (track.colour.withMultipliedBrightness (0.5f).withAlpha (0.8f));
+            g.fillRoundedRectangle (r, 3.0f);
+            g.setColour (track.colour.contrasting (0.8f).withAlpha (0.7f));
+            thumbnailFor (clip).drawChannels (g, r.reduced (1.0f).withTrimmedTop (2.0f).toNearestInt(),
+                                              (double) clip.sourceOffset / clip.sampleRate,
+                                              (double) (clip.sourceOffset + clip.length) / clip.sampleRate,
+                                              juce::jlimit (0.05f, 4.0f, clip.gain));
+            g.setColour (track.colour.brighter (0.2f));
+            g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        }
+
+        // Selection made on this lane
+        if (timeSelection.isValid() && timeSelection.playlistTrack == trackIndex && timeSelection.playlistIndex == a)
+        {
+            const float x1 = secondsToX (timeSelection.start), x2 = secondsToX (timeSelection.end);
+            g.setColour (theme::accent.withAlpha (0.25f));
+            g.fillRect (juce::Rectangle<float> (x1, (float) lane.getY(), x2 - x1, (float) lane.getHeight()));
+            g.setColour (theme::accent);
+            g.drawRect (juce::Rectangle<float> (x1, (float) lane.getY(), x2 - x1, (float) lane.getHeight()), 1.0f);
+        }
+
+        g.setColour (theme::grid);
+        g.drawHorizontalLine (lane.getBottom() - 1, 0.0f, (float) getWidth());
+        juce::ignoreUnused (sr);
+    }
+}
+
+void TrackArea::showPlaylistMenu (int trackIndex)
+{
+    auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return;
+
+    juce::PopupMenu menu;
+    menu.addItem (1, "New Playlist");
+    menu.addItem (2, "Duplicate Playlist");
+    menu.addItem (3, arePlaylistsShown (*t) ? "Hide Take Lanes" : "Show Take Lanes", ! t->alternates.empty() || arePlaylistsShown (*t));
+    if (! t->alternates.empty())
+    {
+        menu.addSeparator();
+        juce::PopupMenu switchMenu, deleteMenu;
+        for (int a = 0; a < (int) t->alternates.size(); ++a)
+        {
+            switchMenu.addItem (100 + a, t->alternates[(size_t) a].name);
+            deleteMenu.addItem (200 + a, t->alternates[(size_t) a].name);
+        }
+        menu.addSubMenu ("Switch To", switchMenu);
+        menu.addSubMenu ("Delete Playlist", deleteMenu);
+    }
+
+    auto* button = trackControls[(size_t) trackIndex].playlists.get();
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (button), [this, trackIndex] (int result)
+    {
+        if (result == 1)      session.execute (std::make_unique<model::NewPlaylistCommand> (trackIndex));
+        else if (result == 2) session.execute (std::make_unique<model::DuplicatePlaylistCommand> (trackIndex));
+        else if (result == 3) { if (auto* tr = session.getTrack (trackIndex)) setPlaylistsShown (trackIndex, ! arePlaylistsShown (*tr)); }
+        else if (result >= 200) session.execute (std::make_unique<model::DeletePlaylistCommand> (trackIndex, result - 200));
+        else if (result >= 100) session.execute (std::make_unique<model::SwitchPlaylistCommand> (trackIndex, result - 100));
+    });
+}
+
+void TrackArea::compSelectionToMain()
+{
+    if (! timeSelection.isValid() || ! timeSelection.isOnAlternate()) return;
+    auto* t = session.getTrack (timeSelection.playlistTrack);
+    if (t == nullptr || ! juce::isPositiveAndBelow (timeSelection.playlistIndex, (int) t->alternates.size())) return;
+
+    const auto s0 = toSamples (timeSelection.start), s1 = toSamples (timeSelection.end);
+    auto comped = model::Playlists::comp (t->clips, t->alternates[(size_t) timeSelection.playlistIndex].clips, s0, s1);
+    session.execute (std::make_unique<model::ReplaceMainClipsCommand> (timeSelection.playlistTrack, std::move (comped),
+                                                                       "Comp from " + t->alternates[(size_t) timeSelection.playlistIndex].name));
 }
 
 //==============================================================================
@@ -933,6 +1118,20 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
     dragMoved = false;
     dragAnchorSeconds = xToSeconds ((float) e.x);
 
+    // Alternate playlist lane: only time selection (for comping) and locate
+    if (const int alt = alternateAtY (track, e.y); alt >= 0)
+    {
+        drag = Drag::select;
+        timeSelection = {};
+        timeSelection.start = timeSelection.end = snapSeconds (dragAnchorSeconds);
+        timeSelection.firstTrack = timeSelection.lastTrack = track;
+        timeSelection.playlistTrack = track;
+        timeSelection.playlistIndex = alt;
+        selectedClips.clear();
+        repaint();
+        return;
+    }
+
     // Automation lane view: breakpoints instead of clips (Grabber/Smart/Trimmer tools)
     if (auto* t = session.getTrack (track); t != nullptr && shownLane (*t) && edit.tool != EditSettings::Tool::selector
         && edit.tool != EditSettings::Tool::zoomer)
@@ -1063,10 +1262,13 @@ void TrackArea::mouseDrag (const juce::MouseEvent& e)
             timeSelection.end = snapSeconds (juce::jmax (a, b));
             if (timeSelection.end <= timeSelection.start && edit.mode == EditSettings::Mode::grid)
                 timeSelection.end = timeSelection.start + gridSeconds();
-            const int t = trackIndexAtY (e.y);
-            if (t >= 0) { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, t); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, t); }
-            for (int m : model::GroupLogic::editMembers (session, timeSelection.firstTrack))
-            { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, m); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, m); }
+            if (! timeSelection.isOnAlternate())
+            {
+                const int t = trackIndexAtY (e.y);
+                if (t >= 0) { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, t); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, t); }
+                for (int m : model::GroupLogic::editMembers (session, timeSelection.firstTrack))
+                { timeSelection.firstTrack = juce::jmin (timeSelection.firstTrack, m); timeSelection.lastTrack = juce::jmax (timeSelection.lastTrack, m); }
+            }
             break;
         }
         case Drag::move:
@@ -1498,6 +1700,7 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) { deleteSelection(); return true; }
     if (key == juce::KeyPress::escapeKey)                                        { clearSelection(); return true; }
     if (key == juce::KeyPress ('e', juce::ModifierKeys::commandModifier, 0))    { separateAtPlayhead(); return true; }
+    if (key == juce::KeyPress ('v', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0)) { compSelectionToMain(); return true; }
     if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0))    { duplicateSelectedClips(); return true; }
     if (key == juce::KeyPress (juce::KeyPress::upKey,   juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { nudgeClipGain (0.5f); return true; }
     if (key == juce::KeyPress (juce::KeyPress::downKey, juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { nudgeClipGain (-0.5f); return true; }
@@ -1519,8 +1722,8 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
 
 void TrackArea::paintEditOverlays (juce::Graphics& g)
 {
-    // Time selection
-    if (timeSelection.isValid() || drag == Drag::select)
+    // Time selection (alternate-lane selections are drawn inside their lane)
+    if ((timeSelection.isValid() || drag == Drag::select) && ! timeSelection.isOnAlternate())
     {
         const float x1 = secondsToX (timeSelection.start), x2 = secondsToX (timeSelection.end);
         const int t0 = juce::jmax (0, timeSelection.firstTrack), t1 = juce::jmax (t0, timeSelection.lastTrack);

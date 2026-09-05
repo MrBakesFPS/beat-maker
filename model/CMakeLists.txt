@@ -8,7 +8,8 @@ target_sources(beatmaker_model INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/MixerCommands.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/AutomationRecorder.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/DelayCompensation.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/GroupLogic.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/GroupLogic.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Playlists.cpp)
 
 target_include_directories(beatmaker_model INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
