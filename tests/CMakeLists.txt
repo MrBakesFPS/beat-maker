@@ -13,6 +13,7 @@ target_sources(beatmaker_tests PRIVATE
     transport_test.cpp
     audio_graph_test.cpp
     session_test.cpp
+    sequencer_test.cpp
     audio_file_loader_test.cpp)
 
 target_compile_definitions(beatmaker_tests PRIVATE

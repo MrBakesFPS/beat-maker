@@ -3,12 +3,21 @@
 namespace beatmaker::model
 {
 
+int Session::indexOfTrackId (int id) const noexcept
+{
+    for (int i = 0; i < (int) tracks.size(); ++i)
+        if (tracks[(size_t) i].id == id) return i;
+    return -1;
+}
+
 double Session::getLengthSeconds() const
 {
     double end = 0.0;
     for (const auto& t : tracks)
-        for (const auto& c : t.clips)
-            end = juce::jmax (end, c.getEndSeconds());
+    {
+        for (const auto& c : t.clips)        end = juce::jmax (end, c.getEndSeconds());
+        for (const auto& c : t.patternClips) end = juce::jmax (end, c.getEndSeconds());
+    }
     return end;
 }
 

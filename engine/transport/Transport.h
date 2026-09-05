@@ -53,6 +53,18 @@ public:
         position.fetch_add (numSamples, std::memory_order_acq_rel);
     }
 
+    // ---- Cycle / loop range ----
+    void setLoopEnabled (bool on) noexcept  { loopEnabled.store (on, std::memory_order_release); }
+    bool isLoopEnabled() const noexcept     { return loopEnabled.load (std::memory_order_acquire); }
+    void setLoopRange (juce::int64 startSample, juce::int64 endSample) noexcept
+    {
+        loopStart.store (juce::jmax<juce::int64> (0, startSample), std::memory_order_release);
+        loopEnd.store   (juce::jmax<juce::int64> (0, endSample),   std::memory_order_release);
+    }
+    juce::int64 getLoopStart() const noexcept { return loopStart.load (std::memory_order_acquire); }
+    juce::int64 getLoopEnd() const noexcept   { return loopEnd.load (std::memory_order_acquire); }
+    bool hasValidLoop() const noexcept        { return isLoopEnabled() && getLoopEnd() > getLoopStart(); }
+
     // ---- Timing context ----
     double getSampleRate() const noexcept   { return sampleRate.load (std::memory_order_acquire); }
     void setSampleRate (double sr) noexcept { if (sr > 0.0) sampleRate.store (sr, std::memory_order_release); }
@@ -85,6 +97,8 @@ public:
 private:
     std::atomic<bool> playing { false };
     std::atomic<juce::int64> position { 0 };
+    std::atomic<bool> loopEnabled { false };
+    std::atomic<juce::int64> loopStart { 0 }, loopEnd { 0 };
     std::atomic<double> sampleRate { 44100.0 };
     std::atomic<double> bpm { 120.0 };
     std::atomic<int> beatsPerBar { 4 };

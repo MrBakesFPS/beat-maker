@@ -5,6 +5,9 @@
 // thread.
 #pragma once
 
+#include "../dsp/DrumKit.h"
+#include "../sequencer/StepPattern.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <memory>
 #include <vector>
@@ -21,9 +24,21 @@ struct RenderClip
     float gain                = 1.0f; // clip gain * track gain, linear
 };
 
+// A pattern clip: the step pattern loops for `length` samples starting at
+// `timelineStart`, triggering pads of `kit`.
+struct RenderPattern
+{
+    std::shared_ptr<const StepPattern> pattern;
+    std::shared_ptr<const DrumKit> kit;
+    juce::int64 timelineStart = 0;
+    juce::int64 length        = 0;
+    float gain                = 1.0f;
+};
+
 struct RenderSnapshot
 {
     std::vector<RenderClip> clips;
+    std::vector<RenderPattern> patterns;
     float masterGain = 1.0f;
 };
 

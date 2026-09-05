@@ -29,7 +29,11 @@ public:
     std::function<void (const juce::StringArray&, int, double)> onFilesDropped;
     std::function<void (int trackIndex, bool mute)> onMuteChanged;
     std::function<void (int trackIndex, bool solo)> onSoloChanged;
-    std::function<void()> onAddTrack;
+    std::function<void (model::Track::Type)> onAddTrack;
+    std::function<void (int trackIndex)> onSelectionChanged;
+
+    int getSelectedTrack() const noexcept { return selectedTrack; }
+    void setSelectedTrack (int index);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -66,6 +70,10 @@ private:
     void paintRuler (juce::Graphics&, juce::Rectangle<int>);
     void paintHeader (juce::Graphics&, const model::Track&, int index, juce::Rectangle<int>);
     void paintLane (juce::Graphics&, const model::Track&, juce::Rectangle<int>);
+    void paintAudioClip (juce::Graphics&, const model::Track&, const model::AudioClip&, juce::Rectangle<int> lane);
+    void paintPatternClip (juce::Graphics&, const model::Track&, const model::PatternClip&, juce::Rectangle<int> lane);
+    juce::Rectangle<float> clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> lane) const;
+    void paintClipFrame (juce::Graphics&, juce::Rectangle<float>, const model::Track&, const juce::String& name);
 
     model::Session& session;
     engine::Transport& transport;
@@ -75,6 +83,7 @@ private:
     std::vector<TrackControls> trackControls;
     juce::TextButton addTrackButton { "+ Track" };
 
+    int selectedTrack = -1;
     double pixelsPerSecond = 60.0;
     double viewStartSeconds = 0.0;
     bool dragHover = false;

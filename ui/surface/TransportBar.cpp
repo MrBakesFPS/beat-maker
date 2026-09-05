@@ -48,10 +48,24 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     }
     barsBeatsLcd.setFont (juce::FontOptions (22.0f, juce::Font::bold));
     timeLcd.setFont      (juce::FontOptions (18.0f));
-    tempoLcd.setFont     (juce::FontOptions (16.0f, juce::Font::bold));
+    tempoLcd.setFont     (juce::FontOptions (15.0f, juce::Font::bold));
 
     addAndMakeVisible (openButton);
     openButton.onClick = [this] { if (onOpenFile) onOpenFile(); };
+
+    addAndMakeVisible (cycleButton);
+    cycleButton.setClickingTogglesState (true);
+    cycleButton.setToggleState (transport.isLoopEnabled(), juce::dontSendNotification);
+    cycleButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
+    cycleButton.setTooltip ("Cycle: loop the whole arrangement (C)");
+    cycleButton.onClick = [this] { transport.setLoopEnabled (cycleButton.getToggleState()); };
+
+    addAndMakeVisible (editorButton);
+    editorButton.setClickingTogglesState (true);
+    editorButton.setToggleState (true, juce::dontSendNotification);
+    editorButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
+    editorButton.setTooltip ("Show or hide the step sequencer (E)");
+    editorButton.onClick = [this] { if (onEditorToggled) onEditorToggled (editorButton.getToggleState()); };
 
     updateDisplay();
     startTimerHz (30);
@@ -72,19 +86,23 @@ void TransportBar::resized()
     rtzButton.setBounds    (area.removeFromLeft (size).reduced (9)); area.removeFromLeft (6);
     recordButton.setBounds (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (6);
     playButton.setBounds   (area.removeFromLeft (size).reduced (6)); area.removeFromLeft (6);
-    stopButton.setBounds   (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (16);
+    stopButton.setBounds   (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (10);
+    cycleButton.setBounds  (area.removeFromLeft (60).reduced (0, 8)); area.removeFromLeft (16);
 
     openButton.setBounds (area.removeFromRight (150).reduced (0, 6));
+    area.removeFromRight (8);
+    editorButton.setBounds (area.removeFromRight (64).reduced (0, 8));
     area.removeFromRight (16);
 
     barsBeatsLcd.setBounds (area.removeFromLeft (200)); area.removeFromLeft (4);
     timeLcd.setBounds      (area.removeFromLeft (130)); area.removeFromLeft (4);
-    tempoLcd.setBounds     (area.removeFromLeft (150));
+    tempoLcd.setBounds     (area.removeFromLeft (170));
 }
 
 void TransportBar::timerCallback()
 {
     updateDisplay();
+    cycleButton.setToggleState (transport.isLoopEnabled(), juce::dontSendNotification);
     playButton.setColours (transport.isPlaying() ? theme::play.brighter (0.6f) : theme::play,
                            theme::play.brighter(), theme::play.darker());
     playButton.repaint();

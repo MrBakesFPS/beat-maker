@@ -10,7 +10,8 @@ juce_add_gui_app(BeatMaker
 target_sources(BeatMaker PRIVATE
     main.cpp
     surface/TransportBar.cpp
-    surface/TrackArea.cpp)
+    surface/TrackArea.cpp
+    surface/StepSequencer.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     JUCE_WEB_BROWSER=0

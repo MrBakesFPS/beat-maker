@@ -80,3 +80,75 @@ TEST_CASE ("Snapshot builder honours mute, solo and gain")
     s.undo(); s.undo();
     CHECK (buildRenderSnapshot (s)->clips.size() == 3);
 }
+
+TEST_CASE ("Tracks get stable increasing ids that survive undo/redo")
+{
+    Session s;
+    Track a; a.name = "A";
+    Track b; b.name = "B";
+    s.execute (std::make_unique<AddTrackCommand> (a));
+    s.execute (std::make_unique<AddTrackCommand> (b));
+    CHECK (s.getTracks()[0].id == 1);
+    CHECK (s.getTracks()[1].id == 2);
+
+    s.undo();
+    s.redo();
+    CHECK (s.getTracks()[1].id == 2);
+    CHECK (s.indexOfTrackId (2) == 1);
+    CHECK (s.indexOfTrackId (99) == -1);
+}
+
+TEST_CASE ("Step edits are copy-on-write and undoable")
+{
+    Session s;
+    Track t; t.type = Track::Type::instrument;
+    t.drumKit = std::make_shared<const beatmaker::engine::DrumKit>();
+    s.execute (std::make_unique<AddTrackCommand> (t));
+
+    PatternClip clip;
+    clip.pattern = std::make_shared<const beatmaker::engine::StepPattern>();
+    clip.sampleRate = 44100.0;
+    clip.length = 44100 * 8;
+    s.execute (std::make_unique<AddPatternClipCommand> (0, clip));
+    CHECK (s.getLengthSeconds() == 8.0);
+
+    auto original = s.getTracks()[0].patternClips[0].pattern;
+    s.execute (std::make_unique<SetStepCommand> (0, 0, 3, 7, 100));
+
+    auto edited = s.getTracks()[0].patternClips[0].pattern;
+    CHECK (edited != original);                 // new object
+    CHECK (original->get (3, 7) == 0);          // old untouched (engine may still read it)
+    CHECK (edited->get (3, 7) == 100);
+
+    s.undo();
+    CHECK (s.getTracks()[0].patternClips[0].pattern == original);
+
+    // Muted instrument tracks keep their kit in the snapshot but never fire.
+    s.redo();
+    s.execute (std::make_unique<SetTrackFlagCommand> (0, SetTrackFlagCommand::Flag::mute, true));
+    auto snap = buildRenderSnapshot (s);
+    REQUIRE (snap->patterns.size() == 1);
+    CHECK (snap->patterns[0].length == 0);
+    CHECK (snap->patterns[0].kit == t.drumKit);
+}
+
+TEST_CASE ("Replacing a pad sample creates a new kit and is undoable")
+{
+    Session s;
+    Track t; t.type = Track::Type::instrument;
+    t.drumKit = std::make_shared<const beatmaker::engine::DrumKit>();
+    s.execute (std::make_unique<AddTrackCommand> (t));
+
+    beatmaker::engine::DrumSample sample;
+    sample.name = "Custom";
+    sample.audio = std::make_shared<const juce::AudioBuffer<float>> (1, 10);
+    s.execute (std::make_unique<SetPadSampleCommand> (0, 5, sample));
+
+    auto& kit = s.getTracks()[0].drumKit;
+    CHECK (kit != t.drumKit);
+    CHECK (kit->pads[5].name == "Custom");
+    CHECK (kit->pads[5].audio == sample.audio);
+
+    s.undo();
+    CHECK (s.getTracks()[0].drumKit == t.drumKit);
+}

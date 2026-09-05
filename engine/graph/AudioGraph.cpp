@@ -1,4 +1,5 @@
 #include "AudioGraph.h"
+#include <cmath>
 
 namespace beatmaker::engine
 {
@@ -13,11 +14,14 @@ AudioGraph::~AudioGraph()
     delete current;
 }
 
+//==============================================================================
+// Message-thread API
+
 void AudioGraph::setSnapshot (std::unique_ptr<RenderSnapshot> snapshot)
 {
-    // If the audio thread has not yet picked up the previous pending snapshot
-    // it is safe to delete it here: only this thread ever stores into
-    // `incoming`, and the audio thread only ever exchanges it for nullptr.
+    // Only this thread stores into `incoming`; the audio thread only ever
+    // exchanges it for nullptr, so deleting a not-yet-collected pending
+    // snapshot here is safe.
     delete incoming.exchange (snapshot.release());
 }
 
@@ -28,6 +32,17 @@ void AudioGraph::collectGarbage()
     for (int i = 0; i < scope.blockSize1; ++i) delete std::exchange (retired[(size_t) (scope.startIndex1 + i)], nullptr);
     for (int i = 0; i < scope.blockSize2; ++i) delete std::exchange (retired[(size_t) (scope.startIndex2 + i)], nullptr);
 }
+
+void AudioGraph::triggerPadPreview (const DrumKit* kit, int pad, float velocity)
+{
+    const auto scope = previewFifo.write (1);
+    const int index = scope.blockSize1 == 1 ? scope.startIndex1 : scope.blockSize2 == 1 ? scope.startIndex2 : -1;
+    if (index >= 0)
+        previewEvents[(size_t) index] = { kit, pad, velocity };
+}
+
+//==============================================================================
+// Audio thread
 
 void AudioGraph::swapInPendingSnapshot() noexcept
 {
@@ -47,33 +62,52 @@ void AudioGraph::swapInPendingSnapshot() noexcept
         else
         {
             // Retire queue full: keep the old snapshot and try again next block.
-            // Put `next` back so it is not lost.
             RenderSnapshot* expected = nullptr;
             if (! incoming.compare_exchange_strong (expected, next))
-                delete next; // only reachable if the message thread raced us; extremely unlikely
+                delete next; // only if the message thread raced us; practically unreachable
             return;
         }
     }
 
     current = next;
+
+    // Voices may only reference kits the new snapshot keeps alive.
+    std::array<const DrumKit*, 64> kits {};
+    int numKits = 0;
+    for (const auto& p : current->patterns)
+        if (p.kit != nullptr && numKits < (int) kits.size())
+            kits[(size_t) numKits++] = p.kit.get();
+    drums.killVoicesNotUsing (kits.data(), numKits);
 }
 
-void AudioGraph::renderBlock (float* const* outputs, int numOutputs, int numSamples)
+bool AudioGraph::snapshotHasKit (const DrumKit* kit) const noexcept
 {
-    for (int ch = 0; ch < numOutputs; ++ch)
-        if (outputs[ch] != nullptr)
-            juce::FloatVectorOperations::clear (outputs[ch], numSamples);
+    if (current == nullptr || kit == nullptr) return false;
+    for (const auto& p : current->patterns)
+        if (p.kit.get() == kit) return true;
+    return false;
+}
 
-    swapInPendingSnapshot();
+void AudioGraph::processPreviewEvents()
+{
+    const auto scope = previewFifo.read (previewFifo.getNumReady());
 
-    if (current == nullptr || ! transport.isPlaying() || numSamples <= 0)
+    auto handle = [this] (int start, int count)
     {
-        for (auto& p : outputPeak) p.store (0.0f, std::memory_order_relaxed);
-        return;
-    }
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& e = previewEvents[(size_t) (start + i)];
+            if (snapshotHasKit (e.kit))
+                drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0);
+        }
+    };
+    handle (scope.startIndex1, scope.blockSize1);
+    handle (scope.startIndex2, scope.blockSize2);
+}
 
-    const juce::int64 blockStart = transport.getPositionSamples();
-    const juce::int64 blockEnd   = blockStart + numSamples;
+void AudioGraph::mixClips (float* const* outputs, int numOutputs, juce::int64 blockStart, int numSamples)
+{
+    const juce::int64 blockEnd = blockStart + numSamples;
 
     for (const auto& clip : current->clips)
     {
@@ -87,8 +121,8 @@ void AudioGraph::renderBlock (float* const* outputs, int numOutputs, int numSamp
         if (from >= to)
             continue;
 
-        const int outOffset  = static_cast<int> (from - blockStart);
-        const int count      = static_cast<int> (to - from);
+        const int outOffset = static_cast<int> (from - blockStart);
+        const int count     = static_cast<int> (to - from);
         const juce::int64 srcStart = clip.sourceOffset + (from - clip.timelineStart);
 
         if (srcStart < 0 || srcStart + count > clip.audio->getNumSamples())
@@ -110,13 +144,123 @@ void AudioGraph::renderBlock (float* const* outputs, int numOutputs, int numSamp
                                                           gain, count);
         }
     }
+}
+
+void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
+{
+    const juce::int64 rangeEnd = rangeStart + numSamples;
+    const double sampleRate = transport.getSampleRate();
+    const double bpm = transport.getBpm();
+
+    for (const auto& rp : current->patterns)
+    {
+        if (rp.pattern == nullptr || rp.kit == nullptr || rp.length <= 0 || rp.pattern->numSteps <= 0)
+            continue;
+
+        const double stepDur = rp.pattern->getStepDurationSamples (sampleRate, bpm);
+        if (stepDur < 1.0)
+            continue;
+
+        const juce::int64 clipEnd = rp.timelineStart + rp.length;
+        const juce::int64 from = juce::jmax (rangeStart, rp.timelineStart);
+        const juce::int64 to   = juce::jmin (rangeEnd, clipEnd);
+        if (from >= to)
+            continue;
+
+        // First step index that could fall at or after `from`.
+        juce::int64 k = (juce::int64) std::floor ((double) (from - rp.timelineStart) / stepDur);
+        if (k < 0) k = 0;
+
+        for (;; ++k)
+        {
+            const juce::int64 t = rp.timelineStart + (juce::int64) std::llround ((double) k * stepDur);
+            if (t >= to) break;
+            if (t < from) continue;
+
+            const int step = (int) (k % rp.pattern->numSteps);
+            const int delay = (int) (t - rangeStart);
+
+            for (int pad = 0; pad < juce::jmin (DrumKit::numPads, StepPattern::maxPads); ++pad)
+            {
+                const auto v = rp.pattern->velocity[(size_t) pad][(size_t) step];
+                if (v > 0)
+                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay);
+            }
+        }
+    }
+}
+
+void AudioGraph::renderRange (float* const* outputs, int numOutputs, int numSamples)
+{
+    for (int ch = 0; ch < numOutputs; ++ch)
+        if (outputs[ch] != nullptr)
+            juce::FloatVectorOperations::clear (outputs[ch], numSamples);
+
+    swapInPendingSnapshot();
+
+    if (current != nullptr)
+    {
+        processPreviewEvents();
+
+        if (transport.isPlaying())
+        {
+            const juce::int64 pos = transport.getPositionSamples();
+            mixClips (outputs, numOutputs, pos, numSamples);
+            scheduleSequencer (pos, numSamples);
+        }
+    }
+
+    // Drum voices always render so previews sound while stopped and tails
+    // ring out after stop.
+    drums.render (outputs, numOutputs, numSamples);
 
     for (int ch = 0; ch < juce::jmin (numOutputs, (int) outputPeak.size()); ++ch)
         if (outputs[ch] != nullptr)
             outputPeak[(size_t) ch].store (juce::FloatVectorOperations::findMaximum (outputs[ch], numSamples),
                                            std::memory_order_relaxed);
 
-    transport.advance (numSamples);
+    if (transport.isPlaying())
+        transport.advance (numSamples);
+}
+
+void AudioGraph::renderBlock (float* const* outputs, int numOutputs, int numSamples)
+{
+    numOutputs = juce::jmin (numOutputs, maxOutputs);
+    std::array<float*, maxOutputs> offsetOutputs {};
+
+    int done = 0;
+    while (done < numSamples)
+    {
+        int count = numSamples - done;
+        bool wrapAfter = false;
+
+        // Split the block at the loop end so the wrap is sample-accurate.
+        if (transport.isPlaying() && transport.hasValidLoop())
+        {
+            const juce::int64 pos = transport.getPositionSamples();
+            const juce::int64 loopEnd = transport.getLoopEnd();
+            if (pos < loopEnd && pos + count >= loopEnd)
+            {
+                count = (int) (loopEnd - pos);
+                wrapAfter = true;
+            }
+        }
+
+        if (count > 0)
+        {
+            for (int ch = 0; ch < numOutputs; ++ch)
+                offsetOutputs[(size_t) ch] = outputs[ch] != nullptr ? outputs[ch] + done : nullptr;
+
+            renderRange (offsetOutputs.data(), numOutputs, count);
+            done += count;
+        }
+
+        if (wrapAfter)
+            transport.setPositionSamples (transport.getLoopStart());
+
+        if (count <= 0)
+            break;
+    }
 }
 
 float AudioGraph::getOutputPeak (int channel) const noexcept
@@ -137,6 +281,7 @@ void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)
 {
     if (device != nullptr)
         transport.setSampleRate (device->getCurrentSampleRate());
+    drums.reset();
 }
 
 void AudioGraph::audioDeviceStopped() {}

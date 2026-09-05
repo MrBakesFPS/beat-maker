@@ -8,7 +8,18 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, juce::AudioFormat
 {
     session.addListener (this);
     addAndMakeVisible (addTrackButton);
-    addTrackButton.onClick = [this] { if (onAddTrack) onAddTrack(); };
+    addTrackButton.onClick = [this]
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "Audio Track");
+        menu.addItem (2, "Drum Machine Track");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
+                            [this] (int result)
+                            {
+                                if (result == 1 && onAddTrack) onAddTrack (model::Track::Type::audio);
+                                if (result == 2 && onAddTrack) onAddTrack (model::Track::Type::instrument);
+                            });
+    };
     rebuildTrackControls();
     startTimerHz (30);
 }
@@ -117,7 +128,18 @@ void TrackArea::rebuildTrackControls()
 void TrackArea::sessionChanged (model::Session&)
 {
     rebuildTrackControls();
+    if (selectedTrack >= session.getNumTracks())
+        setSelectedTrack (session.getNumTracks() - 1);
     repaint();
+}
+
+void TrackArea::setSelectedTrack (int index)
+{
+    index = juce::isPositiveAndBelow (index, session.getNumTracks()) ? index : -1;
+    if (index == selectedTrack) return;
+    selectedTrack = index;
+    repaint();
+    if (onSelectionChanged) onSelectionChanged (selectedTrack);
 }
 
 juce::AudioThumbnail& TrackArea::thumbnailFor (const model::AudioClip& clip)
@@ -221,14 +243,31 @@ void TrackArea::paintRuler (juce::Graphics& g, juce::Rectangle<int> r)
             }
     }
 
+    if (transport.hasValidLoop())
+    {
+        const float x1 = juce::jmax ((float) r.getX(), secondsToX ((double) transport.getLoopStart() / transport.getSampleRate()));
+        const float x2 = juce::jmin ((float) r.getRight(), secondsToX ((double) transport.getLoopEnd() / transport.getSampleRate()));
+        if (x2 > x1)
+        {
+            g.setColour (theme::accent.withAlpha (0.85f));
+            g.fillRoundedRectangle (x1, (float) r.getY() + 2.0f, x2 - x1, 5.0f, 2.0f);
+        }
+    }
+
     g.setColour (theme::gridStrong);
     g.drawHorizontalLine (r.getBottom() - 1, (float) r.getX(), (float) r.getRight());
 }
 
 void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int index, juce::Rectangle<int> r)
 {
-    g.setColour (theme::panelDark);
+    const bool selected = index == selectedTrack;
+    g.setColour (selected ? theme::panel.brighter (0.08f) : theme::panelDark);
     g.fillRect (r);
+    if (selected)
+    {
+        g.setColour (theme::accent);
+        g.fillRect (r.removeFromLeft (3));
+    }
 
     // Colour chip
     auto chip = r.reduced (10).removeFromLeft (6).toFloat();
@@ -244,7 +283,8 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
 
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText (juce::String (index + 1) + "  Audio", content.removeFromTop (16), juce::Justification::centredLeft);
+    g.drawText (juce::String (index + 1) + (track.isInstrument() ? "  Drum Machine" : "  Audio"),
+                content.removeFromTop (16), juce::Justification::centredLeft);
 
     g.setColour (theme::grid);
     g.drawHorizontalLine (r.getBottom() - 1, (float) r.getX(), (float) r.getRight());
@@ -263,36 +303,79 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
     g.setColour (theme::grid);
     g.drawHorizontalLine (r.getBottom() - 1, (float) r.getX(), (float) r.getRight());
 
-    // Clips
-    for (const auto& clip : track.clips)
+    for (const auto& clip : track.clips)        paintAudioClip (g, track, clip, r);
+    for (const auto& clip : track.patternClips) paintPatternClip (g, track, clip, r);
+}
+
+juce::Rectangle<float> TrackArea::clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> r) const
+{
+    const float x1 = secondsToX (startSeconds);
+    const float x2 = secondsToX (endSeconds);
+    return { x1, (float) r.getY() + 4.0f, x2 - x1, (float) r.getHeight() - 9.0f };
+}
+
+void TrackArea::paintClipFrame (juce::Graphics& g, juce::Rectangle<float> clipRect, const model::Track& track, const juce::String& name)
+{
+    g.setColour (juce::Colours::black.withAlpha (0.35f));
+    g.fillRoundedRectangle (clipRect.withHeight (16.0f), 4.0f);
+    g.setColour (theme::text);
+    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.drawText (name, clipRect.withHeight (16.0f).reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, true);
+    g.setColour (track.colour.brighter (0.3f));
+    g.drawRoundedRectangle (clipRect, 4.0f, 1.0f);
+}
+
+void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, const model::AudioClip& clip, juce::Rectangle<int> r)
+{
+    auto clipRect = clipRectFor (clip.getStartSeconds(), clip.getEndSeconds(), r);
+    if (clipRect.getRight() < r.getX() || clipRect.getX() > r.getRight()) return;
+
+    g.setColour (track.colour.withMultipliedBrightness (track.mute ? 0.45f : 0.75f));
+    g.fillRoundedRectangle (clipRect, 4.0f);
+
+    auto waveArea = clipRect.reduced (1.0f).withTrimmedTop (16.0f);
+    g.setColour (track.colour.contrasting (0.9f).withAlpha (0.85f));
+    thumbnailFor (clip).drawChannels (g, waveArea.toNearestInt(),
+                                      (double) clip.sourceOffset / clip.sampleRate,
+                                      (double) (clip.sourceOffset + clip.length) / clip.sampleRate, 1.0f);
+
+    paintClipFrame (g, clipRect, track, clip.name);
+}
+
+void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, const model::PatternClip& clip, juce::Rectangle<int> r)
+{
+    auto clipRect = clipRectFor (clip.getStartSeconds(), clip.getEndSeconds(), r);
+    if (clipRect.getRight() < r.getX() || clipRect.getX() > r.getRight() || clip.pattern == nullptr) return;
+
+    g.setColour (track.colour.withMultipliedBrightness (track.mute ? 0.35f : 0.55f));
+    g.fillRoundedRectangle (clipRect, 4.0f);
+
+    // Step dots: pads as rows, steps across, repeating for each pattern iteration.
+    const auto& pattern = *clip.pattern;
+    const double stepSeconds = 60.0 / (transport.getBpm() * pattern.stepsPerBeat);
+    const float stepWidth = (float) (stepSeconds * pixelsPerSecond);
+    auto dotArea = clipRect.reduced (2.0f).withTrimmedTop (17.0f);
+    const float rowHeight = dotArea.getHeight() / (float) engine::DrumKit::numPads;
+
+    if (stepWidth >= 2.0f)
     {
-        const float x1 = secondsToX (clip.getStartSeconds());
-        const float x2 = secondsToX (clip.getEndSeconds());
-        if (x2 < r.getX() || x1 > r.getRight()) continue;
+        const int totalSteps = (int) std::ceil (clip.getLengthSeconds() / stepSeconds);
+        g.setColour (track.colour.contrasting (0.9f).withAlpha (0.9f));
 
-        auto clipRect = juce::Rectangle<float> (x1, (float) r.getY() + 4.0f, x2 - x1, (float) r.getHeight() - 9.0f);
-        const auto body = track.colour.withMultipliedBrightness (track.mute ? 0.45f : 0.75f);
+        for (int k = 0; k < totalSteps; ++k)
+        {
+            const float x = dotArea.getX() + k * stepWidth;
+            if (x > r.getRight() || x + stepWidth < r.getX()) continue;
+            const int step = k % pattern.numSteps;
 
-        g.setColour (body);
-        g.fillRoundedRectangle (clipRect, 4.0f);
-
-        auto waveArea = clipRect.reduced (1.0f).withTrimmedTop (16.0f);
-        g.setColour (track.colour.contrasting (0.9f).withAlpha (0.85f));
-        thumbnailFor (clip).drawChannels (g, waveArea.toNearestInt(),
-                                          (double) clip.sourceOffset / clip.sampleRate,
-                                          (double) (clip.sourceOffset + clip.length) / clip.sampleRate,
-                                          1.0f);
-
-        g.setColour (juce::Colours::black.withAlpha (0.35f));
-        g.fillRoundedRectangle (clipRect.withHeight (16.0f), 4.0f);
-        g.setColour (theme::text);
-        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-        g.drawText (clip.name, clipRect.withHeight (16.0f).reduced (6.0f, 0.0f).toNearestInt(),
-                    juce::Justification::centredLeft, true);
-
-        g.setColour (track.colour.brighter (0.3f));
-        g.drawRoundedRectangle (clipRect, 4.0f, 1.0f);
+            for (int pad = 0; pad < engine::DrumKit::numPads; ++pad)
+                if (pattern.get (pad, step) > 0)
+                    g.fillRect (x + 0.5f, dotArea.getY() + pad * rowHeight + 0.5f,
+                                juce::jmax (1.0f, stepWidth - 1.0f), juce::jmax (1.0f, rowHeight - 1.0f));
+        }
     }
+
+    paintClipFrame (g, clipRect, track, clip.name);
 }
 
 //==============================================================================
@@ -300,10 +383,14 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
 
 void TrackArea::mouseDown (const juce::MouseEvent& e)
 {
+    const int track = trackIndexAtY (e.y);
+    if (track >= 0)
+        setSelectedTrack (track);
+
     if (e.x < theme::trackHeaderWidth)
         return;
 
-    // Click in ruler or empty lane space: locate the playhead.
+    // Click in ruler or lane: locate the playhead.
     transport.setPositionSeconds (xToSeconds ((float) e.x));
     repaint();
 }
@@ -345,8 +432,12 @@ void TrackArea::filesDropped (const juce::StringArray& files, int x, int y)
     dragHover = false;
     repaint();
 
+    int trackIndex = trackIndexAtY (y);
+    if (auto* t = session.getTrack (trackIndex); t != nullptr && t->isInstrument())
+        trackIndex = -1;
+
     if (onFilesDropped)
-        onFilesDropped (files, trackIndexAtY (y), xToSeconds ((float) juce::jmax (x, theme::trackHeaderWidth)));
+        onFilesDropped (files, trackIndex, xToSeconds ((float) juce::jmax (x, theme::trackHeaderWidth)));
 }
 
 } // namespace beatmaker::ui

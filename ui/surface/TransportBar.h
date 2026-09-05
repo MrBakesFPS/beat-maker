@@ -17,6 +17,9 @@ public:
     explicit TransportBar (engine::Transport& transport);
 
     std::function<void()> onOpenFile;
+    std::function<void (bool)> onEditorToggled;
+
+    void setEditorVisible (bool visible) { editorButton.setToggleState (visible, juce::dontSendNotification); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -33,6 +36,8 @@ private:
     juce::ShapeButton rtzButton    { "Return to Start", theme::stop, theme::stop.brighter(), theme::stop.darker() };
 
     juce::Label barsBeatsLcd, timeLcd, tempoLcd;
+    juce::TextButton cycleButton { "Cycle" };
+    juce::TextButton editorButton { "Editor" };
     juce::TextButton openButton { "Open Audio File..." };
 };
 

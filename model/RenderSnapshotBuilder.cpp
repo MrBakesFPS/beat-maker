@@ -14,12 +14,10 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
     for (const auto& track : session.getTracks())
     {
         const bool audible = ! track.mute && (! anySolo || track.solo);
-        if (! audible)
-            continue;
 
         for (const auto& clip : track.clips)
         {
-            if (clip.audio == nullptr)
+            if (! audible || clip.audio == nullptr)
                 continue;
 
             engine::RenderClip rc;
@@ -29,6 +27,22 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rc.length        = clip.length;
             rc.gain          = clip.gain * track.gain;
             snapshot->clips.push_back (std::move (rc));
+        }
+
+        // Pattern entries are kept even when muted (with zero length) so the
+        // kit stays alive for pad previews; a zero-length pattern never fires.
+        for (const auto& clip : track.patternClips)
+        {
+            if (clip.pattern == nullptr || track.drumKit == nullptr)
+                continue;
+
+            engine::RenderPattern rp;
+            rp.pattern       = clip.pattern;
+            rp.kit           = track.drumKit;
+            rp.timelineStart = clip.timelineStart;
+            rp.length        = audible ? clip.length : 0;
+            rp.gain          = clip.gain * track.gain;
+            snapshot->patterns.push_back (std::move (rp));
         }
     }
 

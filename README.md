@@ -27,21 +27,31 @@ automatically on first configure.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "assets/loops/Drum Loop 120.wav"
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --cycle --play   # instant beat
 ```
 
 Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-**Phase 0 complete.** The app opens a window, imports audio files (open dialog,
-drag-and-drop, or command line), shows them as waveform clips on colour-coded
-tracks, and plays them through the default audio device with a bar|beat|tick
-transport. Tracks have mute/solo; every edit is an undoable command.
+**Phase 0 complete. Phase 1 in progress.**
 
-Keys: Space play/stop, Return back to start, Ctrl+Z / Ctrl+Shift+Z undo/redo,
-Ctrl+O open, Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
+- Audio tracks: import files (open dialog, drag-and-drop, command line), shown
+  as waveform clips on colour-coded tracks.
+- Drum Machine tracks: a synthesised 16-pad kit, a 4-bar pattern clip with a
+  starter beat, and a step-sequencer editor panel. Click a step to toggle it,
+  Shift-click for a soft hit, drag to paint, click a pad name to audition it,
+  drop an audio file on a pad row to replace its sample.
+- Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
+  arrangement sample-accurately.
+- Tracks have mute/solo; every edit is an undoable command.
 
-Next up is Phase 1 (recording, loop browser, step sequencer). See PLAN.md §5.
+Keys: Space play/stop, Return back to start, C cycle, E editor panel,
+Ctrl+D new drum track, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
+Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
+
+Still to come in Phase 1: recording, the loop browser, piano roll, Smart
+Controls, bounce. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -50,4 +60,8 @@ Next up is Phase 1 (recording, loop browser, step sequencer). See PLAN.md §5.
 `model/` is the undoable `Session` document; the UI only ever mutates it
 through `Command` objects. Whenever the session changes, the message thread
 builds a new `RenderSnapshot` and hands it to the graph through a lock-free
-exchange; retired snapshots are freed back on the message thread.
+exchange; retired snapshots are freed back on the message thread. Step
+patterns and drum kits are immutable and replaced copy-on-write; the graph
+schedules pattern hits into a `DrumMachine` voice pool and kills any voice
+whose kit is no longer referenced by the active snapshot before that snapshot
+is retired.
