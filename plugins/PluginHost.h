@@ -29,6 +29,10 @@ public:
     juce::AudioPluginInstance& getInstance() noexcept { return *plugin; }
     const juce::PluginDescription& getDescription() const noexcept { return description; }
 
+    // Plugins with a second input bus get the strip's key input on it.
+    bool acceptsSidechain() const noexcept override { return sidechainChannels > 0; }
+    int getSidechainChannels() const noexcept { return sidechainChannels; }
+
 protected:
     void prepareImpl (int maxBlockSize) override;
 
@@ -37,6 +41,9 @@ private:
     juce::PluginDescription description;
     juce::MidiBuffer midi;
     int preparedBlockSize = 0;
+    int sidechainChannels = 0;
+    juce::AudioBuffer<float> keyScratch;   // the key copied per block (plugins may write to input channels)
+    std::vector<float*> channelPtrs;
 };
 
 class PluginManager

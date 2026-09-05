@@ -141,7 +141,10 @@ Run the tests with `ctest --test-dir build`.
   Send the kick pre-fader to a bus, key the pad's compressor from that bus,
   and it pumps. Strips that feed a key bus are always processed before the
   strips they key, so the sidechain has no latency; a keyed insert shows
-  [key] on its slot.
+  [key] on its slot. Hosted plugins with a sidechain input bus (a
+  compressor's "Sidechain" or "Key" bus) get the same Key menu: the bus is
+  enabled as stereo (or mono) when the plugin is loaded and the key is
+  copied into it every block.
 - Convolution Reverb: six bundled spaces (Concert Hall, Chamber, Room, Plate,
   Ambience, Cathedral) or Load IR... for any audio file, with pre-delay,
   decay trim, low/high cut, width and mix. Responses are (re)built on the
@@ -246,8 +249,7 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: sidechain inputs for hosted plugins and CLAP
-hosting. See PLAN.md §5.
+Still to come in Phase 3: CLAP hosting. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

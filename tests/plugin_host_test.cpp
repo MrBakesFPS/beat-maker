@@ -181,3 +181,91 @@ TEST_CASE ("PluginManager: default formats, known-list persistence, child scan p
     CHECK (plugins::PluginManager::runScanChild ("NoSuchFormat", "/nowhere") == 2);
     CHECK (plugins::PluginManager::runScanChild ("VST3", "/nowhere/missing.vst3") == 0);
 }
+
+namespace
+{
+    // A ducker with a sidechain bus: the main signal is scaled by (1 - peak of the key).
+    class FakeDuckerPlugin final : public juce::AudioPluginInstance
+    {
+    public:
+        FakeDuckerPlugin()
+            : AudioPluginInstance (BusesProperties().withInput ("In", juce::AudioChannelSet::stereo())
+                                                    .withInput ("Sidechain", juce::AudioChannelSet::stereo())
+                                                    .withOutput ("Out", juce::AudioChannelSet::stereo())) {}
+        void fillInPluginDescription (juce::PluginDescription& d) const override { d.name = "Fake Ducker"; d.pluginFormatName = "Fake"; d.uniqueId = 4321; }
+        const juce::String getName() const override { return "Fake Ducker"; }
+        bool isBusesLayoutSupported (const BusesLayout& l) const override
+        {
+            return l.getMainInputChannelSet() == juce::AudioChannelSet::stereo() && l.getMainOutputChannelSet() == juce::AudioChannelSet::stereo()
+                && (l.inputBuses[1] == juce::AudioChannelSet::stereo() || l.inputBuses[1].isDisabled());
+        }
+        void prepareToPlay (double, int) override {}
+        void releaseResources() override {}
+        void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
+        {
+            sawChannels = b.getNumChannels();
+            auto key = getBusBuffer (b, true, 1);
+            float peak = 0.0f;
+            for (int ch = 0; ch < key.getNumChannels(); ++ch) peak = juce::jmax (peak, key.getMagnitude (ch, 0, b.getNumSamples()));
+            keyPeak = peak;
+            auto main = getBusBuffer (b, true, 0);
+            main.applyGain (1.0f - juce::jlimit (0.0f, 1.0f, peak));
+        }
+        double getTailLengthSeconds() const override { return 0.0; }
+        bool acceptsMidi() const override { return false; }
+        bool producesMidi() const override { return false; }
+        juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+        bool hasEditor() const override { return false; }
+        int getNumPrograms() override { return 1; }
+        int getCurrentProgram() override { return 0; }
+        void setCurrentProgram (int) override {}
+        const juce::String getProgramName (int) override { return {}; }
+        void changeProgramName (int, const juce::String&) override {}
+        void getStateInformation (juce::MemoryBlock&) override {}
+        void setStateInformation (const void*, int) override {}
+
+        int sawChannels = 0;
+        float keyPeak = -1.0f;
+    };
+}
+
+TEST_CASE ("A hosted plugin with a sidechain bus receives the strip's key input")
+{
+    auto raw = std::make_unique<FakeDuckerPlugin>();
+    auto* fake = raw.get();
+    juce::PluginDescription desc;
+    fake->fillInPluginDescription (desc);
+    plugins::PluginEffect fx (std::move (raw), desc);
+    fx.prepare (48000.0, 512);
+    CHECK (fx.acceptsSidechain());
+    CHECK (fx.getSidechainChannels() == 2);
+    CHECK (fake->getTotalNumInputChannels() == 4);
+
+    juce::AudioBuffer<float> buffer (2, 512);
+    for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (buffer.getWritePointer (ch), 1.0f, 512);
+
+    // No key routed: the plugin sees silence on its sidechain and passes the audio.
+    fx.process (buffer, 512, {});
+    CHECK (fake->sawChannels == 4);
+    CHECK_THAT (fake->keyPeak, WithinAbs (0.0f, 1e-6));
+    CHECK_THAT (buffer.getSample (0, 100), WithinAbs (1.0f, 1e-6));
+
+    // A key at 0.75 ducks the main signal to 0.25.
+    juce::AudioBuffer<float> key (2, 512);
+    for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::fill (key.getWritePointer (ch), 0.75f, 512);
+    const float* keyPtrs[2] = { key.getReadPointer (0), key.getReadPointer (1) };
+    fx.setSidechain (keyPtrs, 2);
+    fx.process (buffer, 512, {});
+    fx.clearSidechain();
+    CHECK_THAT (fake->keyPeak, WithinAbs (0.75f, 1e-6));
+    CHECK_THAT (buffer.getSample (1, 100), WithinAbs (0.25f, 1e-6));
+    CHECK_THAT (key.getSample (0, 100), WithinAbs (0.75f, 1e-6));   // the strip's key buffer is never written to
+
+    // A plain stereo plugin has no sidechain
+    auto plain = std::make_unique<FakeGainPlugin>();
+    juce::PluginDescription plainDesc;
+    plain->fillInPluginDescription (plainDesc);
+    plugins::PluginEffect plainFx (std::move (plain), plainDesc);
+    plainFx.prepare (48000.0, 512);
+    CHECK_FALSE (plainFx.acceptsSidechain());
+}

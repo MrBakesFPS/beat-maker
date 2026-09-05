@@ -20,10 +20,34 @@ PluginEffect::~PluginEffect()
 void PluginEffect::prepareImpl (int maxBlockSize)
 {
     preparedBlockSize = maxBlockSize;
-    plugin->enableAllBuses();
-    plugin->setPlayConfigDetails (2, 2, sampleRate, maxBlockSize);
+    sidechainChannels = 0;
+
+    // Main stereo in/out; a second input bus (the plugin's sidechain) is
+    // enabled as stereo when the plugin accepts that layout.
+    auto layout = plugin->getBusesLayout();
+    if (plugin->getBusCount (true) >= 2 && plugin->getBusCount (false) >= 1)
+    {
+        juce::AudioProcessor::BusesLayout wanted;
+        for (int i = 0; i < plugin->getBusCount (true); ++i)  wanted.inputBuses.add (i < 2 ? juce::AudioChannelSet::stereo() : juce::AudioChannelSet::disabled());
+        for (int i = 0; i < plugin->getBusCount (false); ++i) wanted.outputBuses.add (i == 0 ? juce::AudioChannelSet::stereo() : juce::AudioChannelSet::disabled());
+        if (plugin->checkBusesLayoutSupported (wanted) && plugin->setBusesLayout (wanted))
+            sidechainChannels = wanted.inputBuses[1].size();
+        else
+        {
+            wanted.inputBuses.set (1, juce::AudioChannelSet::mono());
+            if (plugin->checkBusesLayoutSupported (wanted) && plugin->setBusesLayout (wanted)) sidechainChannels = 1;
+        }
+    }
+    if (sidechainChannels == 0)
+    {
+        plugin->enableAllBuses();
+        plugin->setPlayConfigDetails (2, 2, sampleRate, maxBlockSize);
+    }
     plugin->setRateAndBufferSizeDetails (sampleRate, maxBlockSize);
     plugin->prepareToPlay (sampleRate, maxBlockSize);
+    keyScratch.setSize (juce::jmax (1, sidechainChannels), maxBlockSize);
+    keyScratch.clear();
+    channelPtrs.assign ((size_t) (2 + sidechainChannels), nullptr);
 }
 
 void PluginEffect::reset()
@@ -34,9 +58,25 @@ void PluginEffect::reset()
 void PluginEffect::process (juce::AudioBuffer<float>& buffer, int numSamples, const engine::InsertParams&) noexcept
 {
     if (plugin == nullptr || numSamples <= 0 || numSamples > preparedBlockSize) return;
+    midi.clear();
+    if (sidechainChannels > 0 && buffer.getNumChannels() >= 2)
+    {
+        // Main channels in place, key copied into the sidechain channels (silence when no key is routed).
+        for (int ch = 0; ch < sidechainChannels; ++ch)
+        {
+            float* dest = keyScratch.getWritePointer (ch);
+            if (keyChannels != nullptr && keyNumChannels > 0) juce::FloatVectorOperations::copy (dest, keyChannels[juce::jmin (ch, keyNumChannels - 1)], numSamples);
+            else                                               juce::FloatVectorOperations::clear (dest, numSamples);
+            channelPtrs[(size_t) (2 + ch)] = dest;
+        }
+        channelPtrs[0] = buffer.getWritePointer (0);
+        channelPtrs[1] = buffer.getWritePointer (1);
+        juce::AudioBuffer<float> view (channelPtrs.data(), 2 + sidechainChannels, 0, numSamples);
+        plugin->processBlock (view, midi);
+        return;
+    }
     // A non-owning view with exactly numSamples: plugins process whole buffers.
     juce::AudioBuffer<float> view (buffer.getArrayOfWritePointers(), juce::jmin (2, buffer.getNumChannels()), 0, numSamples);
-    midi.clear();
     plugin->processBlock (view, midi);
 }
 
