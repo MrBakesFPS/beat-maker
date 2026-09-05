@@ -8,6 +8,7 @@ namespace beatmaker::engine
 namespace
 {
     constexpr double twoPi = juce::MathConstants<double>::twoPi;
+    constexpr float kitHeadroom = 0.5f;   // -6 dB
 
     struct Synth
     {
@@ -33,9 +34,11 @@ namespace
             for (int i = 0; i < fade; ++i)
                 out[length - 1 - i] *= (float) i / (float) fade;
 
+            // `peak` values are relative levels; the whole kit sits about 6 dB
+            // below full scale so a busy pattern still leaves mix headroom.
             const float mag = b.getMagnitude (0, 0, length);
             if (mag > 0.0f)
-                b.applyGain (peak / mag);
+                b.applyGain (peak * kitHeadroom / mag);
 
             DrumSample s;
             s.name = name;

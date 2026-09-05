@@ -28,6 +28,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "assets/loops/Drum Loop 120.wav"
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --cycle --play   # instant beat
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --bounce=beat.wav # batch render, no UI interaction
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -47,16 +48,21 @@ Run the tests with `ctest --test-dir build`.
   `~/Music/Beat Maker/Audio Files` on a background thread and land on the
   track at the exact sample where recording began. Stop ends the take; Record
   again while playing punches out.
+- Bounce to Disk (Ctrl+B): whole arrangement or the cycle range, to WAV, AIFF
+  or FLAC at 16/24-bit or 32-bit float, with a configurable tail that lets
+  drums ring out, trailing-silence trim, and optional normalisation. Renders
+  offline on a background thread through the same graph code as playback, so
+  the file matches what you heard. Clipping is reported.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.
 
 Keys: Space play/stop, R record, Return back to start, C cycle, E editor panel,
-Ctrl+D new drum track, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
+Ctrl+D new drum track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 1: the loop browser, piano roll, Smart Controls,
-bounce. See PLAN.md §5.
+Still to come in Phase 1: the loop browser, piano roll, Smart Controls.
+See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -72,4 +78,6 @@ whose kit is no longer referenced by the active snapshot before that snapshot
 is retired. The `Recorder` receives every input block on the audio thread and
 pushes it into per-track lock-free ring buffers that a background thread
 flushes to WAV; start/stop hand the session across threads with an atomic
-pointer plus a busy flag so teardown never races the callback.
+pointer plus a busy flag so teardown never races the callback. `Bouncer`
+renders a snapshot through a private `Transport` + `AudioGraph`, so an offline
+bounce is bit-identical to live playback of the same session.

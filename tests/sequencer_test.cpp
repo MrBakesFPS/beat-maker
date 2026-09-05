@@ -221,7 +221,7 @@ TEST_CASE ("Default kit has 16 named, non-silent pads")
         CHECK (pad.name.isNotEmpty());
         REQUIRE (pad.audio != nullptr);
         CHECK (pad.audio->getNumSamples() > 1000);
-        CHECK (pad.audio->getMagnitude (0, 0, pad.audio->getNumSamples()) > 0.4f);
+        CHECK (pad.audio->getMagnitude (0, 0, pad.audio->getNumSamples()) > 0.2f);
         CHECK (pad.audio->getMagnitude (0, 0, pad.audio->getNumSamples()) <= 1.0f);
     }
 }

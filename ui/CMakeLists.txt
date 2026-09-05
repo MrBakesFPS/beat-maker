@@ -11,7 +11,8 @@ target_sources(BeatMaker PRIVATE
     main.cpp
     surface/TransportBar.cpp
     surface/TrackArea.cpp
-    surface/StepSequencer.cpp)
+    surface/StepSequencer.cpp
+    depth/BounceDialog.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     JUCE_WEB_BROWSER=0

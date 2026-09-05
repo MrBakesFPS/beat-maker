@@ -18,6 +18,7 @@ public:
 
     std::function<void()> onOpenFile;
     std::function<void()> onRecord;
+    std::function<void()> onBounce;
     std::function<void (bool)> onEditorToggled;
 
     void setEditorVisible (bool visible) { editorButton.setToggleState (visible, juce::dontSendNotification); }
@@ -41,7 +42,8 @@ private:
     juce::Label barsBeatsLcd, timeLcd, tempoLcd;
     juce::TextButton cycleButton { "Cycle" };
     juce::TextButton editorButton { "Editor" };
-    juce::TextButton openButton { "Open Audio File..." };
+    juce::TextButton openButton { "Open..." };
+    juce::TextButton bounceButton { "Bounce..." };
 };
 
 } // namespace beatmaker::ui

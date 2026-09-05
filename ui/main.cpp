@@ -4,12 +4,14 @@
 // (undoable session document) and the surface UI (transport bar + track area)
 // together. All edits flow: UI -> Command -> Session -> RenderSnapshot -> engine.
 
+#include "depth/BounceDialog.h"
 #include "shared/Theme.h"
 #include "surface/StepSequencer.h"
 #include "surface/TrackArea.h"
 #include "surface/TransportBar.h"
 
 #include <AudioFileLoader.h>
+#include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
 #include <RenderSnapshotBuilder.h>
 #include <Session.h>
@@ -20,6 +22,7 @@
 
 #include <atomic>
 #include <csignal>
+#include <iostream>
 
 namespace beatmaker
 {
@@ -58,6 +61,7 @@ public:
 
         transportBar.onOpenFile = [this] { openFileChooser(); };
         transportBar.onRecord = [this] { toggleRecord(); };
+        transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
 
         trackArea.onFilesDropped = [this] (const juce::StringArray& files, int trackIndex, double seconds)
@@ -124,6 +128,22 @@ public:
         startRecording();
     }
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
+    void showBounceDialog();
+
+    // Synchronous whole-arrangement bounce for command-line use. Returns an
+    // exit message for stdout.
+    juce::String bounceArrangementToFile (const juce::File& file)
+    {
+        engine::BounceSettings s = defaultBounceSettings();
+        s.format = file.hasFileExtension ("aiff;aif") ? engine::BounceSettings::Format::aiff
+                 : file.hasFileExtension ("flac")     ? engine::BounceSettings::Format::flac
+                                                      : engine::BounceSettings::Format::wav;
+        s.startSample = 0;
+        s.endSample   = (juce::int64) std::llround (session.getLengthSeconds() * s.sampleRate);
+
+        const auto result = engine::Bouncer::renderToFile (model::buildRenderSnapshot (session), s, file);
+        return describeBounce (result, file);
+    }
 
     // Public so the application can open a file passed on the command line.
     void importAudioFile (const juce::File& file, int trackIndex = -1, double startSeconds = 0.0)
@@ -192,6 +212,7 @@ public:
         if (key == juce::KeyPress ('r'))                      { toggleRecord(); return true; }
         if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier, 0)) { addDrumMachineTrack(); return true; }
+        if (key == juce::KeyPress ('b', juce::ModifierKeys::commandModifier, 0)) { showBounceDialogImpl(); return true; }
 
         return false;
     }
@@ -207,6 +228,135 @@ private:
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
         return raw->getTrackIndex();
+    }
+
+    //==========================================================================
+    // Bounce
+
+    engine::BounceSettings defaultBounceSettings()
+    {
+        engine::BounceSettings s;
+        s.sampleRate  = engine.getSampleRate();
+        s.bpm         = engine.getTransport().getBpm();
+        s.beatsPerBar = engine.getTransport().getBeatsPerBar();
+        s.numChannels = 2;
+        return s;
+    }
+
+    static juce::String describeBounce (const engine::BounceResult& r, const juce::File& file)
+    {
+        if (r.cancelled)         return "Bounce cancelled";
+        if (r.error.isNotEmpty()) return "Bounce failed: " + r.error;
+
+        juce::String text = "Bounced " + file.getFileName() + "  (" + juce::String (r.numSamples) + " samples, peak "
+                          + juce::String (juce::Decibels::gainToDecibels (r.peakBeforeNormalize), 1) + " dBFS";
+        if (std::abs (r.appliedGain - 1.0f) > 1.0e-6f) text += ", normalised " + juce::String (juce::Decibels::gainToDecibels (r.appliedGain), 1) + " dB";
+        text += ")";
+        if (r.clipped) text += "  WARNING: output clipped, lower the mix or enable Normalize";
+        return text;
+    }
+
+    void showBounceDialogImpl()
+    {
+        if (session.getLengthSeconds() <= 0.0)
+        {
+            statusMessage = "Nothing to bounce: the arrangement is empty";
+            updateStatus();
+            return;
+        }
+
+        const auto& transport = engine.getTransport();
+        ui::BounceDialog::Context ctx;
+        ctx.sampleRate         = engine.getSampleRate();
+        ctx.arrangementSeconds = session.getLengthSeconds();
+        ctx.numOutputs         = 2;
+        if (transport.hasValidLoop())
+        {
+            ctx.cycleStartSeconds = (double) transport.getLoopStart() / ctx.sampleRate;
+            ctx.cycleEndSeconds   = (double) transport.getLoopEnd() / ctx.sampleRate;
+        }
+
+        auto* dialog = new ui::BounceDialog (ctx);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Bounce to Disk";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+
+        dialog->onCancel = [window] { window->exitModalState (0); window->setVisible (false); };
+        dialog->onBounce = [this, window] (engine::BounceSettings settings)
+        {
+            settings.bpm         = engine.getTransport().getBpm();
+            settings.beatsPerBar = engine.getTransport().getBeatsPerBar();
+            window->setVisible (false);
+            chooseBounceDestination (settings);
+        };
+    }
+
+    void chooseBounceDestination (engine::BounceSettings settings)
+    {
+        const auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
+                             .getChildFile ("Beat Maker").getChildFile ("Bounces");
+        dir.createDirectory();
+        const auto ext = engine::BounceSettings::extensionFor (settings.format);
+        const auto suggested = dir.getChildFile ("Bounce" + ext).getNonexistentSibling (false);
+
+        fileChooser = std::make_unique<juce::FileChooser> ("Bounce to Disk", suggested, "*" + ext);
+        fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                      | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [this, settings, ext] (const juce::FileChooser& fc)
+                                  {
+                                      auto file = fc.getResult();
+                                      if (file == juce::File()) return;
+                                      if (! file.hasFileExtension (ext.substring (1)))
+                                          file = file.withFileExtension (ext);
+                                      runBounce (settings, file);
+                                  });
+    }
+
+    // Background render with a progress window.
+    class BounceJob final : public juce::ThreadWithProgressWindow
+    {
+    public:
+        BounceJob (std::unique_ptr<engine::RenderSnapshot> snap, engine::BounceSettings s, juce::File f,
+                   std::function<void (const engine::BounceResult&, const juce::File&)> done)
+            : ThreadWithProgressWindow ("Bouncing to " + f.getFileName() + "...", true, true),
+              snapshot (std::move (snap)), settings (s), file (f), onDone (std::move (done)) {}
+
+        void run() override
+        {
+            result = engine::Bouncer::renderToFile (std::move (snapshot), settings, file,
+                                                    [this] (double p) { setProgress (p); return ! threadShouldExit(); });
+        }
+
+        void threadComplete (bool userCancelled) override
+        {
+            if (userCancelled) result.cancelled = true;
+            if (onDone) onDone (result, file);
+        }
+
+    private:
+        std::unique_ptr<engine::RenderSnapshot> snapshot;
+        engine::BounceSettings settings;
+        juce::File file;
+        engine::BounceResult result;
+        std::function<void (const engine::BounceResult&, const juce::File&)> onDone;
+    };
+
+    void runBounce (const engine::BounceSettings& settings, const juce::File& file)
+    {
+        bounceJob = std::make_unique<BounceJob> (model::buildRenderSnapshot (session), settings, file,
+            [this] (const engine::BounceResult& r, const juce::File& f)
+            {
+                statusMessage = describeBounce (r, f);
+                updateStatus();
+                if (r.ok()) f.revealToUser();
+                juce::MessageManager::callAsync ([this] { bounceJob.reset(); });
+            });
+        bounceJob->launchThread();
     }
 
     //==========================================================================
@@ -418,7 +568,7 @@ private:
         if (history.canUndo())
             text += "     Undo: " + history.getUndoName() + " (Ctrl+Z)";
         if (text.isEmpty())
-            text = "Space: play/stop   R: record   Return: start   C: cycle   Ctrl+D: drum track   E: editor   Ctrl+O: open   Ctrl+wheel: zoom";
+            text = "Space: play/stop   R: record   Return: start   C: cycle   Ctrl+D: drum track   E: editor   Ctrl+O: open   Ctrl+B: bounce   Ctrl+wheel: zoom";
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
@@ -435,7 +585,10 @@ private:
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    std::unique_ptr<BounceJob> bounceJob;
 };
+
+void MainComponent::showBounceDialog() { showBounceDialogImpl(); }
 
 //==============================================================================
 class BeatMakerApplication final : public juce::JUCEApplication
@@ -455,9 +608,11 @@ public:
 
         // Command line: audio files are imported; --drums adds a Drum Machine
         // track with the starter beat; --record adds an armed audio track and
-        // starts recording; --cycle enables looping; --play starts the transport.
+        // starts recording; --cycle enables looping; --play starts the
+        // transport; --bounce=<file> renders the arrangement and quits.
         auto& main = mainWindow->getMainComponent();
         bool play = false;
+        juce::File bounceFile;
 
         for (const auto& arg : juce::StringArray::fromTokens (commandLine, true))
         {
@@ -465,8 +620,19 @@ public:
             else if (arg == "--record") main.addArmedAudioTrackAndRecord();
             else if (arg == "--cycle")  main.setCycleEnabled (true);
             else if (arg == "--play")   play = true;
-            else if (const juce::File f (arg.unquoted()); f.existsAsFile())
+            else if (arg.startsWith ("--bounce=")) bounceFile = juce::File::getCurrentWorkingDirectory()
+                                                                    .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false).unquoted());
+            else if (arg == "--bounce-dialog") main.showBounceDialog();
+            else if (const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (arg.unquoted()); f.existsAsFile())
                 main.importAudioFile (f);
+        }
+
+        // --bounce=<file>: render the arrangement and quit (batch mode).
+        if (bounceFile != juce::File())
+        {
+            std::cout << main.bounceArrangementToFile (bounceFile) << std::endl;
+            quit();
+            return;
         }
 
         if (play)

@@ -195,7 +195,7 @@ beat-maker/
 - [x] Step sequencer + Drum Machine instrument. *(Done 2026-09-05: synthesised 16-pad kit, pattern clips, step editor, pad audition, per-pad sample load, Cycle mode)*
 - [ ] Piano roll editor.
 - [ ] Simple mixer (volume/pan/mute/solo) and Smart Controls panel.
-- [ ] Bounce to WAV/MP3.
+- [x] Bounce to WAV (also AIFF/FLAC; MP3 deferred, needs an encoder). *(Done 2026-09-05: Bounce to Disk dialog, range/format/depth/tail/normalise, offline render bit-identical to playback, `--bounce=` batch flag)*
 - **Milestone:** A beginner can make and export a beat in under 10 minutes.
 
 ### Phase 2 — Depth: Editing & Mixing (Weeks 13–22)

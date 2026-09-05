@@ -51,7 +51,12 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     tempoLcd.setFont     (juce::FontOptions (15.0f, juce::Font::bold));
 
     addAndMakeVisible (openButton);
+    openButton.setTooltip ("Import an audio file (Ctrl+O)");
     openButton.onClick = [this] { if (onOpenFile) onOpenFile(); };
+
+    addAndMakeVisible (bounceButton);
+    bounceButton.setTooltip ("Bounce the arrangement to an audio file (Ctrl+B)");
+    bounceButton.onClick = [this] { if (onBounce) onBounce(); };
 
     addAndMakeVisible (cycleButton);
     cycleButton.setClickingTogglesState (true);
@@ -89,7 +94,9 @@ void TransportBar::resized()
     stopButton.setBounds   (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (10);
     cycleButton.setBounds  (area.removeFromLeft (60).reduced (0, 8)); area.removeFromLeft (16);
 
-    openButton.setBounds (area.removeFromRight (150).reduced (0, 6));
+    bounceButton.setBounds (area.removeFromRight (90).reduced (0, 6));
+    area.removeFromRight (8);
+    openButton.setBounds (area.removeFromRight (80).reduced (0, 6));
     area.removeFromRight (8);
     editorButton.setBounds (area.removeFromRight (64).reduced (0, 8));
     area.removeFromRight (16);
