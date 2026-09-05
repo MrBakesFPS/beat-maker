@@ -83,6 +83,7 @@ private:
 
     juce::ComboBox presetBox;
     juce::Label presetLabel { {}, "Sound" };
+    engine::InstrumentType presetType = engine::InstrumentType::none;   // what presetBox currently lists
 };
 
 } // namespace beatmaker::ui

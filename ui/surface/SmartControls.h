@@ -1,6 +1,7 @@
 // SmartControls: GarageBand-style macro knobs for the selected track.
-// Every track gets Volume and Pan; synth tracks add filter/envelope/tone
-// knobs bound to their SynthParams; drum tracks add pad-group levels.
+// Every track gets Volume and Pan; instrument tracks add one knob per
+// parameter the instrument describes (Instrument::paramInfo); drum tracks
+// add pad-group levels.
 // A knob drag is one undo step: intermediate values replace the previous
 // command in the history.
 #pragma once
@@ -54,14 +55,17 @@ private:
 
     // Bindings
     void bindMix (const model::Track&);
-    void bindSynth (const model::Track&);
+    void bindInstrument (const model::Track&);
     void bindDrums (const model::Track&);
 
     model::Session& session;
     int trackIndex = -1;
     std::vector<Knob> knobs;
-    std::unique_ptr<juce::ComboBox> waveBox;
+    std::unique_ptr<juce::ComboBox> waveBox;     // instruments with a "Wave" parameter get a menu instead of a knob
     juce::Label waveLabel { {}, "Wave" };
+    int waveParamIndex = -1;
+    std::vector<int> knobParamIndices;           // instrument knob i -> InstrumentParams::values index
+    engine::InstrumentType boundType = engine::InstrumentType::none;
     bool gestureActive = false, gestureChanged = false, syncing = false;
 };
 

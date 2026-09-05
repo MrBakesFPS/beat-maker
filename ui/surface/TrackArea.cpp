@@ -17,17 +17,26 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
         juce::PopupMenu menu;
         menu.addItem (1, "Audio Track");
         menu.addItem (2, "Drum Machine Track");
-        menu.addItem (3, "Synth Track");
+        juce::PopupMenu instruments;
+        const auto& types = engine::Instrument::availableTypes();
+        for (int i = 0; i < (int) types.size(); ++i)
+            instruments.addItem (100 + i, engine::Instrument::typeName (types[(size_t) i]));
+        menu.addSubMenu ("Instrument Track", instruments);
         menu.addItem (4, "Aux Input");
         menu.addItem (5, "VCA Master");
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
                             [this] (int result)
                             {
-                                if (result == 5 && onAddTrack)      onAddTrack (model::Track::Type::vca, model::Track::InstrumentKind::none);
-                                else if (result == 4 && onAddTrack) onAddTrack (model::Track::Type::aux, model::Track::InstrumentKind::none);
-                                else if (result == 1 && onAddTrack) onAddTrack (model::Track::Type::audio, model::Track::InstrumentKind::none);
-                                else if (result == 2 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::drumMachine);
-                                else if (result == 3 && onAddTrack) onAddTrack (model::Track::Type::instrument, model::Track::InstrumentKind::synth);
+                                using K = model::Track::InstrumentKind;
+                                using T = model::Track::Type;
+                                if (! onAddTrack) return;
+                                const auto& all = engine::Instrument::availableTypes();
+                                if (result == 5)      onAddTrack (T::vca, K::none, engine::InstrumentType::none);
+                                else if (result == 4) onAddTrack (T::aux, K::none, engine::InstrumentType::none);
+                                else if (result == 1) onAddTrack (T::audio, K::none, engine::InstrumentType::none);
+                                else if (result == 2) onAddTrack (T::instrument, K::drumMachine, engine::InstrumentType::none);
+                                else if (result >= 100 && result < 100 + (int) all.size())
+                                    onAddTrack (T::instrument, K::synth, all[(size_t) (result - 100)]);
                             });
     };
     rebuildTrackControls();
@@ -509,7 +518,7 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
     for (const auto* grp : model::GroupLogic::groupsOf (session, track.id)) badges += (grp->active ? " [" : " (") + grp->badge() + (grp->active ? "]" : ")");
     if (track.isAudio() && ! track.alternates.empty())
         badges += "   " + (track.mainPlaylistName.isNotEmpty() ? track.mainPlaylistName : model::defaultPlaylistName (track, 1));
-    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth" : track.isVca() ? "  VCA Master"
+    g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  " + juce::String (engine::Instrument::typeName (track.instrumentType())) : track.isVca() ? "  VCA Master"
                                             : track.isAux() ? "  Aux  <- " + (track.inputBus >= 0 ? session.busName (track.inputBus) : juce::String ("no input"))
                                             : track.armed ? "  Audio  REC" : "  Audio") + badges,
                 content.removeFromTop (14), juce::Justification::centredLeft);

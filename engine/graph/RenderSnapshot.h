@@ -9,7 +9,7 @@
 #include "../dsp/DrumKit.h"
 #include "../dsp/Effects.h"
 #include "../dsp/Fades.h"
-#include "../dsp/SynthParams.h"
+#include "../dsp/Instrument.h"
 #include "../sequencer/MidiSequence.h"
 #include "../sequencer/StepPattern.h"
 
@@ -60,11 +60,14 @@ struct RenderPattern
     juce::int64 loopOffset    = 0;    // pattern position at timelineStart
 };
 
-// A synth instrument: the graph keeps a voice pool per instrumentId.
-struct RenderSynth
+// An instrument track: the stateful voice pool lives in the model (like an
+// Effect) and the snapshot keeps it alive for the audio thread; params are
+// immutable and swapped copy-on-write.
+struct RenderInstrument
 {
     int instrumentId = 0;
-    std::shared_ptr<const SynthParams> params;
+    std::shared_ptr<Instrument> instance;
+    std::shared_ptr<const InstrumentParams> params;
     int strip = 0;
 };
 
@@ -148,7 +151,7 @@ struct RenderSnapshot
 {
     std::vector<RenderClip> clips;
     std::vector<RenderPattern> patterns;
-    std::vector<RenderSynth> synths;
+    std::vector<RenderInstrument> instruments;
     std::vector<RenderMidiClip> midiClips;
     std::vector<MonitorInput> monitors;
 

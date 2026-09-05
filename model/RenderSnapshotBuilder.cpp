@@ -121,9 +121,9 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             snapshot->patterns.push_back (std::move (rp));
         }
 
-        if (track.isSynth() && track.synthParams != nullptr)
+        if (track.hasInstrument())
         {
-            snapshot->synths.push_back ({ track.id, track.synthParams, i });
+            snapshot->instruments.push_back ({ track.id, track.instrument, track.instrumentParams, i });
 
             for (const auto& clip : track.midiClips)
             {

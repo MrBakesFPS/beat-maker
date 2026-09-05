@@ -199,11 +199,14 @@ TEST_CASE ("Arm, monitor and input changes apply but are not undoable")
 TEST_CASE ("Synth tracks: MIDI clips, copy-on-write sequences and sound changes are undoable")
 {
     using beatmaker::engine::MidiSequence;
-    using beatmaker::engine::SynthParams;
+    using beatmaker::engine::Instrument;
+    using beatmaker::engine::InstrumentType;
 
     Session s;
     Track t; t.type = Track::Type::instrument; t.instrumentKind = Track::InstrumentKind::synth;
-    t.synthParams = SynthParams::preset (0);
+    t.instrument = Instrument::create (InstrumentType::subtractive, 48000.0);
+    const auto presets = Instrument::presets (InstrumentType::subtractive);
+    t.instrumentParams = std::make_shared<const beatmaker::engine::InstrumentParams> (presets[0]);
     s.execute (std::make_unique<AddTrackCommand> (t));
     CHECK (s.getTracks()[0].isSynth());
     CHECK_FALSE (s.getTracks()[0].isDrumMachine());
@@ -227,18 +230,29 @@ TEST_CASE ("Synth tracks: MIDI clips, copy-on-write sequences and sound changes 
     CHECK (s.getTracks()[0].midiClips[0].sequence == original);
 
     auto snap = buildRenderSnapshot (s);
-    REQUIRE (snap->synths.size() == 1);
-    CHECK (snap->synths[0].instrumentId == s.getTracks()[0].id);
+    REQUIRE (snap->instruments.size() == 1);
+    CHECK (snap->instruments[0].instrumentId == s.getTracks()[0].id);
+    CHECK (snap->instruments[0].instance == s.getTracks()[0].instrument);
     REQUIRE (snap->midiClips.size() == 1);
     CHECK (snap->midiClips[0].length == 48000 * 8);
 
-    s.execute (std::make_unique<SetSynthParamsCommand> (0, SynthParams::preset (2)));
-    CHECK (s.getTracks()[0].synthParams->name == "Soft Pad");
+    s.execute (std::make_unique<SetInstrumentParamsCommand> (0, std::make_shared<const beatmaker::engine::InstrumentParams> (presets[2])));
+    CHECK (s.getTracks()[0].instrumentParams->presetName == "Soft Pad");
     s.undo();
-    CHECK (s.getTracks()[0].synthParams->name == "Init Saw");
+    CHECK (s.getTracks()[0].instrumentParams->presetName == "Init Saw");
+
+    // Switching instruments swaps the instance; undo brings the old one back.
+    auto oldInstance = s.getTracks()[0].instrument;
+    std::shared_ptr<Instrument> fm = Instrument::create (InstrumentType::fm, 48000.0);
+    s.execute (std::make_unique<SetInstrumentCommand> (0, fm, std::make_shared<const beatmaker::engine::InstrumentParams> (Instrument::defaultParams (InstrumentType::fm))));
+    CHECK (s.getTracks()[0].instrumentType() == InstrumentType::fm);
+    CHECK (s.getTracks()[0].instrument == fm);
+    s.undo();
+    CHECK (s.getTracks()[0].instrument == oldInstance);
+    CHECK (s.getTracks()[0].instrumentType() == InstrumentType::subtractive);
 
     s.execute (std::make_unique<SetTrackFlagCommand> (0, SetTrackFlagCommand::Flag::mute, true));
     snap = buildRenderSnapshot (s);
-    REQUIRE (snap->synths.size() == 1);            // instrument kept for auditioning
+    REQUIRE (snap->instruments.size() == 1);       // instrument kept for auditioning
     CHECK (snap->midiClips[0].length == 0);        // but nothing plays
 }

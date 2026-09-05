@@ -25,8 +25,8 @@ void SmartControls::sessionChanged (model::Session&)
     auto* track = session.getTrack (trackIndex);
     if (track == nullptr) { trackIndex = -1; rebuild(); return; }
 
-    // Rebuild if the kind of track changed under us, else just refresh values.
-    const bool kindMatches = (waveBox != nullptr) == track->isSynth();
+    // Rebuild if the kind of track (or its instrument) changed under us, else just refresh values.
+    const bool kindMatches = boundType == (track->hasInstrument() ? track->instrumentType() : engine::InstrumentType::none);
     if (! kindMatches || knobs.empty()) rebuild();
     else syncValues();
 }
@@ -112,50 +112,75 @@ void SmartControls::bindMix (const model::Track& track)
     knobs.back().slider->onDragEnd = [this] { gestureActive = false; gestureChanged = false; if (onGestureEnded) onGestureEnded (trackIndex, engine::ParamId::pan()); };
 }
 
-void SmartControls::bindSynth (const model::Track& track)
+void SmartControls::bindInstrument (const model::Track& track)
 {
-    const auto& p = *track.synthParams;
+    const auto type = track.instrumentType();
+    const auto& info = engine::Instrument::paramInfo (type);
+    const auto& p = *track.instrumentParams;
+    boundType = type;
 
-    // Each knob copies the current params, edits one field, issues a command.
-    auto edit = [this] (std::function<void (engine::SynthParams&, double)> mutate)
+    // Each knob copies the current params, edits one value, issues a command.
+    auto edit = [this] (int paramIndex)
     {
-        return [this, mutate] (double v)
+        return [this, paramIndex] (double v)
         {
             auto* t = session.getTrack (trackIndex);
-            if (t == nullptr || t->synthParams == nullptr) return;
-            auto updated = std::make_shared<engine::SynthParams> (*t->synthParams);
-            mutate (*updated, v);
-            issue (std::make_unique<model::SetSynthParamsCommand> (trackIndex, std::move (updated)));
+            if (t == nullptr || ! t->hasInstrument()) return;
+            auto updated = std::make_shared<engine::InstrumentParams> (*t->instrumentParams);
+            updated->values[(size_t) paramIndex] = (float) v;
+            issue (std::make_unique<model::SetInstrumentParamsCommand> (trackIndex, std::move (updated)));
         };
     };
 
     auto seconds = [] (double v) { return v < 1.0 ? juce::String (juce::roundToInt (v * 1000.0)) + " ms" : juce::String (v, 2) + " s"; };
     auto hz = [] (double v) { return v >= 1000.0 ? juce::String (v / 1000.0, 2) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz"; };
     auto pct = [] (double v) { return juce::String (juce::roundToInt (v * 100.0)) + " %"; };
+    auto onOff = [] (double v) { return juce::String (v >= 0.5 ? "On" : "Off"); };
+    auto plain = [] (double v) { return juce::String (v, 2); };
 
-    addKnob ("Cutoff", 20.0, 20000.0, p.cutoffHz, 1000.0, {}, hz, edit ([] (auto& s, double v) { s.cutoffHz = (float) v; }));
-    addKnob ("Reso", 0.0, 1.0, p.resonance, 0.5, {}, pct, edit ([] (auto& s, double v) { s.resonance = (float) v; }));
-    addKnob ("Filt Env", 0.0, 6.0, p.filterEnvOctaves, 3.0, " oct", nullptr, edit ([] (auto& s, double v) { s.filterEnvOctaves = (float) v; }));
-    addKnob ("Attack", 0.001, 4.0, p.attackSeconds, 0.1, {}, seconds, edit ([] (auto& s, double v) { s.attackSeconds = (float) v; }));
-    addKnob ("Decay", 0.01, 4.0, p.decaySeconds, 0.3, {}, seconds, edit ([] (auto& s, double v) { s.decaySeconds = (float) v; }));
-    addKnob ("Sustain", 0.0, 1.0, p.sustainLevel, 0.5, {}, pct, edit ([] (auto& s, double v) { s.sustainLevel = (float) v; }));
-    addKnob ("Release", 0.01, 6.0, p.releaseSeconds, 0.5, {}, seconds, edit ([] (auto& s, double v) { s.releaseSeconds = (float) v; }));
-    addKnob ("Detune", 0.0, 50.0, p.detuneCents, 10.0, " ct", nullptr, edit ([] (auto& s, double v) { s.detuneCents = (float) v; }));
-    addKnob ("Level", 0.0, 1.0, p.gain, 0.4, {}, dbText, edit ([] (auto& s, double v) { s.gain = (float) v; }));
-
-    waveBox = std::make_unique<juce::ComboBox>();
-    waveBox->addItem ("Saw", 1); waveBox->addItem ("Square", 2); waveBox->addItem ("Triangle", 3); waveBox->addItem ("Sine", 4);
-    waveBox->setSelectedId ((int) p.wave + 1, juce::dontSendNotification);
-    waveBox->onChange = [this]
+    for (int i = 0; i < (int) info.size(); ++i)
     {
-        auto* t = session.getTrack (trackIndex);
-        if (syncing || t == nullptr || t->synthParams == nullptr || waveBox->getSelectedId() == 0) return;
-        auto updated = std::make_shared<engine::SynthParams> (*t->synthParams);
-        updated->wave = (engine::SynthParams::Wave) (waveBox->getSelectedId() - 1);
-        if (onCommand) onCommand (std::make_unique<model::SetSynthParamsCommand> (trackIndex, std::move (updated)), false);
-    };
-    addAndMakeVisible (*waveBox);
-    addAndMakeVisible (waveLabel);
+        const auto& pi = info[(size_t) i];
+        const juce::String name (pi.name), suffix (pi.suffix);
+        const double value = p.values[(size_t) i];
+
+        if (name == "Wave")
+        {
+            waveParamIndex = i;
+            waveBox = std::make_unique<juce::ComboBox>();
+            const int numWaves = (int) std::lround (pi.max) + 1;
+            const char* waveNames[] = { "Saw", "Square", "Triangle", "Sine" };
+            for (int w = 0; w < juce::jmin (numWaves, 4); ++w) waveBox->addItem (waveNames[w], w + 1);
+            waveBox->setSelectedId ((int) std::lround (value) + 1, juce::dontSendNotification);
+            waveBox->onChange = [this]
+            {
+                auto* t = session.getTrack (trackIndex);
+                if (syncing || t == nullptr || ! t->hasInstrument() || waveBox->getSelectedId() == 0) return;
+                auto updated = std::make_shared<engine::InstrumentParams> (*t->instrumentParams);
+                updated->values[(size_t) waveParamIndex] = (float) (waveBox->getSelectedId() - 1);
+                if (onCommand) onCommand (std::make_unique<model::SetInstrumentParamsCommand> (trackIndex, std::move (updated)), false);
+            };
+            addAndMakeVisible (*waveBox);
+            addAndMakeVisible (waveLabel);
+            continue;
+        }
+
+        std::function<juce::String (double)> text;
+        juce::String knobSuffix;
+        const bool unit = pi.min <= 0.0f && std::abs (pi.max - 1.0f) < 1.0e-6f;   // 0..1 range
+        const bool toggle = unit && (name == "Osc 2" || name == "Loop");
+        if (toggle)                      text = onOff;
+        else if (name == "Level")        text = dbText;
+        else if (suffix == " s")         text = seconds;
+        else if (suffix == " Hz")        text = hz;
+        else if (suffix.isEmpty() && unit) text = pct;
+        else if (suffix.isEmpty())       text = plain;
+        else                             knobSuffix = suffix;
+
+        knobParamIndices.push_back (i);
+        addKnob (name, pi.min, pi.max, value, pi.skewMidpoint, knobSuffix, text, edit (i));
+        if (toggle) knobs.back().slider->setRange (0.0, 1.0, 1.0);
+    }
 }
 
 void SmartControls::bindDrums (const model::Track& track)
@@ -184,13 +209,16 @@ void SmartControls::bindDrums (const model::Track& track)
 void SmartControls::rebuild()
 {
     knobs.clear();
+    knobParamIndices.clear();
     waveBox.reset();
+    waveParamIndex = -1;
+    boundType = engine::InstrumentType::none;
     removeChildComponent (&waveLabel);
 
     if (auto* track = session.getTrack (trackIndex))
     {
         bindMix (*track);
-        if (track->isSynth() && track->synthParams != nullptr)          bindSynth (*track);
+        if (track->hasInstrument())                                       bindInstrument (*track);
         else if (track->isDrumMachine() && track->drumKit != nullptr)   bindDrums (*track);
     }
     resized();
@@ -208,12 +236,12 @@ void SmartControls::syncValues()
     set (track->gain);
     set (track->pan);
 
-    if (track->isSynth() && track->synthParams != nullptr)
+    if (track->hasInstrument())
     {
-        const auto& p = *track->synthParams;
-        set (p.cutoffHz); set (p.resonance); set (p.filterEnvOctaves); set (p.attackSeconds); set (p.decaySeconds);
-        set (p.sustainLevel); set (p.releaseSeconds); set (p.detuneCents); set (p.gain);
-        if (waveBox != nullptr) waveBox->setSelectedId ((int) p.wave + 1, juce::dontSendNotification);
+        const auto& p = *track->instrumentParams;
+        for (int paramIndex : knobParamIndices) set (p.values[(size_t) paramIndex]);
+        if (waveBox != nullptr && waveParamIndex >= 0)
+            waveBox->setSelectedId ((int) std::lround (p.values[(size_t) waveParamIndex]) + 1, juce::dontSendNotification);
     }
     else if (track->isDrumMachine() && track->drumKit != nullptr)
     {
@@ -250,11 +278,14 @@ void SmartControls::paint (juce::Graphics& g)
     g.drawText (track->name, title.removeFromTop (22), juce::Justification::centredLeft, true);
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText (track->isSynth() ? "Synth  -  " + (track->synthParams != nullptr ? track->synthParams->name : juce::String())
+    g.drawText (track->hasInstrument() ? juce::String (engine::Instrument::typeName (track->instrumentType())) + "  -  " + track->instrumentParams->presetName
               : track->isDrumMachine() ? "Drum Machine" : track->isVca() ? "VCA Master" : track->isAux() ? "Aux Input" : "Audio",
                 title.removeFromTop (16), juce::Justification::centredLeft, true);
     if (waveBox == nullptr)
-        g.drawText ("Smart Controls", title.removeFromTop (16), juce::Justification::centredLeft, true);
+        g.drawText (track->instrumentType() == engine::InstrumentType::sampler
+                        ? (track->instrumentParams->sample != nullptr ? track->instrumentParams->sampleName : juce::String ("Drop an audio file here"))
+                        : juce::String ("Smart Controls"),
+                    title.removeFromTop (16), juce::Justification::centredLeft, true);
 }
 
 void SmartControls::resized()

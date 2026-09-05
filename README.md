@@ -28,6 +28,8 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "assets/loops/Drum Loop 120.wav"
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --synth --cycle --play   # instant beat
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --instrument=bass --instrument=electricpiano   # any bundled instrument
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --instrument=sampler --sample=hit.wav          # Sampler with a sound loaded
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --bounce=beat.wav # batch render, no UI interaction
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--loop=assets/loops/Hip Hop Beat 90.wav"  # conformed to 120
 ```
@@ -145,16 +147,28 @@ Run the tests with `ctest --test-dir build`.
   Shift-click for a soft hit, drag to paint, click a pad name to audition it,
   drop an audio file on a pad row to replace its sample.
 - Smart Controls (B): a macro-knob strip for the selected track. Every track
-  has Volume and Pan (-3 dB centre-compensated pan law); synth tracks add
-  Cutoff, Resonance, Filter Env, ADSR, Detune, Level and a Wave selector bound
-  to the preset; drum tracks add levels for Kick, Snare, Clap/Rim, Hats, Toms,
-  Cymbals, Perc and Sub. A knob drag is one undo step.
-- Synth tracks (Ctrl+I): a polyphonic subtractive synth (PolyBLEP saw, square,
-  triangle, sine; detuned second oscillator; state-variable low-pass with
-  envelope; ADSR) with presets, driven by MIDI clips edited in a piano roll:
-  click to add a note, drag to move, drag the right edge to resize, right-click
-  or Delete to remove, click a key to audition. New synth tracks start with a
-  two-bar arpeggio.
+  has Volume and Pan (-3 dB centre-compensated pan law); instrument tracks add
+  one knob per parameter the instrument describes (a Wave menu where it has
+  one); drum tracks add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals,
+  Perc and Sub. A knob drag is one undo step.
+- Instrument tracks (Add Track > Instrument Track, or Ctrl+I for the Synth):
+  six bundled instruments driven by MIDI clips edited in a piano roll (click to
+  add a note, drag to move, drag the right edge to resize, right-click or
+  Delete to remove, click a key to audition; the Sound menu lists the
+  instrument's presets). New instrument tracks start with a two-bar arpeggio.
+  - **Synth**: polyphonic subtractive (PolyBLEP saw/square/triangle/sine,
+    detuned second oscillator, state-variable low-pass with envelope, ADSR).
+  - **FM Synth**: two-operator FM with ratio, decaying index and feedback
+    (bells, keys, basses).
+  - **Wavetable**: two detuned oscillators morphing across band-limited tables
+    with a filter envelope.
+  - **Sampler**: drop an audio file onto the track to load it; plays it pitched
+    around C3 with tune, one-shot/loop, ADSR and a filter. Presets keep the
+    loaded sample.
+  - **Electric Piano**: tine model with velocity-dependent brightness, an
+    inharmonic bell partial, per-note decay and tremolo.
+  - **Bass**: monophonic, last-note priority, legato filter retrigger, glide,
+    sub oscillator, filter envelope and drive.
 - Loop Library (L): a GarageBand-style browser over bundled loops plus
   `~/Music/Beat Maker/Loops` and any folders you add. Tempo, key and category
   are read from file names (with tempo estimated from length when missing).
@@ -177,13 +191,12 @@ Run the tests with `ctest --test-dir build`.
 - Tracks have mute/solo; every edit is an undoable command.
 
 Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Smart Controls, E editor panel,
-Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
+Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: more bundled instruments (Sampler, FM/Wavetable,
-Electric Piano, Bass), convolution reverb and pitch correction,
-Elastic-style time stretching, Beat Detective-style transient tools, CLAP
-hosting. See PLAN.md §5.
+Still to come in Phase 3: convolution reverb and pitch correction, sidechain
+routing, Elastic-style time stretching, Beat Detective-style transient tools,
+CLAP hosting. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
@@ -201,9 +214,11 @@ with a channel strip; the graph renders each strip's sources into a scratch
 buffer, runs its inserts (stateful `Effect` instances owned by the model,
 parameters immutable and copy-on-write), pre-fader sends, fader/pan, meter,
 post-fader sends, then routes to the main mix or a bus; aux strips read a bus
-afterwards; the master strip's inserts and fader feed the device. Synth tracks get a `Synth` slot in the graph keyed by track id;
-MIDI notes carry their own gate length so no note-off has to be scheduled
-across blocks, and all synths release on stop and at the cycle wrap. The `Recorder` receives every input block on the audio thread and
+afterwards; the master strip's inserts and fader feed the device. Instrument tracks own a stateful `Instrument` instance
+(like an `Effect`) whose immutable `InstrumentParams` are swapped copy-on-write; the snapshot carries both and the graph binds
+them to slots keyed by track id, silencing an instance the moment it leaves the snapshot. MIDI notes carry their own gate
+length so no note-off has to be scheduled across blocks, and all instruments release on stop and at the cycle wrap. A bounce
+renders through fresh instrument and built-in effect instances so the live audio thread never shares DSP state with it. The `Recorder` receives every input block on the audio thread and
 pushes it into per-track lock-free ring buffers that a background thread
 flushes to WAV; start/stop hand the session across threads with an atomic
 pointer plus a busy flag so teardown never races the callback. `Bouncer`

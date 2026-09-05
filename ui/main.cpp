@@ -139,18 +139,24 @@ public:
 
         trackArea.onFilesDropped = [this] (const juce::StringArray& files, int trackIndex, double seconds)
         {
+            // Dropping onto a Sampler track loads the file as its sound.
+            if (auto* t = session.getTrack (trackIndex); t != nullptr && t->instrumentType() == engine::InstrumentType::sampler && ! files.isEmpty())
+            {
+                loadSamplerSample (trackIndex, juce::File (files[0]));
+                return;
+            }
             for (const auto& path : files)
             {
                 importAudioFile (juce::File (path), trackIndex, seconds);
                 trackIndex = -1; // subsequent files each get their own track
             }
         };
-        trackArea.onAddTrack = [this] (model::Track::Type type, model::Track::InstrumentKind kind)
+        trackArea.onAddTrack = [this] (model::Track::Type type, model::Track::InstrumentKind kind, engine::InstrumentType instrument)
         {
             if (type == model::Track::Type::vca)                              addVcaTrack();
             else if (type == model::Track::Type::aux)                         addAuxTrack();
             else if (type != model::Track::Type::instrument)                  addTrack ("Audio " + juce::String (session.getNumTracks() + 1));
-            else if (kind == model::Track::InstrumentKind::synth)             addSynthTrack();
+            else if (kind == model::Track::InstrumentKind::synth)             addInstrumentTrack (instrument);
             else                                                              addDrumMachineTrack();
         };
         trackArea.onSelectionChanged = [this] (int) { updateSequencerTarget(); };
@@ -167,7 +173,15 @@ public:
         };
         pianoRoll.onPresetChanged = [this] (int track, int preset)
         {
-            session.execute (std::make_unique<model::SetSynthParamsCommand> (track, engine::SynthParams::preset (preset)));
+            auto* t = session.getTrack (track);
+            if (t == nullptr || ! t->hasInstrument()) return;
+            const auto presets = engine::Instrument::presets (t->instrumentType());
+            if (! juce::isPositiveAndBelow (preset, (int) presets.size())) return;
+            auto p = std::make_shared<engine::InstrumentParams> (presets[(size_t) preset]);
+            // Presets change the sound, not the sampler's loaded sample.
+            p->sample = t->instrumentParams->sample; p->sampleRate = t->instrumentParams->sampleRate;
+            p->rootNote = t->instrumentParams->rootNote; p->sampleName = t->instrumentParams->sampleName;
+            session.execute (std::make_unique<model::SetInstrumentParamsCommand> (track, std::move (p), "Change Preset"));
         };
         trackArea.onMuteChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::mute, on)); };
         trackArea.onSoloChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on)); };
@@ -203,7 +217,24 @@ public:
 
     // Command-line entry points (also handy for smoke tests and demos).
     void addDrumMachineTrackFromCommandLine() { addDrumMachineTrack(); }
-    void addSynthTrackFromCommandLine() { addSynthTrack(); }
+    void addSynthTrackFromCommandLine() { addInstrumentTrack (engine::InstrumentType::subtractive); }
+    void addInstrumentTrackFromCommandLine (const juce::String& name)
+    {
+        for (auto type : engine::Instrument::availableTypes())
+            if (juce::String (engine::Instrument::typeName (type)).removeCharacters (" ").equalsIgnoreCase (name.removeCharacters (" -_")))
+            { addInstrumentTrack (type); return; }
+        statusMessage = "Unknown instrument: " + name;
+        updateStatus();
+    }
+    // Loads a file into the most recently added Sampler track (creating one if needed).
+    void loadSampleFromCommandLine (const juce::File& file)
+    {
+        int index = -1;
+        for (int i = session.getNumTracks(); --i >= 0;)
+            if (session.getTracks()[(size_t) i].instrumentType() == engine::InstrumentType::sampler) { index = i; break; }
+        if (index < 0) { addInstrumentTrack (engine::InstrumentType::sampler); index = trackArea.getSelectedTrack(); }
+        loadSamplerSample (index, file);
+    }
     void startPlayback() { engine.getTransport().play(); }
     void addArmedAudioTrackAndRecord()
     {
@@ -416,7 +447,7 @@ public:
         if (key == juce::KeyPress ('x'))                      { setMixerVisible (! mixerVisible); return true; }
         if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
         if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { addDrumMachineTrack(); return true; }
-        if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addSynthTrack(); return true; }
+        if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addInstrumentTrack (engine::InstrumentType::subtractive); return true; }
 
         // Edit modes F1-F4, tools F5-F9 (Pro Tools layout)
         using Mode = ui::EditSettings::Mode; using Tool = ui::EditSettings::Tool;
@@ -1089,14 +1120,22 @@ private:
         setEditorVisible (true);
     }
 
-    void addSynthTrack()
+    void addInstrumentTrack (engine::InstrumentType type)
     {
+        if (type == engine::InstrumentType::none) type = engine::InstrumentType::subtractive;
+        const auto presets = engine::Instrument::presets (type);
+        const size_t startPreset = type == engine::InstrumentType::subtractive && presets.size() > 1 ? 1 : 0;   // Pluck
+
+        int count = 0;
+        for (const auto& t : session.getTracks()) count += t.instrumentType() == type ? 1 : 0;
+
         model::Track track;
-        track.name           = "Synth " + juce::String (countTracks (model::Track::InstrumentKind::synth) + 1);
-        track.type           = model::Track::Type::instrument;
-        track.instrumentKind = model::Track::InstrumentKind::synth;
-        track.colour         = model::Session::colourForTrackIndex (session.getNumTracks());
-        track.synthParams    = engine::SynthParams::preset (1);   // Pluck
+        track.name             = juce::String (engine::Instrument::typeName (type)) + " " + juce::String (count + 1);
+        track.type             = model::Track::Type::instrument;
+        track.instrumentKind   = model::Track::InstrumentKind::synth;
+        track.colour           = model::Session::colourForTrackIndex (session.getNumTracks());
+        track.instrument       = engine::Instrument::create (type, engine.getSampleRate());
+        track.instrumentParams = std::make_shared<const engine::InstrumentParams> (presets[startPreset]);
 
         auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
         auto* raw = cmd.get();
@@ -1115,6 +1154,31 @@ private:
         trackArea.setSelectedTrack (index);
         updateSequencerTarget();
         setEditorVisible (true);
+
+        if (type == engine::InstrumentType::sampler)
+        {
+            statusMessage = "Sampler: drop an audio file onto the track to load it";
+            updateStatus();
+        }
+    }
+
+    void loadSamplerSample (int trackIndex, const juce::File& file)
+    {
+        auto* track = session.getTrack (trackIndex);
+        if (track == nullptr || ! track->hasInstrument() || track->instrumentType() != engine::InstrumentType::sampler) return;
+
+        juce::String error;
+        const auto loaded = loader.load (file, engine.getSampleRate(), error);
+        if (! loaded) { statusMessage = error; updateStatus(); return; }
+
+        auto p = std::make_shared<engine::InstrumentParams> (*track->instrumentParams);
+        p->sample     = loaded->audio;
+        p->sampleRate = loaded->sampleRate;
+        p->sampleName = file.getFileNameWithoutExtension();
+        p->rootNote   = 60;
+        session.execute (std::make_unique<model::SetInstrumentParamsCommand> (trackIndex, std::move (p), "Load Sample"));
+        statusMessage = "Loaded " + file.getFileName() + " into " + track->name;
+        updateStatus();
     }
 
     int countTracks (model::Track::InstrumentKind kind) const
@@ -1290,7 +1354,9 @@ public:
         mainWindow = std::make_unique<MainWindow> (getApplicationName());
 
         // Command line: audio files are imported; --drums adds a Drum Machine
-        // track with the starter beat; --synth adds a Synth track with an arpeggio; --record adds an armed audio track and
+        // track with the starter beat; --synth adds a Synth track with an arpeggio; --instrument=<name> adds any bundled
+        // instrument (fmsynth, wavetable, sampler, electricpiano, bass); --sample=<file> loads a file into the last Sampler
+        // track; --record adds an armed audio track and
         // starts recording; --cycle enables looping; --play starts the
         // transport; --loop=<file> adds a library loop tempo-conformed at the
         // playhead; --bounce=<file> renders the arrangement and quits.
@@ -1304,6 +1370,9 @@ public:
         {
             if (arg == "--drums")       main.addDrumMachineTrackFromCommandLine();
             else if (arg == "--synth")  main.addSynthTrackFromCommandLine();
+            else if (arg.startsWith ("--instrument=")) main.addInstrumentTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--sample=")) main.loadSampleFromCommandLine (juce::File::getCurrentWorkingDirectory()
+                                                                                       .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--record") main.addArmedAudioTrackAndRecord();
             else if (arg == "--cycle")  main.setCycleEnabled (true);
             else if (arg == "--play")   play = true;

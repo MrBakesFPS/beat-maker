@@ -89,7 +89,7 @@ public:
     juce::AudioThumbnail& createLiveThumbnail (int trackId);
     void clearLiveThumbnails();
     std::function<double()> getRecordStartSeconds;   // -1 when not yet started
-    std::function<void (model::Track::Type, model::Track::InstrumentKind)> onAddTrack;
+    std::function<void (model::Track::Type, model::Track::InstrumentKind, engine::InstrumentType)> onAddTrack;
     std::function<void (int trackIndex)> onSelectionChanged;
 
     int getSelectedTrack() const noexcept { return selectedTrack; }

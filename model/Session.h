@@ -11,7 +11,7 @@
 #include <dsp/DrumKit.h>
 #include <dsp/Effects.h>
 #include <dsp/Fades.h>
-#include <dsp/SynthParams.h>
+#include <dsp/Instrument.h>
 #include <sequencer/MidiSequence.h>
 #include <sequencer/StepPattern.h>
 
@@ -184,8 +184,12 @@ struct Track
     InstrumentKind instrumentKind = InstrumentKind::none;
     std::vector<PatternClip> patternClips;        // drum machine tracks
     std::shared_ptr<const engine::DrumKit> drumKit;
-    std::vector<MidiClip> midiClips;              // synth tracks
-    std::shared_ptr<const engine::SynthParams> synthParams;
+    std::vector<MidiClip> midiClips;              // synth (instrument) tracks
+    std::shared_ptr<engine::Instrument> instrument;                    // stateful voice pool, owned here like an Effect
+    std::shared_ptr<const engine::InstrumentParams> instrumentParams;  // immutable, copy-on-write
+
+    engine::InstrumentType instrumentType() const noexcept { return instrumentParams != nullptr ? instrumentParams->type : engine::InstrumentType::none; }
+    bool hasInstrument() const noexcept { return isSynth() && instrument != nullptr && instrumentParams != nullptr; }
 
     float gain = 1.0f;       // linear, 0..2
     float pan = 0.0f;        // -1..1
@@ -303,7 +307,8 @@ private:
     friend class SetPadSampleCommand;
     friend class AddMidiClipCommand;
     friend class ReplaceMidiSequenceCommand;
-    friend class SetSynthParamsCommand;
+    friend class SetInstrumentParamsCommand;
+    friend class SetInstrumentCommand;
     friend class SetTrackMixCommand;
     friend class ReplaceDrumKitCommand;
     friend class ReplaceAutomationLaneCommand;
@@ -1002,17 +1007,46 @@ private:
     juce::String name;
 };
 
-class SetSynthParamsCommand final : public Command
+// Changes the sound of an instrument track (knob moves, presets, sampler
+// sample loads). The params must be of the track's current instrument type;
+// use SetInstrumentCommand to switch instruments.
+class SetInstrumentParamsCommand final : public Command
 {
 public:
-    SetSynthParamsCommand (int trackIndex, std::shared_ptr<const engine::SynthParams> p)
-        : index (trackIndex), newParams (std::move (p)) {}
-    juce::String getName() const override { return "Change Synth Sound"; }
-    void execute (Session& s) override { auto& t = s.tracks[(size_t) index]; oldParams = t.synthParams; t.synthParams = newParams; }
-    void undo (Session& s) override    { s.tracks[(size_t) index].synthParams = oldParams; }
+    SetInstrumentParamsCommand (int trackIndex, std::shared_ptr<const engine::InstrumentParams> p, juce::String commandName = "Change Sound")
+        : index (trackIndex), newParams (std::move (p)), name (std::move (commandName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override { auto& t = s.tracks[(size_t) index]; oldParams = t.instrumentParams; t.instrumentParams = newParams; }
+    void undo (Session& s) override    { s.tracks[(size_t) index].instrumentParams = oldParams; }
 private:
     int index;
-    std::shared_ptr<const engine::SynthParams> newParams, oldParams;
+    std::shared_ptr<const engine::InstrumentParams> newParams, oldParams;
+    juce::String name;
+};
+
+// Replaces the instrument itself (new instance + its default or preset
+// params). Undo restores the previous instance, voices and all.
+class SetInstrumentCommand final : public Command
+{
+public:
+    SetInstrumentCommand (int trackIndex, std::shared_ptr<engine::Instrument> inst, std::shared_ptr<const engine::InstrumentParams> p)
+        : index (trackIndex), newInstance (std::move (inst)), newParams (std::move (p)) {}
+    juce::String getName() const override { return "Change Instrument"; }
+    void execute (Session& s) override
+    {
+        auto& t = s.tracks[(size_t) index];
+        oldInstance = t.instrument; oldParams = t.instrumentParams;
+        t.instrument = newInstance; t.instrumentParams = newParams;
+    }
+    void undo (Session& s) override
+    {
+        auto& t = s.tracks[(size_t) index];
+        t.instrument = oldInstance; t.instrumentParams = oldParams;
+    }
+private:
+    int index;
+    std::shared_ptr<engine::Instrument> newInstance, oldInstance;
+    std::shared_ptr<const engine::InstrumentParams> newParams, oldParams;
 };
 
 } // namespace beatmaker::model

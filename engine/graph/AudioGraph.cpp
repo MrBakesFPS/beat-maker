@@ -129,7 +129,7 @@ void AudioGraph::stopScrub() { scrubbing.store (false); }
 int AudioGraph::getNumSynthVoices() const noexcept
 {
     int n = 0;
-    for (const auto& slot : synthSlots) if (slot.id >= 0) n += slot.synth.getNumActiveVoices();
+    for (const auto& slot : instrumentSlots) if (slot.id >= 0) n += slot.instance->getNumActiveVoices();
     return n;
 }
 
@@ -170,7 +170,7 @@ void AudioGraph::swapInPendingSnapshot() noexcept
         previewPosition = 0;
     }
 
-    rebindSynthSlots();
+    rebindInstrumentSlots();
 
     // Voices may only reference kits the new snapshot keeps alive.
     std::array<const DrumKit*, 64> kits {};
@@ -181,41 +181,50 @@ void AudioGraph::swapInPendingSnapshot() noexcept
     drums.killVoicesNotUsing (kits.data(), numKits);
 }
 
-void AudioGraph::rebindSynthSlots()
+void AudioGraph::rebindInstrumentSlots()
 {
-    // Drop slots whose instrument left the snapshot.
-    for (auto& slot : synthSlots)
+    // Drop slots whose instrument left the snapshot (or whose instance was
+    // replaced). The old instance is still alive: the retired snapshot holds it.
+    for (auto& slot : instrumentSlots)
     {
         if (slot.id < 0) continue;
         bool present = false;
-        for (const auto& rs : current->synths) if (rs.instrumentId == slot.id) { present = true; break; }
-        if (! present) { slot.synth.reset(); slot.synth.setParams (nullptr); slot.id = -1; }
+        for (const auto& ri : current->instruments)
+            if (ri.instrumentId == slot.id && ri.instance.get() == slot.instance) { present = true; break; }
+        if (! present) { slot.instance->allNotesOff (true); slot = {}; }
     }
 
-    // Bind every synth in the snapshot to a slot (existing or free).
-    for (const auto& rs : current->synths)
+    // Bind every instrument in the snapshot to a slot (existing or free).
+    for (const auto& ri : current->instruments)
     {
-        SynthSlot* slot = nullptr;
-        for (auto& s : synthSlots) if (s.id == rs.instrumentId) { slot = &s; break; }
+        if (ri.instance == nullptr || ri.params == nullptr) continue;
+        InstrumentSlot* slot = nullptr;
+        for (auto& s : instrumentSlots) if (s.id == ri.instrumentId && s.instance == ri.instance.get()) { slot = &s; break; }
         if (slot == nullptr)
-            for (auto& s : synthSlots) if (s.id < 0) { slot = &s; break; }
-        if (slot == nullptr) continue;   // more than maxSynths instruments: extras are silent
+            for (auto& s : instrumentSlots) if (s.id < 0) { slot = &s; break; }
+        if (slot == nullptr) continue;   // more than maxInstruments: extras are silent
 
-        if (slot->id < 0) { slot->id = rs.instrumentId; slot->synth.prepare (transport.getSampleRate()); }
-        slot->synth.setParams (rs.params.get());
-        slot->strip = rs.strip;
+        if (slot->id < 0)
+        {
+            slot->id = ri.instrumentId;
+            slot->instance = ri.instance.get();
+            if (std::abs (slot->instance->getSampleRate() - transport.getSampleRate()) > 0.5)
+                slot->instance->prepare (transport.getSampleRate());
+        }
+        slot->params = ri.params.get();
+        slot->strip = ri.strip;
     }
 }
 
-Synth* AudioGraph::synthForId (int instrumentId) noexcept
+AudioGraph::InstrumentSlot* AudioGraph::slotForId (int instrumentId) noexcept
 {
-    for (auto& s : synthSlots) if (s.id == instrumentId) return &s.synth;
+    for (auto& s : instrumentSlots) if (s.id == instrumentId) return &s;
     return nullptr;
 }
 
-void AudioGraph::releaseAllSynths (bool immediate) noexcept
+void AudioGraph::releaseAllInstruments (bool immediate) noexcept
 {
-    for (auto& s : synthSlots) if (s.id >= 0) s.synth.allNotesOff (immediate);
+    for (auto& s : instrumentSlots) if (s.id >= 0) s.instance->allNotesOff (immediate);
 }
 
 bool AudioGraph::snapshotHasKit (const DrumKit* kit) const noexcept
@@ -240,8 +249,8 @@ void AudioGraph::processPreviewEvents()
                 for (const auto& p : current->patterns)
                     if (p.kit.get() == e.kit) { drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0, p.strip); break; }
             }
-            else if (auto* synth = synthForId (e.instrumentId))
-                synth->noteOn (e.pitch, e.velocity * current->masterGain, 0, juce::jmax (1, e.gateSamples));
+            else if (auto* slot = slotForId (e.instrumentId))
+                slot->instance->noteOn (e.pitch, e.velocity, current->masterGain, 0, juce::jmax (1, e.gateSamples), *slot->params);
         }
     };
     handle (scope.startIndex1, scope.blockSize1);
@@ -383,8 +392,8 @@ void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
     for (const auto& clip : current->midiClips)
     {
         if (clip.sequence == nullptr || clip.length <= 0) continue;
-        auto* synth = synthForId (clip.instrumentId);
-        if (synth == nullptr) continue;
+        auto* slot = slotForId (clip.instrumentId);
+        if (slot == nullptr) continue;
 
         const auto& seq = *clip.sequence;
         const juce::int64 clipEnd = clip.timelineStart + clip.length;
@@ -408,8 +417,8 @@ void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
                 if (t < from || t >= to) continue;
 
                 const juce::int64 gate = juce::jmin ((juce::int64) std::llround (note.lengthBeats * samplesPerBeat), clipEnd - t);
-                synth->noteOn (note.pitch, (float) note.velocity / 127.0f * clip.gain * current->masterGain,
-                               (int) (t - rangeStart), (int) juce::jmax<juce::int64> (1, gate));
+                slot->instance->noteOn (note.pitch, (float) note.velocity / 127.0f, clip.gain * current->masterGain,
+                                        (int) (t - rangeStart), (int) juce::jmax<juce::int64> (1, gate), *slot->params);
             }
 
             if (! loops) break;
@@ -510,9 +519,9 @@ void AudioGraph::renderStripSources (int stripIndex, const float* const* inputs,
 
     float* outs[2] = { stripBuffer.getWritePointer (0), stripBuffer.getWritePointer (1) };
     drums.render (outs, 2, numSamples, stripIndex);
-    for (auto& slot : synthSlots)
+    for (auto& slot : instrumentSlots)
         if (slot.id >= 0 && slot.strip == stripIndex)
-            slot.synth.render (outs, 2, numSamples);
+            slot.instance->render (outs, 2, numSamples, *slot.params);
 
     mixMonitoredInputs (stripIndex, inputs, numInputs, numSamples);
 }
@@ -680,7 +689,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
 
     const bool playing = transport.isPlaying();
     if (wasPlaying && ! playing)
-        releaseAllSynths (false);       // stop: let held notes release
+        releaseAllInstruments (false);  // stop: let held notes release
     wasPlaying = playing;
 
     // Scrubbing starts from wherever the playhead is and drags it along.
@@ -823,7 +832,7 @@ void AudioGraph::renderBlock (const float* const* inputs, int numInputs,
         if (wrapAfter)
         {
             transport.setPositionSamples (transport.getLoopStart());
-            releaseAllSynths (false);   // notes don't hang across the loop point
+            releaseAllInstruments (false);   // notes don't hang across the loop point
         }
 
         if (count <= 0)
@@ -851,8 +860,8 @@ void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)
         transport.setSampleRate (device->getCurrentSampleRate());
     drums.reset();
     loudness.prepare (transport.getSampleRate(), maxBlock);
-    for (auto& slot : synthSlots)
-        if (slot.id >= 0) slot.synth.prepare (transport.getSampleRate());
+    for (auto& slot : instrumentSlots)
+        if (slot.id >= 0) slot.instance->prepare (transport.getSampleRate());
 }
 
 void AudioGraph::audioDeviceStopped() {}

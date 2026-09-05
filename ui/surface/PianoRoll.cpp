@@ -11,9 +11,6 @@ PianoRoll::PianoRoll (model::Session& s, engine::Transport& t, engine::AudioGrap
     presetLabel.setFont (juce::FontOptions (12.0f));
 
     addAndMakeVisible (presetBox);
-    int id = 1;
-    for (const auto& p : engine::SynthParams::presets())
-        presetBox.addItem (p.name, id++);
     presetBox.onChange = [this]
     {
         if (trackIndex >= 0 && presetBox.getSelectedId() > 0 && onPresetChanged)
@@ -36,10 +33,21 @@ void PianoRoll::setTarget (int newTrackIndex, int newClipIndex)
 void PianoRoll::refreshPresetBox()
 {
     auto* track = getTrack();
-    if (track == nullptr || track->synthParams == nullptr) return;
-    const auto presets = engine::SynthParams::presets();
+    if (track == nullptr || ! track->hasInstrument()) return;
+
+    // The menu lists the presets of whatever instrument the track has now.
+    const auto type = track->instrumentType();
+    const auto presets = engine::Instrument::presets (type);
+    if (type != presetType)
+    {
+        presetType = type;
+        presetBox.clear (juce::dontSendNotification);
+        int id = 1;
+        for (const auto& p : presets) presetBox.addItem (p.presetName, id++);
+    }
+    presetBox.setSelectedId (0, juce::dontSendNotification);
     for (int i = 0; i < (int) presets.size(); ++i)
-        if (presets[(size_t) i].name == track->synthParams->name)
+        if (presets[(size_t) i].presetName == track->instrumentParams->presetName)
             presetBox.setSelectedId (i + 1, juce::dontSendNotification);
 }
 
@@ -138,7 +146,7 @@ void PianoRoll::paint (juce::Graphics& g)
     {
         g.setColour (theme::textDim);
         g.setFont (juce::FontOptions (15.0f));
-        g.drawText ("Select a Synth track to edit its notes", getLocalBounds(), juce::Justification::centred);
+        g.drawText ("Select an instrument track to edit its notes", getLocalBounds(), juce::Justification::centred);
         return;
     }
 

@@ -17,7 +17,6 @@
 
 #include "RenderSnapshot.h"
 #include "../dsp/DrumMachine.h"
-#include "../dsp/Synth.h"
 #include "../io/Recorder.h"
 #include "../metering/Loudness.h"
 #include "../transport/Transport.h"
@@ -110,9 +109,10 @@ private:
     void mixMonitoredInputs (int stripIndex, const float* const* inputs, int numInputs, int numSamples);
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
     void scheduleMidi (juce::int64 rangeStart, int numSamples);
-    void rebindSynthSlots();
-    Synth* synthForId (int instrumentId) noexcept;
-    void releaseAllSynths (bool immediate) noexcept;
+    void rebindInstrumentSlots();
+    struct InstrumentSlot;
+    InstrumentSlot* slotForId (int instrumentId) noexcept;
+    void releaseAllInstruments (bool immediate) noexcept;
     void processPreviewEvents();
     bool snapshotHasKit (const DrumKit* kit) const noexcept;
     void swapInPendingSnapshot() noexcept;
@@ -121,9 +121,9 @@ private:
     DrumMachine drums;
     Recorder* recorder = nullptr;
 
-    static constexpr int maxSynths = 16;
-    struct SynthSlot { int id = -1; int strip = 0; Synth synth; };
-    std::array<SynthSlot, maxSynths> synthSlots;
+    static constexpr int maxInstruments = 64;
+    struct InstrumentSlot { int id = -1; int strip = 0; Instrument* instance = nullptr; const InstrumentParams* params = nullptr; };
+    std::array<InstrumentSlot, maxInstruments> instrumentSlots;
     bool wasPlaying = false;
 
     // Mixer buffers (allocated once; blocks are chunked to maxBlock)

@@ -14,7 +14,7 @@ target_sources(beatmaker_tests PRIVATE
     audio_graph_test.cpp
     session_test.cpp
     sequencer_test.cpp
-    synth_test.cpp
+    instruments_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp

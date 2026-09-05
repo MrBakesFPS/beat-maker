@@ -21,6 +21,23 @@ BounceResult Bouncer::renderToBuffer (std::unique_ptr<RenderSnapshot> snapshot, 
     transport.setBeatsPerBar (s.beatsPerBar);
     transport.setPositionSamples (s.startSample);
 
+    // The offline render must not share stateful DSP with the live audio
+    // thread, which keeps running (silently) while we bounce: give every
+    // instrument and built-in effect a fresh instance at the bounce rate.
+    // Hosted plugins can't be duplicated and keep the shared instance.
+    for (auto& ri : snapshot->instruments)
+        if (ri.instance != nullptr)
+            ri.instance = Instrument::create (ri.instance->getType(), s.sampleRate);
+    auto freshInserts = [&] (std::vector<RenderInsert>& inserts)
+    {
+        for (auto& ins : inserts)
+            if (ins.fx != nullptr && ins.fx->getType() != EffectType::plugin)
+                if (auto fresh = Effect::create (ins.fx->getType(), s.sampleRate, AudioGraph::maxBlock))
+                    ins.fx = std::move (fresh);
+    };
+    for (auto& strip : snapshot->strips) freshInserts (strip.inserts);
+    freshInserts (snapshot->master.inserts);
+
     AudioGraph graph (transport);
     graph.setSnapshot (std::move (snapshot));
 
