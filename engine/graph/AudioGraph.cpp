@@ -1,4 +1,5 @@
 #include "AudioGraph.h"
+#include <algorithm>
 #include <cmath>
 
 namespace beatmaker::engine
@@ -438,9 +439,32 @@ void AudioGraph::processInserts (const std::vector<RenderInsert>& inserts, juce:
     }
 }
 
-void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::int64 blockStart, int numSamples)
+void AudioGraph::StripDelay::process (juce::AudioBuffer<float>& io, int numSamples, int delay) noexcept
+{
+    delay = juce::jlimit (0, maxDelaySamples - 1, delay);
+    if (delay == 0) return;   // ring stays untouched; a later non-zero delay starts from whatever is in it
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const int readPos = (writePos - delay + maxDelaySamples) % maxDelaySamples;
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float in = io.getSample (ch, i);
+            io.setSample (ch, i, ring.getSample (ch, readPos));
+            ring.setSample (ch, writePos, in);
+        }
+        writePos = (writePos + 1) % maxDelaySamples;
+    }
+}
+
+void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::int64 blockStart, int numSamples,
+                               float* const* outputs, int numOutputs)
 {
     processInserts (strip.inserts, stripBuffer, numSamples, &strip, blockStart);
+
+    // Automatic delay compensation (+ user offset), after the inserts so
+    // sends and outputs are aligned alike.
+    stripDelays[(size_t) juce::jlimit (0, maxStrips - 1, stripIndex)].process (stripBuffer, numSamples, strip.delaySamples);
 
     auto& meter = stripMeters[(size_t) juce::jlimit (0, maxStrips - 1, stripIndex)];
 
@@ -495,10 +519,23 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
                 for (int ch = 0; ch < 2; ++ch)
                     busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, g);
 
-    // Output
-    auto& dest = juce::isPositiveAndBelow (strip.outputBus, numBuses) ? busBuffers[(size_t) strip.outputBus] : mainBuffer;
-    for (int ch = 0; ch < 2; ++ch)
-        dest.addFrom (ch, 0, stripBuffer, ch, 0, numSamples);
+    // Output: a bus, a direct device output pair (bypassing the master), or the main mix
+    if (juce::isPositiveAndBelow (strip.outputBus, numBuses))
+    {
+        for (int ch = 0; ch < 2; ++ch)
+            busBuffers[(size_t) strip.outputBus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples);
+    }
+    else if (strip.outputChannel >= 0)
+    {
+        for (int ch = 0; ch < 2; ++ch)
+            if (const int dev = strip.outputChannel + ch; dev < numOutputs && outputs[dev] != nullptr)
+                juce::FloatVectorOperations::add (outputs[dev], stripBuffer.getReadPointer (ch), numSamples);
+    }
+    else
+    {
+        for (int ch = 0; ch < 2; ++ch)
+            mainBuffer.addFrom (ch, 0, stripBuffer, ch, 0, numSamples);
+    }
 }
 
 void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples)
@@ -549,7 +586,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
                 else
                     renderStripSources (i, inputs, numInputs, pos, playing, numSamples);
 
-                processStrip (strip, i, pos, numSamples);
+                processStrip (strip, i, pos, numSamples, outputs, numOutputs);
             }
 
         // Master
@@ -558,9 +595,18 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
         for (int ch = 0; ch < 2; ++ch)
             masterMeter.peak[(size_t) ch].store (mainBuffer.getMagnitude (ch, 0, numSamples), std::memory_order_relaxed);
 
+        // Main output path: the first two channels get the master mix; extra
+        // device channels (when the main path is the default) mirror it.
+        const int mainFirst = juce::jmax (0, current->mainOutputChannel);
         for (int ch = 0; ch < numOutputs; ++ch)
-            if (outputs[ch] != nullptr)
+        {
+            if (outputs[ch] == nullptr) continue;
+            if (ch >= mainFirst && ch < mainFirst + 2)
+                juce::FloatVectorOperations::add (outputs[ch], mainBuffer.getReadPointer (ch - mainFirst), numSamples);
+            else if (mainFirst == 0 && ch >= 2 && ! std::any_of (current->strips.begin(), current->strips.end(),
+                                                                  [] (const RenderStrip& s) { return s.outputChannel >= 0; }))
                 juce::FloatVectorOperations::add (outputs[ch], mainBuffer.getReadPointer (juce::jmin (ch, 1)), numSamples);
+        }
     }
 
     mixPreview (outputs, numOutputs, numSamples);

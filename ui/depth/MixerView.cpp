@@ -196,16 +196,32 @@ public:
             };
 
             addAndMakeVisible (output);
-            output.addItem ("Main", 1);
-            for (int b = 0; b < model::Track::numBuses; ++b) output.addItem (model::Session::busName (b), 2 + b);
+            rebuildOutputMenu();
             output.onChange = [this]
             {
                 if (syncing) return;
-                if (auto* t = track()) issue (std::make_unique<model::SetTrackRoutingCommand> (index, t->inputBus, output.getSelectedId() - 2));
+                auto* t = track();
+                if (t == nullptr) return;
+                const int id = output.getSelectedId();
+                if (id >= 2000)       // an output path: no bus, path index
+                {
+                    issue (std::make_unique<model::SetTrackRoutingCommand> (index, t->inputBus, -1));
+                    issue (std::make_unique<model::SetTrackPathsCommand> (index, t->inputPath, id - 2000));
+                }
+                else if (id >= 1000)  // a bus
+                    issue (std::make_unique<model::SetTrackRoutingCommand> (index, t->inputBus, id - 1000));
             };
         }
 
         sync();
+    }
+
+    void rebuildOutputMenu()
+    {
+        output.clear (juce::dontSendNotification);
+        const auto& io = mixer.session.getIO();
+        for (int p = 0; p < (int) io.outputs.size(); ++p) output.addItem (io.outputs[(size_t) p].name, 2000 + p);
+        for (int b = 0; b < model::Track::numBuses; ++b) output.addItem (mixer.session.busName (b), 1000 + b);
     }
 
     bool isMaster() const noexcept { return index < 0; }
@@ -256,7 +272,7 @@ public:
         for (int i = 0; i < sendButtons.size(); ++i)
         {
             const auto& send = t->sends[(size_t) i];
-            sendButtons[i]->setButtonText (send.isActive() ? (send.preFader ? "Pre " : "") + model::Session::busName (send.bus).replace ("Bus ", "B") : "-");
+            sendButtons[i]->setButtonText (send.isActive() ? (send.preFader ? "Pre " : "") + mixer.session.busName (send.bus).replace ("Bus ", "B") : "-");
             sendButtons[i]->setColour (juce::TextButton::buttonColourId, send.isActive() ? theme::accent.darker (0.6f) : theme::background);
             sendLevels[i]->setValue (send.gain, juce::dontSendNotification);
             sendLevels[i]->setEnabled (send.isActive());
@@ -266,7 +282,8 @@ public:
             pan.setValue (t->pan, juce::dontSendNotification);
             mute.setToggleState (t->mute, juce::dontSendNotification);
             solo.setToggleState (t->solo, juce::dontSendNotification);
-            output.setSelectedId (t->outputBus + 2, juce::dontSendNotification);
+            if (output.getNumItems() != (int) mixer.session.getIO().outputs.size() + model::Track::numBuses) rebuildOutputMenu();
+            output.setSelectedId (t->outputBus >= 0 ? 1000 + t->outputBus : 2000 + juce::jmax (0, t->outputPath), juce::dontSendNotification);
             autoMode.setSelectedId ((int) t->automationMode + 1, juce::dontSendNotification);
             const bool writing = ! t->writing.empty();
             autoMode.setColour (juce::ComboBox::backgroundColourId, writing ? theme::record.darker (0.3f)
@@ -323,7 +340,7 @@ public:
         const auto send = t->sends[(size_t) sendIndex];
 
         juce::PopupMenu menu;
-        for (int b = 0; b < model::Track::numBuses; ++b) menu.addItem (1 + b, model::Session::busName (b), true, send.bus == b);
+        for (int b = 0; b < model::Track::numBuses; ++b) menu.addItem (1 + b, mixer.session.busName (b), true, send.bus == b);
         menu.addSeparator();
         menu.addItem (100, "Pre-fader", send.isActive(), send.preFader);
         menu.addItem (101, "No Send", send.isActive());
@@ -338,9 +355,26 @@ public:
         });
     }
 
-    void mouseDown (const juce::MouseEvent&) override
+    void mouseDown (const juce::MouseEvent& e) override
     {
-        if (! isMaster() && mixer.onSelectTrack) mixer.onSelectTrack (index);
+        if (isMaster()) return;
+        if (mixer.onSelectTrack) mixer.onSelectTrack (index);
+
+        // Alt-click the dly readout to type a user offset
+        if (e.mods.isAltDown() && e.y >= 22 && e.y < 34)
+        {
+            auto* t = track();
+            if (t == nullptr) return;
+            auto* window = new juce::AlertWindow ("Delay Compensation Offset", "User offset for \"" + t->name + "\" in samples (may be negative):",
+                                                  juce::MessageBoxIconType::NoIcon);
+            window->addTextEditor ("offset", juce::String (t->delayOffset));
+            window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window] (int result)
+            {
+                if (result == 1) issue (std::make_unique<model::SetTrackDelayOffsetCommand> (index, window->getTextEditorContents ("offset").getIntValue()));
+            }), true);
+        }
     }
 
     void paint (juce::Graphics& g) override
@@ -359,10 +393,18 @@ public:
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (t->name, top.reduced (4, 0), juce::Justification::centred, true);
 
-        // Section labels
+        // Section labels + delay compensation readout (Pro Tools "dly")
         g.setColour (theme::textDim);
         g.setFont (juce::FontOptions (9.0f));
         g.drawText ("INSERTS", 4, 24, getWidth() - 8, 10, juce::Justification::centredLeft);
+        if (! isMaster() && juce::isPositiveAndBelow (index, (int) mixer.delays.size()))
+        {
+            const auto& d = mixer.delays[(size_t) index];
+            const bool active = d.total() > 0 || d.insertLatency > 0;
+            g.setColour (d.userOffset != 0 ? theme::accent : active ? theme::text : theme::textDim);
+            g.drawText ("dly " + juce::String (d.total()) + (d.insertLatency > 0 ? "  (" + juce::String (d.insertLatency) + ")" : juce::String()),
+                        4, 24, getWidth() - 8, 10, juce::Justification::centredRight);
+        }
         if (! isMaster()) g.drawText ("SENDS", 4, sendsY - 12, getWidth() - 8, 10, juce::Justification::centredLeft);
 
         // Meter beside the fader
@@ -464,6 +506,7 @@ MixerView::MixerView (model::Session& s, engine::AudioGraph& g, std::function<do
     addAndMakeVisible (viewport);
     viewport.setViewedComponent (&stripHolder, false);
     viewport.setScrollBarsShown (false, true);
+    delays = model::DelayCompensation::compute (session);
     masterStrip = std::make_unique<ChannelStrip> (*this, -1);
     addAndMakeVisible (*masterStrip);
     rebuildStrips();
@@ -482,6 +525,7 @@ void MixerView::rebuildStrips()
 
 void MixerView::sessionChanged (model::Session&)
 {
+    delays = model::DelayCompensation::compute (session);
     if (strips.size() != session.getNumTracks()) rebuildStrips();
     else for (auto* s : strips) s->sync();
     masterStrip->sync();

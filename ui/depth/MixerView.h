@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../shared/Theme.h"
+#include <DelayCompensation.h>
 #include <MixerCommands.h>
 #include <Session.h>
 #include <graph/AudioGraph.h>
@@ -47,6 +48,7 @@ private:
     juce::Component stripHolder;
     juce::OwnedArray<ChannelStrip> strips;
     std::unique_ptr<ChannelStrip> masterStrip;
+    std::vector<model::StripDelayInfo> delays;
 };
 
 } // namespace beatmaker::ui

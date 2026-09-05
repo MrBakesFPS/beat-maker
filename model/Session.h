@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Command.h"
+#include "IOSetup.h"
 
 #include <automation/Automation.h>
 #include <dsp/DrumKit.h>
@@ -158,8 +159,13 @@ struct Track
     // Recording (audio tracks)
     bool armed = false;      // record-enabled
     bool monitor = false;    // pass the input straight to the outputs
-    int firstInput = 0;      // device input channel
+    int firstInput = 0;      // device input channel (resolved from inputPath when set)
     int numInputs = 1;       // 1 mono, 2 stereo pair
+    int inputPath = -1;      // index into IOSetup::inputs, -1 = use firstInput/numInputs directly
+
+    // Output path (IOSetup::outputs index) used when outputBus == -1; 0 = Main
+    int outputPath = 0;
+    int delayOffset = 0;     // user delay-compensation offset, samples
 
     bool isInstrument() const noexcept  { return type == Type::instrument; }
     bool isDrumMachine() const noexcept { return isInstrument() && instrumentKind == InstrumentKind::drumMachine; }
@@ -188,7 +194,16 @@ public:
     }
     int indexOfTrackId (int id) const noexcept;
     const Track& getMaster() const noexcept { return master; }
-    static juce::String busName (int bus) { return "Bus " + juce::String (bus * 2 + 1) + "-" + juce::String (bus * 2 + 2); }
+    const IOSetup& getIO() const noexcept { return io; }
+    juce::String busName (int bus) const { return io.busName (bus); }
+    bool isDelayCompensationEnabled() const noexcept { return delayCompensation; }
+
+    // The device input channels a track records/monitors from.
+    std::pair<int, int> resolveInput (const Track& t) const noexcept
+    {
+        if (auto* path = io.input (t.inputPath)) return { path->firstChannel, path->numChannels };
+        return { t.firstInput, t.numInputs };
+    }
     double getBpm() const noexcept { return bpm; }
     int getBeatsPerBar() const noexcept { return beatsPerBar; }
     double getLengthSeconds() const;   // end of the last clip of any kind, or 0
@@ -224,12 +239,16 @@ private:
     friend class ReplaceAutomationLaneCommand;
     friend class SetAutomationModeCommand;
     friend class SetAutomationWritingCommand;
+    friend class SetIOSetupCommand;
+    friend class SetDelayCompensationCommand;
     friend struct EditAccess;
 
     void notify() { listeners.call ([this] (Listener& l) { l.sessionChanged (*this); }); }
 
     std::vector<Track> tracks;
     Track master = [] { Track m; m.name = "Master"; m.type = Track::Type::master; m.colour = juce::Colour (0xffb0b8c4); return m; }();
+    IOSetup io = IOSetup::createDefault (2, 2);
+    bool delayCompensation = true;
     int nextTrackId = 1;
     double bpm = 120.0;
     int beatsPerBar = 4;
@@ -527,6 +546,85 @@ private:
     int index;
     engine::ParamId param;
     bool writing;
+};
+
+class SetIOSetupCommand final : public Command
+{
+public:
+    explicit SetIOSetupCommand (IOSetup setup) : newSetup (std::move (setup)) {}
+    juce::String getName() const override { return "I/O Setup"; }
+    void execute (Session& s) override
+    {
+        old = s.io;
+        if (newSetup.outputs.empty()) newSetup.outputs.push_back ({ "Main", 0, 2 });
+        newSetup.busNames.resize ((size_t) IOSetup::numBuses);
+        s.io = newSetup;
+        // Keep track references valid (and remember them for undo)
+        oldTrackPaths.clear();
+        for (auto& t : s.tracks)
+        {
+            oldTrackPaths.emplace_back (t.inputPath, t.outputPath);
+            if (t.inputPath >= (int) s.io.inputs.size()) t.inputPath = -1;
+            if (t.outputPath >= (int) s.io.outputs.size()) t.outputPath = 0;
+        }
+    }
+    void undo (Session& s) override
+    {
+        s.io = old;
+        for (size_t i = 0; i < oldTrackPaths.size() && i < s.tracks.size(); ++i)
+        {
+            s.tracks[i].inputPath = oldTrackPaths[i].first;
+            s.tracks[i].outputPath = oldTrackPaths[i].second;
+        }
+    }
+private:
+    IOSetup newSetup, old;
+    std::vector<std::pair<int, int>> oldTrackPaths;
+};
+
+class SetDelayCompensationCommand final : public Command
+{
+public:
+    explicit SetDelayCompensationCommand (bool on) : enabled (on) {}
+    juce::String getName() const override { return enabled ? "Enable Delay Compensation" : "Disable Delay Compensation"; }
+    void execute (Session& s) override { old = s.delayCompensation; s.delayCompensation = enabled; }
+    void undo (Session& s) override    { s.delayCompensation = old; }
+private:
+    bool enabled, old = true;
+};
+
+class SetTrackDelayOffsetCommand final : public Command
+{
+public:
+    SetTrackDelayOffsetCommand (int trackIndex, int samples) : index (trackIndex), offset (juce::jlimit (-16000, 16000, samples)) {}
+    juce::String getName() const override { return "Delay Offset"; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) { old = t->delayOffset; t->delayOffset = offset; } }
+    void undo (Session& s) override    { if (auto* t = EditAccess::trackOrMaster (s, index)) t->delayOffset = old; }
+private:
+    int index, offset, old = 0;
+};
+
+// Input path (-1 = raw channels) and output path for a track.
+class SetTrackPathsCommand final : public Command
+{
+public:
+    SetTrackPathsCommand (int trackIndex, int inputPathIndex, int outputPathIndex)
+        : index (trackIndex), in (inputPathIndex), out (outputPathIndex) {}
+    juce::String getName() const override { return "Track I/O"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override
+    {
+        if (auto* t = EditAccess::trackOrMaster (s, index))
+        {
+            t->inputPath = in < (int) s.getIO().inputs.size() ? in : -1;
+            t->outputPath = juce::isPositiveAndBelow (out, (int) s.getIO().outputs.size()) ? out : 0;
+            const auto [first, num] = s.resolveInput (*t);
+            t->firstInput = first; t->numInputs = num;
+        }
+    }
+    void undo (Session&) override {}
+private:
+    int index, in, out;
 };
 
 class AddMidiClipCommand final : public Command

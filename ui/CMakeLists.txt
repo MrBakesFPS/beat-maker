@@ -18,7 +18,8 @@ target_sources(BeatMaker PRIVATE
     depth/BounceDialog.cpp
     depth/EditToolbar.cpp
     depth/FadesDialog.cpp
-    depth/MixerView.cpp)
+    depth/MixerView.cpp
+    depth/IOSetupDialog.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     BEATMAKER_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"

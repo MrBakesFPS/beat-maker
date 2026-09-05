@@ -42,7 +42,8 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         { "Ratio",      1.0f, 20.0f,    4.0f,  4.0f,  ":1" },
         { "Attack",     0.1f, 200.0f,  10.0f, 20.0f,  " ms" },
         { "Release",    5.0f, 2000.0f, 120.0f, 200.0f, " ms" },
-        { "Makeup",     0.0f, 24.0f,    0.0f,  0.0f,  " dB" } };
+        { "Makeup",     0.0f, 24.0f,    0.0f,  0.0f,  " dB" },
+        { "Lookahead",  0.0f, 10.0f,    0.0f,  0.0f,  " ms" } };
     static const std::vector<ParamInfo> delay {
         { "Time",       1.0f, 2000.0f, 375.0f, 300.0f, " ms" },
         { "Feedback",   0.0f, 95.0f,   35.0f,  0.0f,  " %" },
@@ -174,10 +175,29 @@ void EqEffect::process (juce::AudioBuffer<float>& buffer, int n, const InsertPar
 //==============================================================================
 // Compressor
 
-void CompressorEffect::reset() { envelope = 0.0f; gainReductionDb.store (0.0f); }
+void CompressorEffect::prepareImpl (int)
+{
+    const auto len = (size_t) std::ceil (maxLookaheadMs * 0.001 * sampleRate) + 1;
+    for (auto& l : lookaheadLines) l.assign (len, 0.0f);
+}
+
+void CompressorEffect::reset()
+{
+    envelope = 0.0f;
+    gainReductionDb.store (0.0f);
+    for (auto& l : lookaheadLines) std::fill (l.begin(), l.end(), 0.0f);
+    lookaheadWrite = 0;
+}
+
+int CompressorEffect::getLatencySamples (const InsertParams& p) const noexcept
+{
+    return (int) std::lround (juce::jlimit (0.0f, maxLookaheadMs, p.values[lookahead]) * 0.001 * sampleRate);
+}
 
 void CompressorEffect::process (juce::AudioBuffer<float>& buffer, int n, const InsertParams& p) noexcept
 {
+    const int lookaheadSamples = getLatencySamples (p);
+    const int lineLen = (int) lookaheadLines[0].size();
     const float thresholdDb = p.values[threshold];
     const float ratioValue = juce::jmax (1.0f, p.values[ratio]);
     const float att = std::exp (-1.0f / (float) (juce::jmax (0.01f, p.values[attack]) * 0.001 * sampleRate));
@@ -198,8 +218,21 @@ void CompressorEffect::process (juce::AudioBuffer<float>& buffer, int n, const I
         maxReduction = juce::jmax (maxReduction, reductionDb);
         const float g = juce::Decibels::decibelsToGain (-reductionDb) * makeupGain;
 
-        for (int ch = 0; ch < channels; ++ch)
-            buffer.setSample (ch, i, buffer.getSample (ch, i) * g);
+        if (lookaheadSamples > 0 && lineLen > lookaheadSamples)
+        {
+            const int readPos = (lookaheadWrite - lookaheadSamples + lineLen) % lineLen;
+            for (int ch = 0; ch < channels; ++ch)
+            {
+                auto& line = lookaheadLines[(size_t) ch];
+                const float delayed = line[(size_t) readPos];
+                line[(size_t) lookaheadWrite] = buffer.getSample (ch, i);
+                buffer.setSample (ch, i, delayed * g);
+            }
+            lookaheadWrite = (lookaheadWrite + 1) % lineLen;
+        }
+        else
+            for (int ch = 0; ch < channels; ++ch)
+                buffer.setSample (ch, i, buffer.getSample (ch, i) * g);
     }
     gainReductionDb.store (maxReduction, std::memory_order_relaxed);
 }

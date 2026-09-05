@@ -158,8 +158,9 @@ void TrackArea::rebuildTrackControls()
             addAndMakeVisible (*c.monitor);
 
             c.input = std::make_unique<juce::ComboBox>();
-            c.input->setTooltip ("Input channel");
-            if (inputNames.isEmpty())
+            c.input->setTooltip ("Input path (I/O Setup)");
+            const auto& io = session.getIO();
+            if (io.inputs.empty())
             {
                 c.input->addItem ("No inputs", 1);
                 c.input->setSelectedId (1, juce::dontSendNotification);
@@ -167,17 +168,21 @@ void TrackArea::rebuildTrackControls()
             }
             else
             {
-                for (int ch = 0; ch < inputNames.size(); ++ch)
-                    c.input->addItem ("In " + juce::String (ch + 1) + "  " + inputNames[ch], 1000 + ch);
-                for (int ch = 0; ch + 1 < inputNames.size(); ch += 2)
-                    c.input->addItem ("In " + juce::String (ch + 1) + "+" + juce::String (ch + 2) + "  stereo", 2000 + ch);
+                for (int pathIndex = 0; pathIndex < (int) io.inputs.size(); ++pathIndex)
+                    c.input->addItem (io.inputs[(size_t) pathIndex].name, 1000 + pathIndex);
 
-                c.input->setSelectedId ((track.numInputs == 2 ? 2000 : 1000) + track.firstInput, juce::dontSendNotification);
+                int selected = -1;
+                if (track.inputPath >= 0) selected = track.inputPath;
+                else
+                    for (int pathIndex = 0; pathIndex < (int) io.inputs.size(); ++pathIndex)
+                        if (io.inputs[(size_t) pathIndex].firstChannel == track.firstInput && io.inputs[(size_t) pathIndex].numChannels == track.numInputs)
+                        { selected = pathIndex; break; }
+                if (selected >= 0) c.input->setSelectedId (1000 + selected, juce::dontSendNotification);
+
                 c.input->onChange = [this, i, box = c.input.get()]
                 {
                     const int id = box->getSelectedId();
-                    if (id >= 2000)      { if (onInputChanged) onInputChanged (i, id - 2000, 2); }
-                    else if (id >= 1000) { if (onInputChanged) onInputChanged (i, id - 1000, 1); }
+                    if (id >= 1000 && onInputPathChanged) onInputPathChanged (i, id - 1000);
                 };
             }
             addAndMakeVisible (*c.input);
@@ -420,7 +425,7 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
     g.setColour (track.armed ? theme::record.brighter (0.2f) : theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
     g.drawText (juce::String (index + 1) + (track.isDrumMachine() ? "  Drum Machine" : track.isSynth() ? "  Synth"
-                                            : track.isAux() ? "  Aux  <- " + (track.inputBus >= 0 ? model::Session::busName (track.inputBus) : juce::String ("no input"))
+                                            : track.isAux() ? "  Aux  <- " + (track.inputBus >= 0 ? session.busName (track.inputBus) : juce::String ("no input"))
                                             : track.armed ? "  Audio  REC" : "  Audio"),
                 content.removeFromTop (14), juce::Justification::centredLeft);
 

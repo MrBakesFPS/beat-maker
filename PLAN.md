@@ -202,7 +202,7 @@ beat-maker/
 - [~] Edit modes (Shuffle/Slip/Spot/Grid) and full tool set. *(2026-09-05: all four modes incl. Absolute/Relative grid; Zoomer, Trimmer, Selector, Grabber, Smart Tool; move/trim/separate/duplicate/nudge/delete/clear as undoable commands. Scrubber and Pencil pending.)*
 - [~] Clip gain, fades, nudge, tab-to-transient, playlists/takes/comping. *(2026-09-05: static clip gain with drag/keys, fade in/out with Standard/Equal Power/S-Curve, corner handles, Fades window with batch fades, nudge. Pending: clip gain breakpoints, tab-to-transient, playlists/comping.)*
 - [~] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups. *(2026-09-05: strip pipeline with 10 inserts (EQ/Compressor/Delay/Reverb built in), 5 sends pre/post to 8 buses, aux inputs, output routing, master strip with inserts, post-fader meters, Mix window. Pending: 10 sends, VCA, groups.)*
-- [ ] I/O Setup window; automatic delay compensation.
+- [x] I/O Setup window; automatic delay compensation. *(Done 2026-09-05: Input/Output/Bus paths with device channel mapping, path-based track routing, direct outs, bus renaming; ADC aligning sources, bus feeds and aux returns with per-track user offsets and a dly readout; compressor lookahead as the first latent insert.)*
 - [~] Automation: all modes, lanes for every parameter. *(2026-09-05: Off/Read/Touch/Latch/Write with pass recording; lanes for volume (ramped), pan, mute (stepped), sends, insert params; breakpoint editing in the track area; controls follow in Read. Pending: Trim, Preview/Capture, master automation, thinning.)*
 - [ ] Metering suite (peak/RMS/K/LUFS).
 - **Milestone:** An engineer can mix a 48-track session with routing comparable to Pro Tools.

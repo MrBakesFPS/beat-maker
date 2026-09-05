@@ -3,6 +3,27 @@
 namespace beatmaker::model
 {
 
+IOSetup IOSetup::createDefault (int numInputChannels, int numOutputChannels)
+{
+    IOSetup io;
+    for (int ch = 0; ch < numInputChannels; ++ch)
+        io.inputs.push_back ({ "In " + juce::String (ch + 1), ch, 1 });
+    for (int ch = 0; ch + 1 < numInputChannels; ch += 2)
+        io.inputs.push_back ({ "In " + juce::String (ch + 1) + "-" + juce::String (ch + 2), ch, 2 });
+
+    io.outputs.push_back ({ "Main", 0, 2 });
+    for (int ch = 2; ch + 1 < numOutputChannels; ch += 2)
+        io.outputs.push_back ({ "Out " + juce::String (ch + 1) + "-" + juce::String (ch + 2), ch, 2 });
+
+    io.busNames.resize ((size_t) numBuses);
+    return io;
+}
+
+} // namespace beatmaker::model
+
+namespace beatmaker::model
+{
+
 int Session::indexOfTrackId (int id) const noexcept
 {
     for (int i = 0; i < (int) tracks.size(); ++i)

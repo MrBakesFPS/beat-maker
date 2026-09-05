@@ -84,7 +84,8 @@ private:
 
     void renderRange (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
     void renderStripSources (int stripIndex, const float* const* inputs, int numInputs, juce::int64 pos, bool playing, int numSamples);
-    void processStrip (const RenderStrip&, int stripIndex, juce::int64 blockStart, int numSamples);
+    void processStrip (const RenderStrip&, int stripIndex, juce::int64 blockStart, int numSamples,
+                       float* const* outputs, int numOutputs);
     void processInserts (const std::vector<RenderInsert>&, juce::AudioBuffer<float>&, int numSamples,
                          const RenderStrip* automationOwner = nullptr, juce::int64 blockStart = 0);
     static const AutomationLane* laneFor (const RenderStrip&, const ParamId&) noexcept;
@@ -117,6 +118,16 @@ private:
     std::array<Meter, maxStrips> stripMeters;
     Meter masterMeter;
     const RenderStrip defaultStrip {};
+
+    // Delay compensation lines, one stereo ring buffer per strip.
+    static constexpr int maxDelaySamples = 16384;
+    struct StripDelay
+    {
+        juce::AudioBuffer<float> ring { 2, maxDelaySamples };
+        int writePos = 0;
+        void process (juce::AudioBuffer<float>& io, int numSamples, int delay) noexcept;
+    };
+    std::array<StripDelay, maxStrips> stripDelays;
 
     const juce::AudioBuffer<float>* previewSource = nullptr;  // identity of the current preview
     int previewPosition = 0;

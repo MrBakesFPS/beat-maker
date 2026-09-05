@@ -45,6 +45,9 @@ public:
     // Optional meter (e.g. compressor gain reduction in dB, >= 0)
     virtual float getMeter() const noexcept { return 0.0f; }
 
+    // Samples of delay this effect adds for the given parameters (for ADC).
+    virtual int getLatencySamples (const InsertParams&) const noexcept { return 0; }
+
     static std::unique_ptr<Effect> create (EffectType, double sampleRate, int maxBlockSize = 8192);
     static const std::vector<ParamInfo>& paramInfo (EffectType);
     static InsertParams defaultParams (EffectType);
@@ -94,16 +97,21 @@ private:
 class CompressorEffect final : public Effect
 {
 public:
-    enum Param { threshold, ratio, attack, release, makeup };
+    enum Param { threshold, ratio, attack, release, makeup, lookahead };
+    static constexpr float maxLookaheadMs = 10.0f;
     CompressorEffect() : Effect (EffectType::compressor) {}
     void reset() override;
     void process (juce::AudioBuffer<float>&, int, const InsertParams&) noexcept override;
     float getMeter() const noexcept override { return gainReductionDb.load (std::memory_order_relaxed); }
+    int getLatencySamples (const InsertParams&) const noexcept override;
 protected:
-    void prepareImpl (int) override {}
+    void prepareImpl (int) override;
 private:
     float envelope = 0.0f;
     std::atomic<float> gainReductionDb { 0.0f };
+    // Lookahead: the audio is delayed while the detector sees the live signal.
+    std::array<std::vector<float>, 2> lookaheadLines;
+    int lookaheadWrite = 0;
 };
 
 class DelayEffect final : public Effect

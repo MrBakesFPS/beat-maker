@@ -66,6 +66,7 @@ public:
     std::function<void (int trackIndex, bool armed)> onArmChanged;
     std::function<void (int trackIndex, bool monitor)> onMonitorChanged;
     std::function<void (int trackIndex, int firstInput, int numInputs)> onInputChanged;
+    std::function<void (int trackIndex, int inputPath)> onInputPathChanged;
     std::function<void (int trackIndex, model::AutomationMode)> onAutomationModeChanged;
     void showAutomationLane (int trackIndex, const engine::ParamId&);
     std::function<double()> getPlayheadSeconds;   // for automation value readouts

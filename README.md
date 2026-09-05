@@ -47,6 +47,16 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- I/O Setup (Ctrl+Alt+I or the I/O... button): Input, Output and Bus tabs
+  define named paths mapped to device channels (mono or stereo). Track inputs
+  and outputs pick paths by name; an output path other than Main is a direct
+  out that bypasses the master. Buses can be renamed.
+- Automatic Delay Compensation: every insert reports its latency (the
+  Compressor's Lookahead adds real latency) and each strip is delayed so all
+  paths to the mix align, including tracks feeding an aux return. The mixer
+  shows the applied delay per strip (dly, with the insert latency in
+  brackets); Alt-click it to type a user offset. ADC can be switched off in
+  I/O Setup.
 - Automation: every track has an automation mode (Off, Read, Touch, Latch,
   Write) in its header and in the mixer strip. Lanes exist for volume, pan,
   mute, send levels and insert parameters. Move a fader, pan or send while
@@ -115,8 +125,8 @@ Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctr
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
 Still to come in Phase 2: Trim automation and master automation, VCA and
-groups, I/O Setup, delay compensation, metering modes, clip gain breakpoints,
-Scrubber and Pencil tools, playlists and comping. See PLAN.md §5.
+groups, metering modes, clip gain breakpoints, Scrubber and Pencil tools,
+playlists and comping. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

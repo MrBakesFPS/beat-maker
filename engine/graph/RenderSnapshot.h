@@ -126,6 +126,9 @@ struct RenderStrip
     std::vector<RenderSend> sends;
     std::vector<RenderAutomation> automation;   // read when automationRead is true
     bool automationRead = false;
+
+    int delaySamples = 0;      // delay compensation + user offset, applied after the inserts
+    int outputChannel = -1;    // >= 0: direct to this device channel pair, bypassing the master
 };
 
 struct RenderMaster
@@ -145,6 +148,7 @@ struct RenderSnapshot
     // Channel strips in track order; empty = a single pass-through strip.
     std::vector<RenderStrip> strips;
     RenderMaster master;
+    int mainOutputChannel = 0;   // first device channel of the Main output path
 
     // Library audition: played from its start whenever the pointer changes,
     // independent of the transport, looping while present.

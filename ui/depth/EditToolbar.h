@@ -16,6 +16,7 @@ public:
     explicit EditToolbar (EditSettings& settings);
 
     void refresh();          // sync buttons from settings
+    std::function<void()> onIOSetup;
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -26,6 +27,7 @@ private:
     juce::OwnedArray<juce::TextButton> modeButtons, toolButtons;
     juce::ComboBox gridBox;
     juce::TextButton relativeButton { "Rel" };
+    juce::TextButton ioButton { "I/O..." };
     juce::Label hint;
 };
 

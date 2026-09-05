@@ -50,6 +50,10 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
     relativeButton.setTooltip ("Relative Grid: snap the movement, keep the clip's offset from the grid");
     relativeButton.onClick = [this] { settings.relativeGrid = relativeButton.getToggleState(); settings.notify(); };
 
+    addAndMakeVisible (ioButton);
+    ioButton.setTooltip ("I/O Setup: input/output/bus paths and delay compensation (Ctrl+Alt+I)");
+    ioButton.onClick = [this] { if (onIOSetup) onIOSetup(); };
+
     addAndMakeVisible (hint);
     hint.setColour (juce::Label::textColourId, theme::textDim);
     hint.setFont (juce::FontOptions (11.0f));
@@ -90,6 +94,8 @@ void EditToolbar::resized()
     area.removeFromLeft (4);
     relativeButton.setBounds (area.removeFromLeft (36));
     area.removeFromLeft (12);
+    ioButton.setBounds (area.removeFromRight (56));
+    area.removeFromRight (8);
     hint.setBounds (area);
 }
 

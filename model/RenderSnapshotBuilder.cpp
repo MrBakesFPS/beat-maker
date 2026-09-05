@@ -1,4 +1,5 @@
 #include "RenderSnapshotBuilder.h"
+#include "DelayCompensation.h"
 
 namespace beatmaker::model
 {
@@ -27,6 +28,10 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
         anySolo = anySolo || t.solo;
 
     const auto& tracks = session.getTracks();
+    const auto delays = DelayCompensation::compute (session);
+    const auto& io = session.getIO();
+    if (auto* main = io.output (0)) snapshot->mainOutputChannel = main->firstChannel;
+
     for (int i = 0; i < (int) tracks.size(); ++i)
     {
         const auto& track = tracks[(size_t) i];
@@ -48,6 +53,9 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             if (send.isActive())
                 strip.sends.push_back ({ send.bus, send.gain, send.preFader, slot });
         }
+        strip.delaySamples = delays[(size_t) i].total();
+        if (track.outputBus < 0 && track.outputPath > 0)
+            if (auto* path = io.output (track.outputPath)) strip.outputChannel = path->firstChannel;
         strip.automationRead = track.automationMode != AutomationMode::off;
         for (const auto& lane : track.automation)
             if (lane != nullptr && ! lane->isEmpty())
@@ -56,7 +64,10 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
 
         // ---- Sources ----
         if (track.isAudio() && track.monitor && audible)
-            snapshot->monitors.push_back ({ track.firstInput, track.numInputs, 1.0f, i });
+        {
+            const auto [first, num] = session.resolveInput (track);
+            snapshot->monitors.push_back ({ first, num, 1.0f, i });
+        }
 
         for (const auto& clip : track.clips)
         {

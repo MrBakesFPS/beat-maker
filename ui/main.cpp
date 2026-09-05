@@ -7,6 +7,7 @@
 #include "depth/BounceDialog.h"
 #include "depth/EditToolbar.h"
 #include "depth/FadesDialog.h"
+#include "depth/IOSetupDialog.h"
 #include "depth/MixerView.h"
 #include "shared/EditSettings.h"
 #include "shared/Theme.h"
@@ -55,6 +56,8 @@ public:
             statusMessage = "Audio device error: " + error;
 
         session.addListener (this);
+        // I/O paths default to whatever the device offers
+        session.execute (std::make_unique<model::SetIOSetupCommand> (model::IOSetup::createDefault (engine.getNumInputChannels(), 2)));
         trackArea.setInputChannelNames (engine.getInputChannelNames());
         trackArea.getRecordStartSeconds = [this]
         {
@@ -174,6 +177,12 @@ public:
         {
             session.execute (std::make_unique<model::SetTrackInputCommand> (i, first, count));
         };
+        trackArea.onInputPathChanged = [this] (int i, int path)
+        {
+            if (auto* t = session.getTrack (i))
+                session.execute (std::make_unique<model::SetTrackPathsCommand> (i, path, t->outputPath));
+        };
+        editToolbar.onIOSetup = [this] { showIOSetupDialog(); };
 
         setWantsKeyboardFocus (true);
         setSize (1200, 720);
@@ -201,6 +210,7 @@ public:
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
     void showBounceDialog();
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
+    void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
 
     // --automation-demo: put a volume swell + pan sweep on track 1 and show the lane (smoke tests).
     void automationDemoFromCommandLine()
@@ -346,6 +356,7 @@ public:
         if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::smart;    editSettings.notify(); return true; }
         if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
         if (key == juce::KeyPress ('f', juce::ModifierKeys::commandModifier, 0)) { showFadesDialog(); return true; }
+        if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0)) { showIOSetupDialog(); return true; }
 
         // Clip edits reach the track area even when it doesn't have focus
         if (trackArea.keyPressed (key)) return true;
@@ -537,6 +548,34 @@ private:
     }
 
     //==========================================================================
+    // I/O Setup
+
+    void showIOSetupDialog()
+    {
+        auto* dialog = new ui::IOSetupDialog (session.getIO(), engine.getNumInputChannels(), 2, session.isDelayCompensationEnabled());
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "I/O Setup";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onApply = [this, window] (const model::IOSetup& io, bool adc)
+        {
+            auto compound = std::make_unique<model::CompoundCommand> ("I/O Setup");
+            compound->add (std::make_unique<model::SetIOSetupCommand> (io));
+            if (adc != session.isDelayCompensationEnabled())
+                compound->add (std::make_unique<model::SetDelayCompensationCommand> (adc));
+            session.execute (std::move (compound));
+            trackArea.setInputChannelNames (engine.getInputChannelNames());   // rebuilds the header combos
+            window->setVisible (false);
+        };
+    }
+
+    //==========================================================================
     // Fades window
 
     void showFadesDialog()
@@ -723,8 +762,9 @@ private:
 
             engine::Recorder::Slot slot;
             slot.trackId    = track.id;
-            slot.firstInput = track.firstInput;
-            slot.numInputs  = track.numInputs;
+            const auto [first, num] = session.resolveInput (track);
+            slot.firstInput = first;
+            slot.numInputs  = num;
             slot.file       = dir.getChildFile (juce::File::createLegalFileName (track.name) + "_01.wav").getNonexistentSibling (false);
             slot.receiver   = &trackArea.createLiveThumbnail (track.id);
             slots.push_back (std::move (slot));
@@ -1044,6 +1084,7 @@ public:
             else if (arg == "--bounce-dialog") main.showBounceDialog();
             else if (arg == "--mixer")  main.setMixerVisibleFromCommandLine (true);
             else if (arg == "--automation-demo") main.automationDemoFromCommandLine();
+            else if (arg == "--io-setup") main.showIOSetupDialogFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()
                                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
