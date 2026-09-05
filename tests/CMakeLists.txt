@@ -19,6 +19,7 @@ target_sources(beatmaker_tests PRIVATE
     sidechain_convolution_test.cpp
     pitch_correction_test.cpp
     beat_detective_test.cpp
+    session_file_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp

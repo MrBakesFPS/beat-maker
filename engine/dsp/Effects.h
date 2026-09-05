@@ -343,10 +343,11 @@ public:
     static juce::AudioBuffer<float> generateImpulse (int which, double sampleRate);
 
     // Custom impulse (message thread). `sampleRate` is that of the buffer.
-    void setCustomImpulse (std::shared_ptr<const juce::AudioBuffer<float>>, double sampleRate, juce::String name);
+    void setCustomImpulse (std::shared_ptr<const juce::AudioBuffer<float>>, double sampleRate, juce::String name, juce::String path = {});
     std::shared_ptr<const juce::AudioBuffer<float>> getCustomImpulse() const { return customImpulse; }
     double getCustomImpulseRate() const noexcept { return customRate; }
     juce::String getCustomImpulseName() const { return customName; }
+    juce::String getCustomImpulsePath() const { return customPath; }
     bool isResponseLoaded() const noexcept { return loadedImpulse >= 0; }
 
 protected:
@@ -361,7 +362,7 @@ private:
     float loadedDecay = -1.0f;
     std::shared_ptr<const juce::AudioBuffer<float>> customImpulse;
     double customRate = 44100.0;
-    juce::String customName;
+    juce::String customName, customPath;
     int customGeneration = 0, loadedCustomGeneration = -1;
 
     juce::AudioBuffer<float> wet { 2, 8192 };

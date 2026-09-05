@@ -75,8 +75,8 @@ private:
 class SetInsertImpulseCommand final : public Command
 {
 public:
-    SetInsertImpulseCommand (int trackIndex, int slotIndex, std::shared_ptr<const juce::AudioBuffer<float>> ir, double irSampleRate, juce::String irName)
-        : index (trackIndex), slot (slotIndex), impulse (std::move (ir)), sampleRate (irSampleRate), name (std::move (irName)) {}
+    SetInsertImpulseCommand (int trackIndex, int slotIndex, std::shared_ptr<const juce::AudioBuffer<float>> ir, double irSampleRate, juce::String irName, juce::String irPath = {})
+        : index (trackIndex), slot (slotIndex), impulse (std::move (ir)), sampleRate (irSampleRate), name (std::move (irName)), path (std::move (irPath)) {}
     juce::String getName() const override { return "Load Impulse Response"; }
     void execute (Session&) override;
     void undo (Session&) override;
@@ -85,7 +85,7 @@ private:
     std::shared_ptr<const juce::AudioBuffer<float>> impulse, oldImpulse;
     std::shared_ptr<const engine::InsertParams> oldParams;
     double sampleRate, oldSampleRate = 44100.0;
-    juce::String name, oldName;
+    juce::String name, oldName, path, oldPath;
 };
 
 class SetInsertBypassCommand final : public Command

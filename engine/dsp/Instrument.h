@@ -26,6 +26,7 @@ struct InstrumentParams
     double sampleRate = 44100.0;   // of `sample`
     int rootNote = 60;
     juce::String sampleName;
+    juce::String samplePath;   // file the sample came from (for session files)
 };
 
 class Instrument

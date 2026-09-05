@@ -43,6 +43,8 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --beat-detective-demo                          # slice, swing-conform and crossfade a loop
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pre-roll=0.5 --post-roll=0.5 --punch=1,2 --record   # punch record 1-2 s
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --record-mode=QuickPunch --record --punch-at=1 --punch-at=2 --stop-at=3
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --template="Beat Making" --save=song.bmk        # new from template, save
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --session=song.bmk --marker-demo                # open, add sections/markers
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -261,6 +263,26 @@ Run the tests with `ctest --test-dir build`.
   drums ring out, trailing-silence trim, and optional normalisation. Renders
   offline on a background thread through the same graph code as playback, so
   the file matches what you heard. Clipping is reported.
+- Sessions and templates (File... button, or Ctrl+N / Ctrl+O / Ctrl+S /
+  Ctrl+Shift+S): a session is a `.bmk` folder holding `session.json` (every
+  track, clip, pattern, MIDI sequence, instrument, insert with parameters and
+  plugin state, send, automation lane, playlist, group, marker, I/O path and
+  transport setting) plus an `Audio Files` folder for audio that only existed
+  in memory, such as pencil edits. Audio kept outside the bundle is referenced
+  by path and reported if missing. Elastic clips store their source file and
+  stretch settings and are re-rendered on open, so a reopened session bounces
+  byte-for-byte the same. Save As Template writes a `.bmkt` to
+  `~/Music/Beat Maker/Templates`; New Session offers those alongside the
+  built-in Empty, Beat Making, Songwriter and Podcast templates. Sessions with
+  a file autosave to `Session File Backups` inside the bundle every three
+  minutes.
+- Memory locations and arrangement: the strip above the ruler holds point
+  markers (M adds one at the playhead, numbered like Pro Tools memory
+  locations; Alt+1..9 recalls by number; each can recall a selection and zoom)
+  and sections (Shift+M turns the time selection into one). Right-click a
+  section to move it earlier or later, duplicate it, or delete its time; the
+  clips of every track move with it, as one undo step. Ctrl+5 opens the
+  Memory Locations window.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

@@ -65,8 +65,8 @@ void SetInsertImpulseCommand::execute (Session& s)
 {
     if (auto* conv = convolutionAt (s, index, slot))
     {
-        oldImpulse = conv->getCustomImpulse(); oldSampleRate = conv->getCustomImpulseRate(); oldName = conv->getCustomImpulseName();
-        conv->setCustomImpulse (impulse, sampleRate, name);
+        oldImpulse = conv->getCustomImpulse(); oldSampleRate = conv->getCustomImpulseRate(); oldName = conv->getCustomImpulseName(); oldPath = conv->getCustomImpulsePath();
+        conv->setCustomImpulse (impulse, sampleRate, name, path);
         // Select the custom slot in the stored params so the response is (re)loaded and shown.
         auto* i = insertAt (s, index, slot);
         auto p = std::make_shared<engine::InsertParams> (i->params != nullptr ? *i->params : engine::Effect::defaultParams (engine::EffectType::convolution));
@@ -80,7 +80,7 @@ void SetInsertImpulseCommand::undo (Session& s)
 {
     if (auto* conv = convolutionAt (s, index, slot))
     {
-        conv->setCustomImpulse (oldImpulse, oldSampleRate, oldName);
+        conv->setCustomImpulse (oldImpulse, oldSampleRate, oldName, oldPath);
         auto* i = insertAt (s, index, slot);
         i->params = oldParams;
         if (i->params != nullptr) conv->paramsChanged (*i->params);

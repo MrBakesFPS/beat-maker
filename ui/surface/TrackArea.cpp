@@ -3,6 +3,7 @@
 #include <Playlists.h>
 #include <dsp/Fades.h>
 #include <Elastic.h>
+#include <Arrangement.h>
 #include "../shared/ElasticJob.h"
 
 namespace beatmaker::ui
@@ -445,10 +446,12 @@ void TrackArea::paint (juce::Graphics& g)
     }
 }
 
-void TrackArea::paintRuler (juce::Graphics& g, juce::Rectangle<int> r)
+void TrackArea::paintRuler (juce::Graphics& g, juce::Rectangle<int> fullRuler)
 {
     g.setColour (theme::panel);
-    g.fillRect (r);
+    g.fillRect (fullRuler);
+    paintMarkerStrip (g, fullRuler.removeFromTop (theme::markerStripHeight));
+    const auto r = fullRuler;
 
     const double secondsPerBar = transport.beatsToSeconds (transport.getBeatsPerBar());
     const double secondsPerBeat = transport.beatsToSeconds (1.0);
@@ -1287,6 +1290,16 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
 
     if (e.x < theme::trackHeaderWidth) return;
 
+    // Marker strip: click a marker to recall it, right-click for the menu; empty strip locates.
+    if (e.y < theme::markerStripHeight)
+    {
+        const int hit = markerAtX (e.x);
+        if (e.mods.isPopupMenu()) { showMarkerMenu (hit, xToSeconds ((float) e.x), e.getScreenPosition()); return; }
+        if (hit >= 0) { recallMarker (hit); return; }
+        transport.setPositionSeconds (snapSeconds (xToSeconds ((float) e.x)));
+        repaint();
+        return;
+    }
     // Ruler: always locates
     if (e.y < theme::rulerHeight)
     {
@@ -2090,6 +2103,10 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress (juce::KeyPress::tabKey, 0, 0))                    { tabToTransient (true); return true; }
     if (key == juce::KeyPress (juce::KeyPress::tabKey, juce::ModifierKeys::shiftModifier, 0)) { tabToTransient (false); return true; }
     if (key == juce::KeyPress ('q', juce::ModifierKeys::altModifier, 0))         { quantizeSelection(); return true; }
+    if (key == juce::KeyPress ('m', 0, 0))                                        { addMarkerAtPlayhead (false); return true; }
+    if (key == juce::KeyPress ('m', juce::ModifierKeys::shiftModifier, 0))        { addMarkerAtPlayhead (true); return true; }
+    for (int n = 1; n <= 9; ++n)
+        if (key == juce::KeyPress ((juce::juce_wchar) ('0' + n), juce::ModifierKeys::altModifier, 0)) { recallMarker (n); return true; }
     if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0))
     {
         selectedClips.clear();
@@ -2408,6 +2425,211 @@ void TrackArea::tabToTransient (bool forward)
         repaint();
     }
     else if (onStatus) onStatus (forward ? "No transient after the playhead" : "No transient before the playhead");
+}
+
+} // namespace beatmaker::ui
+
+//==============================================================================
+// Memory locations and arrangement sections
+
+namespace beatmaker::ui
+{
+
+void TrackArea::paintMarkerStrip (juce::Graphics& g, juce::Rectangle<int> strip)
+{
+    g.setColour (theme::background.brighter (0.06f));
+    g.fillRect (strip);
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+
+    // Sections first (blocks), then point markers (flags) on top
+    for (const auto& m : session.getMarkers())
+    {
+        if (! m.isSection || ! m.isRange()) continue;
+        const float x1 = juce::jmax ((float) strip.getX(), secondsToX (m.seconds));
+        const float x2 = juce::jmin ((float) strip.getRight(), secondsToX (m.endSeconds));
+        if (x2 <= x1) continue;
+        juce::Rectangle<float> r (x1, (float) strip.getY() + 2.0f, x2 - x1, (float) strip.getHeight() - 4.0f);
+        g.setColour (m.colour.withAlpha (0.75f));
+        g.fillRoundedRectangle (r.reduced (1.0f, 0.0f), 3.0f);
+        g.setColour (m.colour.contrasting (0.9f));
+        g.drawText (m.name, r.reduced (5.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, true);
+    }
+    for (const auto& m : session.getMarkers())
+    {
+        if (m.isSection) continue;
+        const float x = secondsToX (m.seconds);
+        if (x < strip.getX() - 2.0f || x > strip.getRight()) continue;
+        juce::Path flag;
+        flag.addTriangle (x, (float) strip.getY() + 2.0f, x + 8.0f, (float) strip.getY() + 7.0f, x, (float) strip.getY() + 12.0f);
+        g.setColour (m.colour);
+        g.fillPath (flag);
+        g.drawVerticalLine ((int) x, (float) strip.getY() + 2.0f, (float) strip.getBottom());
+        g.setColour (theme::text);
+        g.drawText (juce::String (m.id) + " " + m.name, (int) x + 10, strip.getY() + 1, 160, strip.getHeight() - 2, juce::Justification::centredLeft, true);
+    }
+    g.setColour (theme::gridStrong);
+    g.drawHorizontalLine (strip.getBottom() - 1, (float) strip.getX(), (float) strip.getRight());
+}
+
+int TrackArea::markerAtX (int x) const
+{
+    // Point markers win over sections (their flags sit on top)
+    for (const auto& m : session.getMarkers())
+        if (! m.isSection && std::abs (secondsToX (m.seconds) - (float) x) <= 10.0f) return m.id;
+    for (const auto& m : session.getMarkers())
+        if (m.isSection && m.isRange() && x >= secondsToX (m.seconds) && x < secondsToX (m.endSeconds)) return m.id;
+    return -1;
+}
+
+void TrackArea::recallMarker (int markerId)
+{
+    const auto* m = session.getMarker (markerId);
+    if (m == nullptr) return;
+    transport.setPositionSeconds (m->seconds);
+    if (m->recallSelection)
+    {
+        timeSelection = {};
+        timeSelection.start = m->selectionStart; timeSelection.end = m->selectionEnd;
+        timeSelection.firstTrack = 0; timeSelection.lastTrack = juce::jmax (0, session.getNumTracks() - 1);
+        setTimeSelection (timeSelection);
+    }
+    else if (m->isSection && m->isRange())
+    {
+        timeSelection = {};
+        timeSelection.start = m->seconds; timeSelection.end = m->endSeconds;
+        timeSelection.firstTrack = 0; timeSelection.lastTrack = juce::jmax (0, session.getNumTracks() - 1);
+        setTimeSelection (timeSelection);
+    }
+    if (m->recallZoom) setView (m->viewStartSeconds, m->pixelsPerSecond);
+    if (onTimeSelectionChanged) onTimeSelectionChanged();
+    ensurePlayheadVisible();
+    if (onStatus) onStatus ("Memory location " + juce::String (m->id) + ": " + m->name);
+    repaint();
+}
+
+void TrackArea::addMarkerAtPlayhead (bool asSectionFromSelection)
+{
+    model::Marker m;
+    static const juce::Colour palette[] = { juce::Colour (0xffe6b422), juce::Colour (0xff3498db), juce::Colour (0xff2ecc71), juce::Colour (0xffe67e22), juce::Colour (0xff9b59b6), juce::Colour (0xff1abc9c) };
+    m.colour = palette[session.getMarkers().size() % 6];
+    if (asSectionFromSelection)
+    {
+        if (! timeSelection.isValid()) { if (onStatus) onStatus ("Select a time range first, then Shift+M adds a section"); return; }
+        m.isSection = true; m.seconds = timeSelection.start; m.endSeconds = timeSelection.end;
+        m.name = "Section " + juce::String (session.getSections().size() + 1);
+    }
+    else
+    {
+        m.seconds = transport.getPositionSeconds();
+        m.name = "Marker " + juce::String (session.getMarkers().size() + 1);
+        m.recallSelection = timeSelection.isValid();
+        m.selectionStart = timeSelection.start; m.selectionEnd = timeSelection.end;
+    }
+    auto cmd = std::make_unique<model::AddMarkerCommand> (m);
+    auto* raw = cmd.get();
+    session.execute (std::move (cmd));
+    promptMarkerName (raw->getMarkerId());
+}
+
+void TrackArea::promptMarkerName (int markerId)
+{
+    const auto* m = session.getMarker (markerId);
+    if (m == nullptr) return;
+    auto* window = new juce::AlertWindow (m->isSection ? "Section" : "Memory Location " + juce::String (m->id), "Name:", juce::MessageBoxIconType::NoIcon);
+    window->addTextEditor ("name", m->name);
+    window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    window->getTextEditor ("name")->selectAll();
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([this, markerId, window] (int result)
+    {
+        if (result == 1)
+            if (const auto* current = session.getMarker (markerId))
+            {
+                auto updated = *current;
+                updated.name = window->getTextEditorContents ("name").trim();
+                if (updated.name.isNotEmpty() && updated.name != current->name) session.execute (std::make_unique<model::ReplaceMarkerCommand> (updated, "Rename Memory Location"));
+            }
+        grabKeyboardFocus();
+    }), true);
+}
+
+void TrackArea::showMarkerMenu (int markerId, double seconds, juce::Point<int> screenPos)
+{
+    juce::PopupMenu menu;
+    const auto* m = session.getMarker (markerId);
+    if (m != nullptr)
+    {
+        menu.addItem (1, "Recall  (" + juce::String (m->name) + ")");
+        menu.addItem (2, "Rename...");
+        if (m->isSection)
+        {
+            menu.addSeparator();
+            menu.addItem (10, "Move Section Earlier");
+            menu.addItem (11, "Move Section Later");
+            menu.addItem (12, "Duplicate Section");
+            menu.addItem (13, "Delete Section and its Time");
+        }
+        else
+        {
+            menu.addItem (3, "Recall selection", true, m->recallSelection);
+            menu.addItem (4, "Recall zoom", true, m->recallZoom);
+            menu.addItem (5, "Store current selection and zoom");
+        }
+        menu.addSeparator();
+        menu.addItem (6, "Delete");
+    }
+    else
+    {
+        menu.addItem (20, "Add Memory Location here  (M at playhead)");
+        menu.addItem (21, "Add Section from selection  (Shift+M)", timeSelection.isValid());
+    }
+    menu.addSeparator();
+    menu.addItem (30, "Memory Locations window...  (Ctrl+5)");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, markerId, seconds] (int result)
+    {
+        if (result == 0) return;
+        const auto* cur = session.getMarker (markerId);
+        if (result == 1 && cur) recallMarker (markerId);
+        else if (result == 2 && cur) promptMarkerName (markerId);
+        else if ((result == 3 || result == 4 || result == 5) && cur)
+        {
+            auto updated = *cur;
+            if (result == 3) updated.recallSelection = ! updated.recallSelection;
+            if (result == 4) updated.recallZoom = ! updated.recallZoom;
+            if (result == 5)
+            {
+                updated.recallSelection = timeSelection.isValid(); updated.selectionStart = timeSelection.start; updated.selectionEnd = timeSelection.end;
+                updated.recallZoom = true; updated.viewStartSeconds = viewStartSeconds; updated.pixelsPerSecond = pixelsPerSecond;
+            }
+            session.execute (std::make_unique<model::ReplaceMarkerCommand> (updated));
+        }
+        else if (result == 6 && cur) session.execute (std::make_unique<model::RemoveMarkerCommand> (markerId));
+        else if (result == 10 || result == 11)
+        {
+            if (auto cmd = model::Arrangement::moveSection (session, markerId, result == 11)) { selectedClips.clear(); session.execute (std::move (cmd)); }
+            else if (onStatus) onStatus ("No section to swap with in that direction");
+        }
+        else if (result == 12) { if (auto cmd = model::Arrangement::duplicateSection (session, markerId)) { selectedClips.clear(); session.execute (std::move (cmd)); } }
+        else if (result == 13) { if (auto cmd = model::Arrangement::deleteSectionTime (session, markerId)) { selectedClips.clear(); session.execute (std::move (cmd)); } }
+        else if (result == 20)
+        {
+            transport.setPositionSeconds (snapSeconds (seconds));
+            addMarkerAtPlayhead (false);
+        }
+        else if (result == 21) addMarkerAtPlayhead (true);
+        else if (result == 30) { if (onOpenMemoryLocations) onOpenMemoryLocations(); }
+        repaint();
+    });
+}
+
+void TrackArea::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (e.x >= theme::trackHeaderWidth && e.y < theme::markerStripHeight && markerAtX (e.x) < 0)
+    {
+        transport.setPositionSeconds (snapSeconds (xToSeconds ((float) e.x)));
+        addMarkerAtPlayhead (false);
+    }
 }
 
 } // namespace beatmaker::ui

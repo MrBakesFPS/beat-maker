@@ -54,3 +54,14 @@ juce::Colour Session::colourForTrackIndex (int index)
 }
 
 } // namespace beatmaker::model
+
+namespace beatmaker::model
+{
+std::vector<const Marker*> Session::getSections() const
+{
+    std::vector<const Marker*> out;
+    for (const auto& m : markers) if (m.isSection && m.isRange()) out.push_back (&m);
+    std::sort (out.begin(), out.end(), [] (const Marker* a, const Marker* b) { return a->seconds < b->seconds; });
+    return out;
+}
+} // namespace beatmaker::model

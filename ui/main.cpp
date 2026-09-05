@@ -6,6 +6,9 @@
 
 #include "depth/BounceDialog.h"
 #include "depth/BeatDetectiveDialog.h"
+#include "depth/MemoryLocationsWindow.h"
+#include "depth/NewSessionDialog.h"
+#include <SessionFile.h>
 #include "shared/ElasticJob.h"
 #include "depth/EditToolbar.h"
 #include "depth/FadesDialog.h"
@@ -116,7 +119,8 @@ public:
         statusLabel.setFont (juce::FontOptions (12.0f));
         updateStatus();
 
-        transportBar.onOpenFile = [this] { openFileChooser(); };
+        transportBar.onOpenFile = [this] { showFileMenu(); };
+        trackArea.onOpenMemoryLocations = [this] { showMemoryLocations(); };
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
@@ -256,6 +260,33 @@ public:
     void setPunchRangeFromCommandLine (double start, double end) { trackArea.setTimeSelectionSeconds (start, end, 0); }
     void punchFromCommandLine() { if (engine.getRecorder().isRecording()) punchAll (! engine.getRecorder().isPunched (-1)); }
     void stopTransportFromCommandLine() { engine.getTransport().stop(); }
+    bool openSessionFromCommandLine (const juce::File& f) { return openSession (f); }
+    bool saveSessionFromCommandLine (const juce::File& f) { return writeSession (f, f.hasFileExtension ("bmkt")); }
+    void templateFromCommandLine (const juce::String& name)
+    {
+        for (const auto& c : templateChoices()) if (c.name.equalsIgnoreCase (name)) { applyTemplate (c, name); return; }
+        statusMessage = "Unknown template: " + name; updateStatus();
+    }
+    // --marker-demo: memory locations and arrangement sections over the beat-making template.
+    void markerDemoFromCommandLine()
+    {
+        templateFromCommandLine ("Beat Making");
+        const auto& tr = engine.getTransport();
+        const double bar = tr.beatsToSeconds (tr.getBeatsPerBar());
+        auto section = [&] (const char* name, int fromBar, int toBar, juce::uint32 colour)
+        {
+            model::Marker m; m.name = name; m.isSection = true; m.seconds = fromBar * bar; m.endSeconds = toBar * bar; m.colour = juce::Colour (colour);
+            session.execute (std::make_unique<model::AddMarkerCommand> (m));
+        };
+        section ("Intro", 0, 2, 0xff3498db); section ("Verse", 2, 4, 0xff2ecc71); section ("Chorus", 4, 6, 0xffe67e22);
+        model::Marker drop; drop.name = "Drop"; drop.seconds = 4 * bar; drop.recallSelection = true; drop.selectionStart = 4 * bar; drop.selectionEnd = 6 * bar;
+        session.execute (std::make_unique<model::AddMarkerCommand> (drop));
+        model::Marker outro; outro.name = "Outro"; outro.seconds = 6 * bar; outro.colour = juce::Colour (0xff9b59b6);
+        session.execute (std::make_unique<model::AddMarkerCommand> (outro));
+        trackArea.recallMarker (drop.id > 0 ? drop.id : 4);
+        statusMessage = "Marker demo: 3 sections and 2 memory locations; Alt+4 recalls Drop with its selection";
+        updateStatus();
+    }
     void beatDetectiveDemoFromCommandLine() { beatDetectiveDemo(); }
     void addInstrumentTrackFromCommandLine (const juce::String& name)
     {
@@ -615,7 +646,11 @@ public:
         if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0)) { session.undo(); return true; }
         if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)
          || key == juce::KeyPress ('y', juce::ModifierKeys::commandModifier, 0)) { session.redo(); return true; }
-        if (key == juce::KeyPress ('o', juce::ModifierKeys::commandModifier, 0)) { openFileChooser(); return true; }
+        if (key == juce::KeyPress ('o', juce::ModifierKeys::commandModifier, 0)) { openSessionChooser(); return true; }
+        if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier, 0)) { saveSession (false); return true; }
+        if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { saveSession (true); return true; }
+        if (key == juce::KeyPress ('n', juce::ModifierKeys::commandModifier, 0)) { showNewSessionDialog(); return true; }
+        if (key == juce::KeyPress ('5', juce::ModifierKeys::commandModifier, 0)) { showMemoryLocations(); return true; }
         if (key == juce::KeyPress ('c'))                      { transport.setLoopEnabled (! transport.isLoopEnabled()); return true; }
         if (key == juce::KeyPress ('r'))                      { toggleRecord(); return true; }
         if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
@@ -1493,6 +1528,7 @@ private:
 
     void timerCallback() override
     {
+        if (++autosaveCounter >= 20 * 60 * 3) { autosaveCounter = 0; autosaveTick(); }   // every 3 minutes at 20 Hz
         // Post-roll reached: stop (the take is finished below).
         if (engine.getRecorder().isRecording() && autoStopSample >= 0 && engine.getTransport().getPositionSamples() >= autoStopSample)
             engine.getTransport().stop();
@@ -1647,6 +1683,295 @@ private:
         resized();
     }
 
+    //==========================================================================
+    // Session files, templates, memory locations
+
+    static juce::File sessionsFolder()  { return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Sessions"); }
+    static juce::File templatesFolder() { return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Templates"); }
+
+    persistence::TransportState transportState() const
+    {
+        persistence::TransportState t;
+        const auto& tr = engine.getTransport();
+        t.bpm = tr.getBpm(); t.beatsPerBar = tr.getBeatsPerBar();
+        t.loopStart = tr.getLoopStart(); t.loopEnd = tr.getLoopEnd(); t.loopEnabled = tr.isLoopEnabled();
+        return t;
+    }
+
+    persistence::LoadContext loadContext()
+    {
+        persistence::LoadContext ctx;
+        ctx.sampleRate = engine.getSampleRate();
+        ctx.loadAudio = [this] (const juce::File& f) -> std::shared_ptr<const juce::AudioBuffer<float>>
+        {
+            juce::String error;
+            auto loaded = loader.load (f, engine.getSampleRate(), error);
+            return loaded ? loaded->audio : nullptr;
+        };
+        ctx.defaultKit = [this]
+        {
+            if (defaultKit == nullptr) defaultKit = engine::DrumKitFactory::createDefaultKit (engine.getSampleRate());
+            return defaultKit;
+        };
+        ctx.instantiatePlugin = [this] (const juce::String& id, juce::String& error) -> std::shared_ptr<engine::Effect>
+        {
+            auto desc = pluginManager.getKnownPlugins().getTypeForIdentifierString (id);
+            if (desc == nullptr) { error = "not in the plugin list"; return nullptr; }
+            return pluginManager.instantiate (*desc, engine.getSampleRate(), engine::AudioGraph::maxBlock, error);
+        };
+        return ctx;
+    }
+
+    void updateWindowTitle()
+    {
+        if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+            window->setName ((sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled")) + " - Beat Maker");
+    }
+
+    // Writes the session to `bundle` (a .bmk or .bmkt directory).
+    bool writeSession (const juce::File& bundle, bool asTemplate)
+    {
+        if (const auto error = persistence::SessionFile::save (session, transportState(), bundle); error.isNotEmpty())
+        {
+            statusMessage = "Save failed: " + error; updateStatus(); return false;
+        }
+        if (! asTemplate) { sessionFile = bundle; savedHistorySize = session.getHistory().getUndoName().hashCode(); updateWindowTitle(); }
+        statusMessage = (asTemplate ? "Saved template " : "Saved ") + bundle.getFileName();
+        updateStatus();
+        return true;
+    }
+
+    void saveSession (bool forceChooser)
+    {
+        if (sessionFile != juce::File() && ! forceChooser) { writeSession (sessionFile, false); return; }
+        sessionsFolder().createDirectory();
+        const auto suggested = sessionsFolder().getChildFile ((sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled")) + ".bmk");
+        fileChooser = std::make_unique<juce::FileChooser> ("Save Session As", suggested, "*.bmk");
+        fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                                  [this] (const juce::FileChooser& fc)
+                                  {
+                                      auto f = fc.getResult();
+                                      if (f == juce::File()) return;
+                                      if (! f.hasFileExtension ("bmk")) f = f.withFileExtension ("bmk");
+                                      writeSession (f, false);
+                                      grabKeyboardFocus();
+                                  });
+    }
+
+    void saveAsTemplate()
+    {
+        templatesFolder().createDirectory();
+        auto* window = new juce::AlertWindow ("Save As Template", "Template name:", juce::MessageBoxIconType::NoIcon);
+        window->addTextEditor ("name", sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : "My Template");
+        window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window] (int result)
+        {
+            const auto name = window->getTextEditorContents ("name").trim();
+            if (result == 1 && name.isNotEmpty())
+                writeSession (templatesFolder().getChildFile (juce::File::createLegalFileName (name) + ".bmkt"), true);
+            grabKeyboardFocus();
+        }), true);
+    }
+
+    bool openSession (const juce::File& bundle)
+    {
+        if (engine.getRecorder().isRecording()) finishRecording();
+        engine.getTransport().stop();
+        persistence::TransportState ts;
+        juce::StringArray warnings;
+        if (const auto error = persistence::SessionFile::load (session, ts, bundle, loadContext(), warnings); error.isNotEmpty())
+        {
+            statusMessage = "Open failed: " + error; updateStatus(); return false;
+        }
+        auto& tr = engine.getTransport();
+        tr.setBpm (ts.bpm); tr.setBeatsPerBar (ts.beatsPerBar);
+        tr.setLoopRange (ts.loopStart, ts.loopEnd); tr.setLoopEnabled (ts.loopEnabled);
+        tr.setPositionSamples (0);
+        trackArea.clearSelection();
+        trackArea.setSelectedTrack (session.getNumTracks() > 0 ? 0 : -1);
+        trackArea.zoomToFit();
+        sessionFile = bundle.hasFileExtension ("bmk") ? bundle : juce::File();   // templates open as Untitled
+        updateWindowTitle();
+        refreshRecordSettingsDisplay();
+        statusMessage = "Opened " + bundle.getFileNameWithoutExtension() + "  (" + juce::String (session.getNumTracks()) + " tracks)"
+                      + (warnings.isEmpty() ? juce::String() : "  WARNING: " + juce::String (warnings.size()) + " item(s) missing: " + warnings[0]);
+        updateStatus();
+        return true;
+    }
+
+    void openSessionChooser()
+    {
+        sessionsFolder().createDirectory();
+        fileChooser = std::make_unique<juce::FileChooser> ("Open Session or Audio File", sessionsFolder(), "*.bmk;*.bmkt;" + loader.getWildcard());
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
+                                  [this] (const juce::FileChooser& fc)
+                                  {
+                                      auto f = fc.getResult();
+                                      if (f == juce::File()) return;
+                                      if (f.getFileName() == "session.json") f = f.getParentDirectory();
+                                      if (persistence::SessionFile::isSessionBundle (f)) openSession (f);
+                                      else if (f.existsAsFile()) importAudioFile (f);
+                                      grabKeyboardFocus();
+                                  });
+    }
+
+    void newEmptySession (const juce::String& name)
+    {
+        if (engine.getRecorder().isRecording()) finishRecording();
+        engine.getTransport().stop();
+        session.execute (std::make_unique<model::LoadSessionCommand> (model::LoadSessionCommand::Contents {}));
+        session.clearHistory();
+        engine.getTransport().setLoopEnabled (false);
+        engine.getTransport().setPositionSamples (0);
+        trackArea.clearSelection();
+        sessionFile = juce::File();
+        untitledName = name;
+        updateWindowTitle();
+        refreshRecordSettingsDisplay();
+    }
+
+    // Built-in templates are recipes applied to an empty session.
+    std::vector<ui::NewSessionDialog::Choice> templateChoices()
+    {
+        std::vector<ui::NewSessionDialog::Choice> out {
+            { "Empty", "No tracks. Add what you need.", {} },
+            { "Beat Making", "Drum Machine, Synth, Bass and two audio tracks, 90 BPM, Cycle over 4 bars.", {} },
+            { "Songwriter", "Vocal and guitar tracks with a Concert Hall reverb bus and a master limiter, 120 BPM.", {} },
+            { "Podcast", "Two mono voice tracks with EQ and compression, a limiter on the master.", {} } };
+        for (const auto& f : templatesFolder().findChildFiles (juce::File::findDirectories, false, "*.bmkt"))
+            if (persistence::SessionFile::isSessionBundle (f))
+                out.push_back ({ f.getFileNameWithoutExtension(), "Saved " + f.getLastModificationTime().toString (true, true, false), f });
+        return out;
+    }
+
+    void applyTemplate (const ui::NewSessionDialog::Choice& choice, const juce::String& name)
+    {
+        if (choice.templateFile != juce::File()) { openSession (choice.templateFile); untitledName = name; updateWindowTitle(); return; }
+        newEmptySession (name);
+        const double sr = engine.getSampleRate();
+        auto& tr = engine.getTransport();
+        if (choice.name == "Beat Making")
+        {
+            tr.setBpm (90.0);
+            addDrumMachineTrack();
+            addInstrumentTrack (engine::InstrumentType::subtractive);
+            addInstrumentTrack (engine::InstrumentType::bass);
+            addTrack ("Vocal");
+            addTrack ("Sample");
+            tr.setLoopRange (0, (juce::int64) std::llround (tr.beatsToSeconds (16.0) * sr));
+            tr.setLoopEnabled (true);
+        }
+        else if (choice.name == "Songwriter")
+        {
+            tr.setBpm (120.0);
+            const int vox = addTrack ("Vocal"), gtr = addTrack ("Guitar");
+            session.execute (std::make_unique<model::SetInsertCommand> (vox, 0, engine::EffectType::eq, sr));
+            session.execute (std::make_unique<model::SetInsertCommand> (vox, 1, engine::EffectType::compressor, sr));
+            addAuxTrack();
+            const int verb = session.getNumTracks() - 1;
+            session.execute (std::make_unique<model::SetTrackRoutingCommand> (verb, 0, -1));
+            session.execute (std::make_unique<model::SetInsertCommand> (verb, 0, engine::EffectType::convolution, sr));
+            model::Send send; send.bus = 0; send.gain = 0.5f;
+            session.execute (std::make_unique<model::SetSendCommand> (vox, 0, send));
+            session.execute (std::make_unique<model::SetSendCommand> (gtr, 0, send));
+            session.execute (std::make_unique<model::SetInsertCommand> (-1, 0, engine::EffectType::limiter, sr));
+        }
+        else if (choice.name == "Podcast")
+        {
+            for (const char* n : { "Host", "Guest" })
+            {
+                const int t = addTrack (n);
+                session.execute (std::make_unique<model::SetInsertCommand> (t, 0, engine::EffectType::eq, sr));
+                session.execute (std::make_unique<model::SetInsertCommand> (t, 1, engine::EffectType::compressor, sr));
+            }
+            session.execute (std::make_unique<model::SetInsertCommand> (-1, 0, engine::EffectType::limiter, sr));
+        }
+        session.clearHistory();
+        trackArea.setSelectedTrack (session.getNumTracks() > 0 ? 0 : -1);
+        statusMessage = "New session from template: " + choice.name;
+        updateStatus();
+    }
+
+    void showNewSessionDialog()
+    {
+        auto* dialog = new ui::NewSessionDialog (templateChoices(), "Untitled");
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "New Session";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onCreate = [this, window] (const ui::NewSessionDialog::Choice& c, const juce::String& name)
+        {
+            window->setVisible (false);
+            applyTemplate (c, name);
+            grabKeyboardFocus();
+        };
+    }
+
+    void showFileMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "New Session...  (Ctrl+N)");
+        menu.addItem (2, "Open Session or Audio...  (Ctrl+O)");
+        menu.addSeparator();
+        menu.addItem (3, "Save  (Ctrl+S)");
+        menu.addItem (4, "Save As...  (Ctrl+Shift+S)");
+        menu.addItem (5, "Save As Template...");
+        menu.addSeparator();
+        menu.addItem (6, "Import Audio Files...");
+        menu.addItem (7, "Memory Locations...  (Ctrl+5)");
+        menu.showMenuAsync (juce::PopupMenu::Options(), [this] (int r)
+        {
+            switch (r)
+            {
+                case 1: showNewSessionDialog(); break;
+                case 2: openSessionChooser(); break;
+                case 3: saveSession (false); break;
+                case 4: saveSession (true); break;
+                case 5: saveAsTemplate(); break;
+                case 6: openFileChooser(); break;
+                case 7: showMemoryLocations(); break;
+                default: break;
+            }
+        });
+    }
+
+    void showMemoryLocations()
+    {
+        if (memoryWindow != nullptr) { memoryWindow->setVisible (true); memoryWindow->toFront (true); return; }
+        auto* content = new ui::MemoryLocationsWindow (session);
+        content->onRecall = [this] (int id) { trackArea.recallMarker (id); };
+        content->onRename = [this] (int id) { trackArea.showMarkerMenu (id, 0.0, juce::Desktop::getMousePosition()); };
+        content->onAdd = [this] { trackArea.addMarkerAtPlayhead (false); };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Memory Locations";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        memoryWindow = options.launchAsync();
+    }
+
+    // Autosave every few minutes into the bundle's backups folder.
+    void autosaveTick()
+    {
+        if (sessionFile == juce::File() || ! session.getHistory().canUndo()) return;
+        const auto backups = sessionFile.getChildFile ("Session File Backups");
+        backups.createDirectory();
+        const auto target = backups.getChildFile ("autosave-" + juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S") + ".bmkt");
+        persistence::SessionFile::save (session, transportState(), target);
+        // keep the five newest
+        auto old = backups.findChildFiles (juce::File::findDirectories, false, "autosave-*.bmkt");
+        old.sort();
+        while (old.size() > 5) { old.getReference (0).deleteRecursively(); old.remove (0); }
+    }
+
     void openFileChooser()
     {
         fileChooser = std::make_unique<juce::FileChooser> ("Open Audio File",
@@ -1726,6 +2051,10 @@ private:
     bool loopRecording = false;
     juce::int64 loopRecordStart = 0, loopRecordEnd = 0;
     juce::int64 autoStopSample = -1;   // post-roll end while punch recording
+    juce::File sessionFile;            // the open .bmk bundle (empty = Untitled)
+    juce::String untitledName = "Untitled";
+    int savedHistorySize = 0, autosaveCounter = 0;
+    juce::Component::SafePointer<juce::DialogWindow> memoryWindow;
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -1799,6 +2128,10 @@ public:
                 const auto parts = juce::StringArray::fromTokens (arg.fromFirstOccurrenceOf ("=", false, false), ",", {});
                 if (parts.size() == 2) main.setPunchRangeFromCommandLine (parts[0].getDoubleValue(), parts[1].getDoubleValue());
             }
+            else if (arg.startsWith ("--session=")) main.openSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
+            else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
+            else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg == "--marker-demo") main.markerDemoFromCommandLine();
             else if (arg.startsWith ("--stop-at="))    // seconds after launch: stop the transport (smoke tests)
                 juce::Timer::callAfterDelay (juce::roundToInt (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue() * 1000.0), [&main] { main.stopTransportFromCommandLine(); });
             else if (arg.startsWith ("--punch-at="))   // seconds after launch: toggle punch (QuickPunch/TrackPunch smoke tests)

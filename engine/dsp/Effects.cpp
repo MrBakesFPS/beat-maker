@@ -960,11 +960,12 @@ void ConvolutionEffect::reset()
     for (auto& s : highCutState) s = {};
 }
 
-void ConvolutionEffect::setCustomImpulse (std::shared_ptr<const juce::AudioBuffer<float>> buffer, double rate, juce::String name)
+void ConvolutionEffect::setCustomImpulse (std::shared_ptr<const juce::AudioBuffer<float>> buffer, double rate, juce::String name, juce::String path)
 {
     customImpulse = std::move (buffer);
     customRate = rate > 0.0 ? rate : sampleRate;
     customName = std::move (name);
+    customPath = std::move (path);
     ++customGeneration;
 }
 

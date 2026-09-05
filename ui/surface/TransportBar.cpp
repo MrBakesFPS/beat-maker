@@ -52,6 +52,8 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
 
     addAndMakeVisible (openButton);
     openButton.setTooltip ("Import an audio file (Ctrl+O)");
+    openButton.setButtonText ("File...");
+    openButton.setTooltip ("New, open, save, templates, import audio (Ctrl+N / Ctrl+O / Ctrl+S)");
     openButton.onClick = [this] { if (onOpenFile) onOpenFile(); };
 
     addAndMakeVisible (bounceButton);

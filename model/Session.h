@@ -189,6 +189,27 @@ inline const char* recordModeName (RecordMode m)
     return "";
 }
 
+// Memory locations (Pro Tools) and arrangement sections. A marker is a
+// point (endSeconds < 0) or a range; sections are ranges shown in the
+// arrangement strip and can be reordered, moving their contents. Markers
+// optionally recall the edit selection and zoom.
+struct Marker
+{
+    int id = 0;                    // stable, also the "memory location number"
+    juce::String name;
+    double seconds = 0.0;
+    double endSeconds = -1.0;      // < 0: a point marker
+    juce::Colour colour { 0xffe6b422 };
+    bool isSection = false;
+    bool recallSelection = false;
+    double selectionStart = 0.0, selectionEnd = 0.0;
+    bool recallZoom = false;
+    double viewStartSeconds = 0.0, pixelsPerSecond = 60.0;
+
+    bool isRange() const noexcept { return endSeconds > seconds; }
+    double length() const noexcept { return isRange() ? endSeconds - seconds : 0.0; }
+};
+
 struct RecordSettings
 {
     RecordMode mode = RecordMode::normal;
@@ -305,6 +326,11 @@ public:
     juce::String busName (int bus) const { return io.busName (bus); }
     bool isDelayCompensationEnabled() const noexcept { return delayCompensation; }
     const RecordSettings& getRecordSettings() const noexcept { return recordSettings; }
+    const std::vector<Marker>& getMarkers() const noexcept { return markers; }
+    const Marker* getMarker (int id) const noexcept { for (const auto& m : markers) if (m.id == id) return &m; return nullptr; }
+    int indexOfMarkerId (int id) const noexcept { for (int i = 0; i < (int) markers.size(); ++i) if (markers[(size_t) i].id == id) return i; return -1; }
+    // Sections in timeline order.
+    std::vector<const Marker*> getSections() const;
 
     // The device input channels a track records/monitors from.
     std::pair<int, int> resolveInput (const Track& t) const noexcept
@@ -321,6 +347,7 @@ public:
     bool undo() { const bool ok = history.undo (*this); if (ok) notify(); return ok; }
     bool redo() { const bool ok = history.redo (*this); if (ok) notify(); return ok; }
     const CommandHistory& getHistory() const noexcept { return history; }
+    void clearHistory() { history.clear(); notify(); }
 
     void addListener (Listener* l)    { listeners.add (l); }
     void removeListener (Listener* l) { listeners.remove (l); }
@@ -353,6 +380,10 @@ private:
     friend class SetDelayCompensationCommand;
     friend class SetRecordSettingsCommand;
     friend class SetTrackPunchCommand;
+    friend class AddMarkerCommand;
+    friend class RemoveMarkerCommand;
+    friend class ReplaceMarkerCommand;
+    friend class LoadSessionCommand;
     friend class CreateGroupCommand;
     friend class RemoveGroupCommand;
     friend class ReplaceGroupCommand;
@@ -373,6 +404,8 @@ private:
     IOSetup io = IOSetup::createDefault (2, 2);
     bool delayCompensation = true;
     RecordSettings recordSettings;
+    std::vector<Marker> markers;
+    int nextMarkerId = 1;
     std::vector<Group> groups;
     int nextGroupId = 1;
     int nextTrackId = 1;
@@ -939,6 +972,114 @@ public:
 private:
     IOSetup newSetup, old;
     std::vector<std::pair<int, int>> oldTrackPaths;
+};
+
+class AddMarkerCommand final : public Command
+{
+public:
+    explicit AddMarkerCommand (Marker m) : marker (std::move (m)) {}
+    juce::String getName() const override { return marker.isSection ? "Add Section" : "Add Memory Location"; }
+    void execute (Session& s) override
+    {
+        if (marker.id <= 0 || s.getMarker (marker.id) != nullptr) marker.id = s.nextMarkerId;
+        s.nextMarkerId = juce::jmax (s.nextMarkerId, marker.id + 1);
+        s.markers.push_back (marker);
+        std::stable_sort (s.markers.begin(), s.markers.end(), [] (const Marker& a, const Marker& b) { return a.seconds < b.seconds; });
+    }
+    void undo (Session& s) override { std::erase_if (s.markers, [this] (const Marker& m) { return m.id == marker.id; }); }
+    int getMarkerId() const noexcept { return marker.id; }
+private:
+    Marker marker;
+};
+
+class RemoveMarkerCommand final : public Command
+{
+public:
+    explicit RemoveMarkerCommand (int markerId) : id (markerId) {}
+    juce::String getName() const override { return "Delete Memory Location"; }
+    void execute (Session& s) override
+    {
+        if (const auto* m = s.getMarker (id)) removed = *m;
+        std::erase_if (s.markers, [this] (const Marker& m) { return m.id == id; });
+    }
+    void undo (Session& s) override
+    {
+        if (removed.id == id && s.getMarker (id) == nullptr)
+        {
+            s.markers.push_back (removed);
+            std::stable_sort (s.markers.begin(), s.markers.end(), [] (const Marker& a, const Marker& b) { return a.seconds < b.seconds; });
+        }
+    }
+private:
+    int id;
+    Marker removed;
+};
+
+class ReplaceMarkerCommand final : public Command
+{
+public:
+    ReplaceMarkerCommand (Marker m, juce::String commandName = "Edit Memory Location") : marker (std::move (m)), name (std::move (commandName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override
+    {
+        const int i = s.indexOfMarkerId (marker.id);
+        if (i < 0) return;
+        old = s.markers[(size_t) i];
+        s.markers[(size_t) i] = marker;
+        std::stable_sort (s.markers.begin(), s.markers.end(), [] (const Marker& a, const Marker& b) { return a.seconds < b.seconds; });
+    }
+    void undo (Session& s) override
+    {
+        const int i = s.indexOfMarkerId (marker.id);
+        if (i < 0) return;
+        s.markers[(size_t) i] = old;
+        std::stable_sort (s.markers.begin(), s.markers.end(), [] (const Marker& a, const Marker& b) { return a.seconds < b.seconds; });
+    }
+private:
+    Marker marker, old;
+    juce::String name;
+};
+
+// Replaces the whole document (opening a session / template). Not undoable:
+// the history is cleared by the caller.
+class LoadSessionCommand final : public Command
+{
+public:
+    struct Contents
+    {
+        std::vector<Track> tracks;
+        Track master;
+        IOSetup io;
+        bool delayCompensation = true;
+        RecordSettings recordSettings;
+        std::vector<Marker> markers;
+        std::vector<Group> groups;
+        double bpm = 120.0;
+        int beatsPerBar = 4;
+    };
+    explicit LoadSessionCommand (Contents c) : contents (std::move (c)) {}
+    juce::String getName() const override { return "Open Session"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override
+    {
+        s.tracks = contents.tracks;
+        s.master = contents.master;
+        s.io = contents.io;
+        s.delayCompensation = contents.delayCompensation;
+        s.recordSettings = contents.recordSettings;
+        s.markers = contents.markers;
+        s.groups = contents.groups;
+        s.bpm = contents.bpm;
+        s.beatsPerBar = contents.beatsPerBar;
+        int maxTrack = 0, maxGroup = 0, maxMarker = 0;
+        for (const auto& t : s.tracks) maxTrack = juce::jmax (maxTrack, t.id);
+        for (const auto& g : s.groups) maxGroup = juce::jmax (maxGroup, g.id);
+        for (const auto& m : s.markers) maxMarker = juce::jmax (maxMarker, m.id);
+        s.nextTrackId = maxTrack + 1; s.nextGroupId = maxGroup + 1; s.nextMarkerId = maxMarker + 1;
+    }
+    void undo (Session&) override {}
+private:
+    Contents contents;
 };
 
 // Record mode and pre/post-roll: transport settings, not document edits.

@@ -42,11 +42,20 @@ public:
     };
     const TimeSelection& getTimeSelection() const noexcept { return timeSelection; }
     void setTimeSelectionSeconds (double start, double end, int trackIndex);   // e.g. punch range from the command line
+
+    // Memory locations / arrangement sections (the strip above the ruler)
+    void recallMarker (int markerId);
+    void addMarkerAtPlayhead (bool asSectionFromSelection = false);
+    void showMarkerMenu (int markerId, double seconds, juce::Point<int> screenPos);
+    void getView (double& viewStart, double& pixelsPerSec) const { viewStart = viewStartSeconds; pixelsPerSec = pixelsPerSecond; }
+    void setView (double viewStart, double pixelsPerSec) { viewStartSeconds = juce::jmax (0.0, viewStart); pixelsPerSecond = juce::jlimit (5.0, 400000.0, pixelsPerSec); repaint(); }
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     const std::vector<model::ClipRef>& getSelectedClips() const noexcept { return selectedClips; }
     // Beat Detective target: the selected audio clips, else the selected track's clips inside the
     // time selection, else all of the selected track's audio clips.
     std::vector<model::ClipRef> clipsForRhythmEditing() const;
     std::function<void()> onOpenBeatDetective;
+    std::function<void()> onOpenMemoryLocations;
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
 
@@ -167,6 +176,9 @@ private:
     void ensurePlayheadVisible();
 
     void paintRuler (juce::Graphics&, juce::Rectangle<int>);
+    void paintMarkerStrip (juce::Graphics&, juce::Rectangle<int>);
+    int markerAtX (int x) const;   // marker id under x in the strip, -1 = none
+    void promptMarkerName (int markerId);
     void paintHeader (juce::Graphics&, const model::Track&, int index, juce::Rectangle<int>);
     void paintLane (juce::Graphics&, const model::Track&, juce::Rectangle<int>);
     void paintAudioClip (juce::Graphics&, const model::Track&, const model::AudioClip&, juce::Rectangle<int> lane);

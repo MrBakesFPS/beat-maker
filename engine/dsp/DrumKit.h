@@ -14,6 +14,7 @@ struct DrumSample
     juce::String name;
     std::shared_ptr<const juce::AudioBuffer<float>> audio; // at engine sample rate
     float gain = 1.0f;
+    juce::String sourcePath;   // file the sample came from (empty for synthesised pads)
 };
 
 struct DrumKit

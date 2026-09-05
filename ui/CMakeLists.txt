@@ -21,7 +21,9 @@ target_sources(BeatMaker PRIVATE
     depth/MixerView.cpp
     depth/IOSetupDialog.cpp
     depth/GroupDialog.cpp
-    depth/BeatDetectiveDialog.cpp)
+    depth/BeatDetectiveDialog.cpp
+    depth/MemoryLocationsWindow.cpp
+    depth/NewSessionDialog.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     BEATMAKER_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"

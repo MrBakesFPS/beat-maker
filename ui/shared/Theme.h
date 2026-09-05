@@ -21,7 +21,8 @@ inline const juce::Colour play         { 0xff27ae60 };
 inline const juce::Colour stop         { 0xff7f8c8d };
 
 constexpr int transportHeight = 56;
-constexpr int rulerHeight     = 28;
+constexpr int rulerHeight     = 48;   // markers/sections strip (top 20 px) + bars/beats ruler
+constexpr int markerStripHeight = 20;
 constexpr int trackHeaderWidth= 200;
 constexpr int trackHeight     = 124;
 
