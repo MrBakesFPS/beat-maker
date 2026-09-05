@@ -40,6 +40,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --sidechain-demo --mixer                       # kick-keyed compressor on a pad
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --convolution-demo --bounce=cathedral.wav      # e-piano in a Cathedral IR
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pitch-demo --mixer                           # sharp bass line tuned back to A minor
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --beat-detective-demo                          # slice, swing-conform and crossfade a loop
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -216,6 +217,14 @@ Run the tests with `ctest --test-dir build`.
   the next / previous transient of the selected audio track (or all audio
   tracks when none is selected), and Separate at Transients in the clip menu
   splits a clip at every detected hit as one undo step.
+- Beat Detective (Ctrl+8, or from the clip menu): a window with Sensitivity,
+  Strength, Exclude Within, Swing, smoothing mode and crossfade length, and
+  the three steps on the selected clips (or the selected track): Separate at
+  transients, Clip Conform (each slice's start moves toward the nearest line
+  of the edit grid; Swing delays every second line, 100% being the triplet
+  position), and Edit Smoothing (fill gaps by extending each slice to the
+  next, optionally overlapping with equal-power crossfades). Do All runs the
+  three in a row.
 - Recording: arm an audio track (R), pick its input, optionally enable input
   monitoring (I), then press Record. Takes are written as 24-bit WAV to
   `~/Music/Beat Maker/Audio Files` on a background thread and land on the
@@ -234,9 +243,8 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: Beat Detective clip conform and edit smoothing,
-background rendering of long stretches, CLAP hosting, and sidechain inputs
-for hosted plugins. See PLAN.md §5.
+Still to come in Phase 3: background rendering of long stretches, sidechain
+inputs for hosted plugins, and CLAP hosting. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

@@ -2282,6 +2282,7 @@ void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screen
     menu.addItem (4, "Clear Warp Markers", elastic && ! clip.elastic.markers.empty());
     menu.addSeparator();
     menu.addItem (5, "Separate at Transients");
+    menu.addItem (7, "Beat Detective...  (Ctrl+8)");
     menu.addItem (6, "Reset Elastic (original audio)", elastic);
 
     const double anchor = dragAnchorSeconds;
@@ -2326,7 +2327,28 @@ void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screen
         }
         else if (result == 6)
             applyElastic (ref, model::Elastic::withMode (c, engine::StretchMode::off), "Reset Elastic");
+        else if (result == 7)
+        {
+            if (onOpenBeatDetective) onOpenBeatDetective();
+        }
     });
+}
+
+std::vector<model::ClipRef> TrackArea::clipsForRhythmEditing() const
+{
+    std::vector<model::ClipRef> out;
+    for (const auto& r : selectedClips) if (r.kind == model::ClipRef::Kind::audio) out.push_back (r);
+    if (! out.empty()) return out;
+
+    const auto* t = session.getTrack (selectedTrack);
+    if (t == nullptr || ! t->isAudio()) return out;
+    for (int i = 0; i < (int) t->clips.size(); ++i)
+    {
+        const auto& c = t->clips[(size_t) i];
+        if (timeSelection.isValid() && (c.getEndSeconds() <= timeSelection.start || c.getStartSeconds() >= timeSelection.end)) continue;
+        out.push_back ({ selectedTrack, model::ClipRef::Kind::audio, i });
+    }
+    return out;
 }
 
 void TrackArea::quantizeSelection()

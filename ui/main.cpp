@@ -5,6 +5,7 @@
 // together. All edits flow: UI -> Command -> Session -> RenderSnapshot -> engine.
 
 #include "depth/BounceDialog.h"
+#include "depth/BeatDetectiveDialog.h"
 #include "depth/EditToolbar.h"
 #include "depth/FadesDialog.h"
 #include "depth/GroupDialog.h"
@@ -187,6 +188,7 @@ public:
             session.execute (std::make_unique<model::SetInstrumentParamsCommand> (track, std::move (p), "Change Preset"));
         };
         trackArea.onStatus = [this] (const juce::String& text) { statusMessage = text; updateStatus(); };
+        trackArea.onOpenBeatDetective = [this] { showBeatDetective(); };
         trackArea.onMuteChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::mute, on)); };
         trackArea.onSoloChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on)); };
         trackArea.onArmChanged  = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::arm, on)); };
@@ -222,6 +224,7 @@ public:
     // Command-line entry points (also handy for smoke tests and demos).
     void addDrumMachineTrackFromCommandLine() { addDrumMachineTrack(); }
     void addSynthTrackFromCommandLine() { addInstrumentTrack (engine::InstrumentType::subtractive); }
+    void beatDetectiveDemoFromCommandLine() { beatDetectiveDemo(); }
     void addInstrumentTrackFromCommandLine (const juce::String& name)
     {
         for (auto type : engine::Instrument::availableTypes())
@@ -580,6 +583,7 @@ public:
         if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
         if (key == juce::KeyPress ('f', juce::ModifierKeys::commandModifier, 0)) { showFadesDialog(); return true; }
         if (key == juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 0)) { showGroupDialog (-1); return true; }
+        if (key == juce::KeyPress ('8', juce::ModifierKeys::commandModifier, 0)) { showBeatDetective(); return true; }
         if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0)) { showIOSetupDialog(); return true; }
 
         // Clip edits reach the track area even when it doesn't have focus
@@ -762,6 +766,96 @@ private:
     }
 
     // groupId < 0 creates a new group seeded with the selected track
+    // Beat Detective window (non-modal; stays open while you work)
+    void showBeatDetective()
+    {
+        if (beatDetectiveWindow != nullptr) { beatDetectiveWindow->setVisible (true); beatDetectiveWindow->toFront (true); return; }
+        auto* dialog = new ui::BeatDetectiveDialog (editSettings);
+        beatDetectiveDialog = dialog;
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Beat Detective";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        beatDetectiveWindow = options.launchAsync();
+
+        auto target = [this] (const char* what) -> std::vector<model::ClipRef>
+        {
+            auto clips = trackArea.clipsForRhythmEditing();
+            if (clips.empty() && beatDetectiveDialog != nullptr) beatDetectiveDialog->setStatus (juce::String (what) + ": select audio clips or an audio track first");
+            return clips;
+        };
+        auto report = [this] (const juce::String& text) { if (beatDetectiveDialog != nullptr) beatDetectiveDialog->setStatus (text); statusMessage = text; updateStatus(); };
+
+        dialog->onSeparate = [this, target, report, dialog]
+        {
+            const auto clips = target ("Separate");
+            if (clips.empty()) return;
+            if (auto cmd = model::BeatDetective::separate (session, clips, dialog->sensitivity()))
+            {
+                const int before = (int) session.getTracks()[(size_t) clips[0].track].clips.size();
+                session.execute (std::move (cmd));
+                report ("Separated: " + juce::String ((int) session.getTracks()[(size_t) clips[0].track].clips.size() - before) + " new clips");
+            }
+            else report ("Separate: no transients found");
+        };
+        dialog->onConform = [this, target, report, dialog]
+        {
+            const auto clips = target ("Conform");
+            if (clips.empty()) return;
+            if (auto cmd = model::BeatDetective::conform (session, clips, dialog->conformSettings (engine.getTransport().getBpm())))
+            { session.execute (std::move (cmd)); report ("Conformed " + juce::String (clips.size()) + " clips to the grid"); }
+            else report ("Conform: every clip is already on the grid");
+        };
+        dialog->onSmooth = [this, target, report, dialog]
+        {
+            const auto clips = target ("Smooth");
+            if (clips.empty()) return;
+            if (auto cmd = model::BeatDetective::smooth (session, clips, dialog->smoothingSettings()))
+            { session.execute (std::move (cmd)); report ("Smoothed " + juce::String (clips.size()) + " clips"); }
+            else report ("Smooth: nothing to fill");
+        };
+        dialog->onAll = [this, dialog]
+        {
+            dialog->onSeparate();
+            // After separating, operate on every clip of the same track(s)
+            auto clips = trackArea.clipsForRhythmEditing();
+            if (clips.empty()) return;
+            std::vector<model::ClipRef> all;
+            for (const auto& r : clips)
+                if (std::none_of (all.begin(), all.end(), [&] (const model::ClipRef& o) { return o.track == r.track; }))
+                    for (int i = 0; i < (int) session.getTracks()[(size_t) r.track].clips.size(); ++i) all.push_back ({ r.track, model::ClipRef::Kind::audio, i });
+            if (auto cmd = model::BeatDetective::conform (session, all, dialog->conformSettings (engine.getTransport().getBpm()))) session.execute (std::move (cmd));
+            if (auto cmd = model::BeatDetective::smooth (session, all, dialog->smoothingSettings())) session.execute (std::move (cmd));
+            statusMessage = "Beat Detective: separated, conformed and smoothed (3 undo steps)";
+            updateStatus();
+            if (beatDetectiveDialog != nullptr) beatDetectiveDialog->setStatus (statusMessage);
+        };
+    }
+
+    // --beat-detective-demo: the 90 BPM hip hop loop conformed to 120, separated at its
+    // transients, conformed to 1/16 with 40% swing and smoothed with 5 ms crossfades.
+    void beatDetectiveDemo()
+    {
+        importLoop (bundledLoopsFolder().getChildFile ("Hip Hop Beat 90.wav"), -1, 0.0);
+        const int track = session.getNumTracks() - 1;
+        if (track < 0) return;
+        trackArea.setSelectedTrack (track);
+        std::vector<model::ClipRef> clips { { track, model::ClipRef::Kind::audio, 0 } };
+        if (auto cmd = model::BeatDetective::separate (session, clips, 0.5f)) session.execute (std::move (cmd));
+        std::vector<model::ClipRef> all;
+        for (int i = 0; i < (int) session.getTracks()[(size_t) track].clips.size(); ++i) all.push_back ({ track, model::ClipRef::Kind::audio, i });
+        model::ConformSettings c; c.bpm = engine.getTransport().getBpm(); c.gridBeats = 0.25; c.swing = 0.4f;
+        if (auto cmd = model::BeatDetective::conform (session, all, c)) session.execute (std::move (cmd));
+        model::SmoothingSettings sm; sm.fillGaps = true; sm.crossfade = true; sm.crossfadeMs = 5.0;
+        if (auto cmd = model::BeatDetective::smooth (session, all, sm)) session.execute (std::move (cmd));
+        statusMessage = "Beat Detective demo: " + juce::String (all.size()) + " slices, conformed to 1/16 with 40% swing, crossfaded";
+        updateStatus();
+        showBeatDetective();
+    }
+
     void showGroupDialog (int groupId)
     {
         model::Group initial;
@@ -1437,6 +1531,8 @@ private:
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
+    juce::Component::SafePointer<juce::DialogWindow> beatDetectiveWindow;
+    juce::Component::SafePointer<ui::BeatDetectiveDialog> beatDetectiveDialog;
     std::unique_ptr<BounceJob> bounceJob;
 
     plugins::PluginManager pluginManager {
@@ -1514,6 +1610,7 @@ public:
             else if (arg == "--sidechain-demo") main.sidechainDemoFromCommandLine();
             else if (arg == "--convolution-demo") main.convolutionDemoFromCommandLine();
             else if (arg == "--pitch-demo") main.pitchDemoFromCommandLine();
+            else if (arg == "--beat-detective-demo") main.beatDetectiveDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

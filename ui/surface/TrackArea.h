@@ -42,6 +42,10 @@ public:
     };
     const TimeSelection& getTimeSelection() const noexcept { return timeSelection; }
     const std::vector<model::ClipRef>& getSelectedClips() const noexcept { return selectedClips; }
+    // Beat Detective target: the selected audio clips, else the selected track's clips inside the
+    // time selection, else all of the selected track's audio clips.
+    std::vector<model::ClipRef> clipsForRhythmEditing() const;
+    std::function<void()> onOpenBeatDetective;
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
 
