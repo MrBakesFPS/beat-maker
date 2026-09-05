@@ -29,6 +29,7 @@
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
 #include <dsp/Resampler.h>
+#include <dsp/PitchCorrection.h>
 #include <Elastic.h>
 #include <RenderSnapshotBuilder.h>
 #include <Session.h>
@@ -297,6 +298,26 @@ public:
         session.execute (std::make_unique<model::SetInsertParamsCommand> (pad, 0, std::move (p)));
         session.execute (std::make_unique<model::SetInsertKeyCommand> (pad, 0, 0, false));
         statusMessage = "Sidechain demo: the pad's compressor is keyed from Bus 1-2, fed pre-fader by the drums";
+        updateStatus();
+    }
+
+    // --pitch-demo: the bundled bass line pushed 40 cents sharp with Elastic
+    // pitch shift, then pulled back to A minor by a Pitch Correction insert.
+    void pitchDemoFromCommandLine()
+    {
+        const double sr = engine.getSampleRate();
+        importLoop (bundledLoopsFolder().getChildFile ("Sub Bass Line 120 Am.wav"), -1, 0.0);
+        const int track = session.getNumTracks() - 1;
+        if (track < 0 || session.getTracks()[(size_t) track].clips.empty()) return;
+        const model::ClipRef ref { track, model::ClipRef::Kind::audio, 0 };
+        session.execute (std::make_unique<model::SetClipElasticCommand> (session, ref, model::Elastic::withPitch (session.getTracks()[(size_t) track].clips[0], 0.4), "Pitch Shift"));
+        session.execute (std::make_unique<model::SetInsertCommand> (track, 0, engine::EffectType::pitchCorrection, sr));
+        auto p = std::make_shared<engine::InsertParams> (engine::Effect::defaultParams (engine::EffectType::pitchCorrection));
+        p->values[engine::PitchCorrectionEffect::key] = 9.0f;   // A
+        p->values[engine::PitchCorrectionEffect::scale] = (float) engine::PitchCorrectionEffect::minor;
+        p->values[engine::PitchCorrectionEffect::speed] = 10.0f;
+        session.execute (std::make_unique<model::SetInsertParamsCommand> (track, 0, std::move (p)));
+        statusMessage = "Pitch demo: bass line shifted +40 cents, corrected back to A minor by the insert";
         updateStatus();
     }
 
@@ -1492,6 +1513,7 @@ public:
             else if (arg == "--elastic-demo") main.elasticDemoFromCommandLine();
             else if (arg == "--sidechain-demo") main.sidechainDemoFromCommandLine();
             else if (arg == "--convolution-demo") main.convolutionDemoFromCommandLine();
+            else if (arg == "--pitch-demo") main.pitchDemoFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

@@ -12,6 +12,7 @@ target_sources(beatmaker_engine INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/TimeStretch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Transients.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/dsp/Instruments.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/dsp/PitchCorrection.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/graph/AudioGraph.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/AudioEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/Recorder.cpp

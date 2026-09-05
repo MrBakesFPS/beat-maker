@@ -1,4 +1,5 @@
 #include "Effects.h"
+#include "PitchCorrection.h"
 #include <cmath>
 #include <complex>
 
@@ -12,7 +13,8 @@ const std::vector<EffectType>& Effect::availableTypes()
 {
     static const std::vector<EffectType> types { EffectType::eq, EffectType::compressor, EffectType::limiter, EffectType::gate, EffectType::deesser,
                                                  EffectType::delay, EffectType::reverb, EffectType::chorus, EffectType::flanger, EffectType::phaser,
-                                                 EffectType::saturation, EffectType::ampSim, EffectType::utility, EffectType::convolution };
+                                                 EffectType::saturation, EffectType::ampSim, EffectType::utility, EffectType::convolution,
+                                                 EffectType::pitchCorrection };
     return types;
 }
 
@@ -36,6 +38,7 @@ const char* Effect::typeName (EffectType t)
         case EffectType::utility:    return "Utility";
         case EffectType::plugin:     return "Plugin";
         case EffectType::convolution: return "Convolution Reverb";
+        case EffectType::pitchCorrection: return "Pitch Correction";
     }
     return "";
 }
@@ -129,6 +132,14 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         { "Damping",    0.0f, 100.0f,  50.0f,  0.0f, " %" },
         { "Width",      0.0f, 100.0f, 100.0f,  0.0f, " %" },
         { "Mix",        0.0f, 100.0f,  25.0f,  0.0f, " %" } };
+    static const std::vector<ParamInfo> pitchCorrection {
+        { "Key",        0.0f, 11.0f,    0.0f,  0.0f, "" },
+        { "Scale",      0.0f, 4.0f,     0.0f,  0.0f, "" },
+        { "Speed",      0.0f, 400.0f,  20.0f, 60.0f, " ms" },
+        { "Amount",     0.0f, 100.0f, 100.0f,  0.0f, " %" },
+        { "Transpose", -12.0f, 12.0f,   0.0f,  0.0f, " st" },
+        { "Formant",    0.0f, 1.0f,     1.0f,  0.0f, "" },
+        { "Mix",        0.0f, 100.0f, 100.0f,  0.0f, " %" } };
     static const std::vector<ParamInfo> convolution {
         { "Impulse",    0.0f, 6.0f,     0.0f,  0.0f, "" },        // hall, chamber, room, plate, ambience, cathedral, custom
         { "Pre-delay",  0.0f, 250.0f,  10.0f, 40.0f, " ms" },
@@ -148,6 +159,7 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         case EffectType::delay:      return delay;
         case EffectType::reverb:     return reverb;
         case EffectType::convolution: return convolution;
+        case EffectType::pitchCorrection: return pitchCorrection;
         case EffectType::chorus:     return chorus;
         case EffectType::flanger:    return flanger;
         case EffectType::phaser:     return phaser;
@@ -158,6 +170,22 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         case EffectType::plugin:     break;
     }
     return none;
+}
+
+const std::vector<const char*>* Effect::choices (EffectType t, int param)
+{
+    static const std::vector<const char*> keys { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    static const std::vector<const char*> scales { "Chromatic", "Major", "Minor", "Major Pentatonic", "Minor Pentatonic" };
+    static const std::vector<const char*> formant { "Formant: Shift", "Formant: Preserve" };
+    static const std::vector<const char*> delayModes { "Digital", "Tape", "Ping-Pong" };
+    if (t == EffectType::pitchCorrection)
+    {
+        if (param == PitchCorrectionEffect::key) return &keys;
+        if (param == PitchCorrectionEffect::scale) return &scales;
+        if (param == PitchCorrectionEffect::formant) return &formant;
+    }
+    if (t == EffectType::delay && param == DelayEffect::mode) return &delayModes;
+    return nullptr;
 }
 
 InsertParams Effect::defaultParams (EffectType t)
@@ -189,6 +217,7 @@ std::unique_ptr<Effect> Effect::create (EffectType t, double sampleRate, int max
         case EffectType::ampSim:     fx = std::make_unique<AmpSimEffect>(); break;
         case EffectType::utility:    fx = std::make_unique<UtilityEffect>(); break;
         case EffectType::convolution: fx = std::make_unique<ConvolutionEffect>(); break;
+        case EffectType::pitchCorrection: fx = std::make_unique<PitchCorrectionEffect>(); break;
         case EffectType::none:
         case EffectType::plugin:     return nullptr;   // plugins are created by the PluginManager
     }

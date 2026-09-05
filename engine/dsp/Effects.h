@@ -14,7 +14,7 @@
 namespace beatmaker::engine
 {
 
-enum class EffectType { none, eq, compressor, limiter, gate, deesser, delay, reverb, chorus, flanger, phaser, saturation, ampSim, utility, plugin, convolution };
+enum class EffectType { none, eq, compressor, limiter, gate, deesser, delay, reverb, chorus, flanger, phaser, saturation, ampSim, utility, plugin, convolution, pitchCorrection };
 
 struct ParamInfo
 {
@@ -67,6 +67,8 @@ public:
 
     static std::unique_ptr<Effect> create (EffectType, double sampleRate, int maxBlockSize = 8192);
     static const std::vector<ParamInfo>& paramInfo (EffectType);
+    // Named choices for an enumerated parameter (null when the parameter is continuous).
+    static const std::vector<const char*>* choices (EffectType, int paramIndex);
     static InsertParams defaultParams (EffectType);
     static const char* typeName (EffectType);
     static const std::vector<EffectType>& availableTypes();

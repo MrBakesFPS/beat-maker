@@ -1,4 +1,5 @@
 #include "MixerView.h"
+#include <dsp/PitchCorrection.h>
 
 namespace beatmaker::ui
 {
@@ -11,14 +12,15 @@ namespace
 //==============================================================================
 // Effect editor shown in a callout when an insert is clicked
 
-class EffectEditor final : public juce::Component
+class EffectEditor final : public juce::Component,
+                           private juce::Timer
 {
 public:
     EffectEditor (const model::Insert& insert, double sr, const model::Session& session,
                   std::function<void (std::shared_ptr<const engine::InsertParams>, bool replace)> onChange,
                   std::function<void (int keyBus, bool listen)> onKey = {}, std::function<void()> onLoadIR = {})
         : type (insert.type), sampleRate (sr), params (insert.params != nullptr ? *insert.params : engine::Effect::defaultParams (insert.type)),
-          apply (std::move (onChange)), applyKey (std::move (onKey)), loadImpulse (std::move (onLoadIR))
+          instance (insert.instance), apply (std::move (onChange)), applyKey (std::move (onKey)), loadImpulse (std::move (onLoadIR))
     {
         // Dynamics effects: key input selector + key listen, in the header row.
         if (insert.instance != nullptr && insert.instance->acceptsSidechain())
@@ -110,11 +112,51 @@ public:
 
             // The convolution's Impulse knob is replaced by the menu above.
             if (type == engine::EffectType::convolution && i == engine::ConvolutionEffect::impulse) { s->setVisible (false); l->setVisible (false); }
+
+            // Enumerated parameters with names get a menu instead of a knob.
+            if (const auto* names = engine::Effect::choices (type, (int) i))
+            {
+                s->setVisible (false); l->setVisible (false);
+                auto* box = choiceBoxes.add (new juce::ComboBox());
+                for (int c = 0; c < (int) names->size(); ++c) box->addItem ((*names)[(size_t) c], c + 1);
+                box->setSelectedId ((int) std::lround (params.values[i]) - (int) info[i].min + 1, juce::dontSendNotification);
+                box->setTooltip (info[i].name);
+                box->onChange = [this, i, box, minValue = info[i].min]
+                {
+                    if (box->getSelectedId() <= 0) return;
+                    params.values[i] = minValue + (float) (box->getSelectedId() - 1);
+                    apply (std::make_shared<const engine::InsertParams> (params), false);
+                };
+                addAndMakeVisible (box);
+            }
         }
-        const int visibleKnobs = sliders.size() - (type == engine::EffectType::convolution ? 1 : 0);
-        const int cols = juce::jmin (knobsPerRow, juce::jmax (keyBox != nullptr || impulseBox != nullptr ? 4 : 1, visibleKnobs));
+        if (type == engine::EffectType::pitchCorrection)
+        {
+            addAndMakeVisible (readout);
+            readout.setColour (juce::Label::textColourId, theme::accent);
+            readout.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            readout.setJustificationType (juce::Justification::centredRight);
+            startTimerHz (15);
+        }
+        const bool hasHeader = keyBox != nullptr || impulseBox != nullptr || ! choiceBoxes.isEmpty();
+        const int visibleKnobs = sliders.size() - (type == engine::EffectType::convolution ? 1 : 0) - choiceBoxes.size();
+        const int cols = juce::jmin (knobsPerRow, juce::jmax (hasHeader ? 4 : 1, visibleKnobs));
         const int rows = (visibleKnobs + knobsPerRow - 1) / knobsPerRow;
-        setSize (cols * 76 + 16, 18 + rows * 92 + (type == engine::EffectType::eq ? responseHeight + 6 : 0) + (keyBox != nullptr || impulseBox != nullptr ? 26 : 0) + 8);
+        setSize (juce::jmax (cols * 76 + 16, hasHeader ? 16 + 150 + 60 + choiceBoxes.size() * 130 : 0),
+                 18 + rows * 92 + (type == engine::EffectType::eq ? responseHeight + 6 : 0) + (hasHeader ? 26 : 0) + 8);
+    }
+
+    void timerCallback() override
+    {
+        auto* pc = dynamic_cast<engine::PitchCorrectionEffect*> (instance.get());
+        if (pc == nullptr) return;
+        const float detected = pc->getDetectedMidi(), target = pc->getTargetMidi();
+        if (detected < 0.0f) { readout.setText ("no pitch", juce::dontSendNotification); return; }
+        const int nearest = juce::roundToInt (detected);
+        const int cents = juce::roundToInt ((detected - (float) nearest) * 100.0f);
+        readout.setText (juce::MidiMessage::getMidiNoteName (nearest, true, true, 3) + " " + (cents >= 0 ? "+" : "") + juce::String (cents) + " ct  ->  "
+                             + juce::MidiMessage::getMidiNoteName (juce::roundToInt (target), true, true, 3),
+                         juce::dontSendNotification);
     }
 
     void paint (juce::Graphics& g) override
@@ -167,11 +209,13 @@ public:
     {
         auto area = getLocalBounds().reduced (8).withTrimmedTop (18);
         if (type == engine::EffectType::eq) area.removeFromTop (responseHeight + 6);
-        if (keyBox != nullptr || impulseBox != nullptr)
+        if (keyBox != nullptr || impulseBox != nullptr || ! choiceBoxes.isEmpty())
         {
             auto header = area.removeFromTop (22);
             if (keyBox != nullptr)     { keyBox->setBounds (header.removeFromLeft (150)); header.removeFromLeft (4); listenButton->setBounds (header.removeFromLeft (56)); }
             if (impulseBox != nullptr) { impulseBox->setBounds (header.removeFromLeft (170)); header.removeFromLeft (4); loadButton->setBounds (header.removeFromLeft (76)); }
+            for (auto* box : choiceBoxes) { box->setBounds (header.removeFromLeft (126)); header.removeFromLeft (4); }
+            if (type == engine::EffectType::pitchCorrection) readout.setBounds (header);
             area.removeFromTop (4);
         }
         juce::Rectangle<int> row;
@@ -192,12 +236,15 @@ private:
     engine::EffectType type;
     double sampleRate;
     engine::InsertParams params;
+    std::shared_ptr<engine::Effect> instance;
     std::function<void (std::shared_ptr<const engine::InsertParams>, bool)> apply;
     std::function<void (int, bool)> applyKey;
     std::function<void()> loadImpulse;
     juce::OwnedArray<juce::Slider> sliders;
     juce::OwnedArray<juce::Label> labels;
     std::unique_ptr<juce::ComboBox> keyBox, impulseBox;
+    juce::OwnedArray<juce::ComboBox> choiceBoxes;
+    juce::Label readout;
     std::unique_ptr<juce::TextButton> listenButton, loadButton;
     bool gesture = false, changed = false;
 };

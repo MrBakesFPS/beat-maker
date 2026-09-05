@@ -39,6 +39,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --elastic-demo --bounce=elastic.wav          # conform, quantize, pitch shift, TCE
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --sidechain-demo --mixer                       # kick-keyed compressor on a pad
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --convolution-demo --bounce=cathedral.wav      # e-piano in a Cathedral IR
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pitch-demo --mixer                           # sharp bass line tuned back to A minor
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -144,6 +145,14 @@ Run the tests with `ctest --test-dir build`.
   Ambience, Cathedral) or Load IR... for any audio file, with pre-delay,
   decay trim, low/high cut, width and mix. Responses are (re)built on the
   message thread and swapped in without touching the audio thread.
+- Pitch Correction: an insert that detects the pitch of a monophonic source
+  (YIN detector) and pulls it to the nearest note of a Key and Scale
+  (Chromatic, Major, Minor, pentatonics) through a Rubber Band real-time
+  shifter. Retune Speed sets how fast it glides (0 ms = hard tune), Amount
+  how far, Transpose adds an interval, Formant: Preserve keeps the voice's
+  character, and Mix blends the delayed dry signal. The editor shows the
+  detected note, its cents offset and the target note live; the shifter's
+  latency is reported to delay compensation.
 - Clip gain breakpoints: switch a track's view to Clip Gain to see each
   clip's gain line. Click to add a breakpoint, drag to move it (dB readout),
   right-click or Alt-click to delete. Breakpoint times live in the audio's own
@@ -225,9 +234,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Still to come in Phase 3: pitch correction, Beat Detective clip conform and
-edit smoothing, background rendering of long stretches, CLAP hosting, and
-sidechain inputs for hosted plugins. See PLAN.md §5.
+Still to come in Phase 3: Beat Detective clip conform and edit smoothing,
+background rendering of long stretches, CLAP hosting, and sidechain inputs
+for hosted plugins. See PLAN.md §5.
 
 ## Architecture in one paragraph
 
