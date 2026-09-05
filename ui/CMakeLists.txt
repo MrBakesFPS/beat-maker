@@ -1,4 +1,30 @@
-# ui module
-add_library(beatmaker_ui INTERFACE)
-target_include_directories(beatmaker_ui INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-# TODO: convert to STATIC and add sources as they are written
+# ui module — currently also owns the application entry point.
+# Surface and Depth views live in subdirectories and share one component tree.
+
+juce_add_gui_app(BeatMaker
+    PRODUCT_NAME    "Beat Maker"
+    COMPANY_NAME    "Beat Maker"
+    BUNDLE_ID       com.beatmaker.app
+    VERSION         ${PROJECT_VERSION})
+
+target_sources(BeatMaker PRIVATE
+    main.cpp)
+
+target_compile_definitions(BeatMaker PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:BeatMaker,JUCE_PRODUCT_NAME>"
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:BeatMaker,JUCE_VERSION>")
+
+target_link_libraries(BeatMaker PRIVATE
+    beatmaker_engine
+    beatmaker_model
+    beatmaker_persistence
+    beatmaker_plugins
+    beatmaker_scripting
+    juce::juce_audio_utils
+    juce::juce_gui_extra
+    PUBLIC
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_lto_flags
+    juce::juce_recommended_warning_flags)
