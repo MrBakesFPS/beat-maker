@@ -47,6 +47,12 @@ Run the tests with `ctest --test-dir build`.
   selection; every edit is one undo step, Shuffle re-packs the track. A time
   selection sets the Cycle range and the play start. Spot opens a dialog to
   type a bar|beat or seconds position. Alt+Z zooms to fit.
+- Metering: right-click any strip meter to pick Sample Peak, RMS, Peak + RMS,
+  VU (0 VU = -18 dBFS), or K-12 / K-14 / K-20 (RMS with 0 at -12/-14/-20
+  dBFS). Meters have a clip indicator that holds until clicked, dynamics
+  inserts show a gain-reduction bar, and the Master strip carries an ITU-R
+  BS.1770 loudness readout: Momentary, Short-term, gated Integrated, Loudness
+  Range and True Peak (4x oversampled). Right-click the master meter to reset.
 - I/O Setup (Ctrl+Alt+I or the I/O... button): Input, Output and Bus tabs
   define named paths mapped to device channels (mono or stereo). Track inputs
   and outputs pick paths by name; an output path other than Main is a direct
@@ -125,8 +131,8 @@ Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctr
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
 Still to come in Phase 2: Trim automation and master automation, VCA and
-groups, metering modes, clip gain breakpoints, Scrubber and Pencil tools,
-playlists and comping. See PLAN.md §5.
+groups, clip gain breakpoints, Scrubber and Pencil tools, playlists and
+comping. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

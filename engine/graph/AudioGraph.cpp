@@ -8,6 +8,31 @@ namespace beatmaker::engine
 AudioGraph::AudioGraph (Transport& transportToUse) : transport (transportToUse)
 {
     for (auto& b : busBuffers) b.setSize (2, maxBlock);
+    loudness.prepare (transport.getSampleRate(), maxBlock);
+}
+
+void AudioGraph::Meter::update (const juce::AudioBuffer<float>& b, int numSamples, double sampleRate) noexcept
+{
+    const float a = (float) std::exp (-(double) numSamples / (0.3 * sampleRate));   // 300 ms integration
+    bool clip = false;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const float pk = b.getMagnitude (ch, 0, numSamples);
+        peak[(size_t) ch].store (pk, std::memory_order_relaxed);
+        clip = clip || pk > 1.0f;
+        double sum = 0.0;
+        const float* d = b.getReadPointer (ch);
+        for (int i = 0; i < numSamples; ++i) sum += (double) d[i] * d[i];
+        const float ms = (float) (sum / juce::jmax (1, numSamples));
+        meanSquare[(size_t) ch].store (a * meanSquare[(size_t) ch].load (std::memory_order_relaxed) + (1.0f - a) * ms, std::memory_order_relaxed);
+    }
+    if (clip) clipped.store (true, std::memory_order_relaxed);
+}
+
+void AudioGraph::Meter::clear() noexcept
+{
+    for (auto& p : peak) p.store (0.0f, std::memory_order_relaxed);
+    for (auto& m : meanSquare) m.store (0.0f, std::memory_order_relaxed);
 }
 
 AudioGraph::~AudioGraph()
@@ -72,6 +97,24 @@ float AudioGraph::getMasterPeak (int channel) const noexcept
 {
     return juce::isPositiveAndBelow (channel, 2) ? masterMeter.peak[(size_t) channel].load (std::memory_order_relaxed) : 0.0f;
 }
+
+float AudioGraph::getStripRms (int strip, int channel) const noexcept
+{
+    return juce::isPositiveAndBelow (strip, maxStrips) && juce::isPositiveAndBelow (channel, 2)
+             ? std::sqrt (stripMeters[(size_t) strip].meanSquare[(size_t) channel].load (std::memory_order_relaxed)) : 0.0f;
+}
+
+float AudioGraph::getMasterRms (int channel) const noexcept
+{
+    return juce::isPositiveAndBelow (channel, 2) ? std::sqrt (masterMeter.meanSquare[(size_t) channel].load (std::memory_order_relaxed)) : 0.0f;
+}
+
+bool AudioGraph::getAndClearStripClip (int strip) noexcept
+{
+    return juce::isPositiveAndBelow (strip, maxStrips) ? stripMeters[(size_t) strip].clipped.exchange (false) : false;
+}
+
+bool AudioGraph::getAndClearMasterClip() noexcept { return masterMeter.clipped.exchange (false); }
 
 int AudioGraph::getNumSynthVoices() const noexcept
 {
@@ -475,7 +518,7 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
 
     if (muted)
     {
-        for (auto& p : meter.peak) p.store (0.0f, std::memory_order_relaxed);
+        meter.clear();
         return;
     }
 
@@ -509,8 +552,7 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
         stripBuffer.applyGainRamp (ch, 0, numSamples, gainStart * pg, gainEnd * pg);
     }
 
-    for (int ch = 0; ch < 2; ++ch)
-        meter.peak[(size_t) ch].store (stripBuffer.getMagnitude (ch, 0, numSamples), std::memory_order_relaxed);
+    meter.update (stripBuffer, numSamples, transport.getSampleRate());
 
     // Post-fader sends
     for (const auto& send : strip.sends)
@@ -592,8 +634,8 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
         // Master
         processInserts (current->master.inserts, mainBuffer, numSamples);
         mainBuffer.applyGain (0, numSamples, current->master.gain);
-        for (int ch = 0; ch < 2; ++ch)
-            masterMeter.peak[(size_t) ch].store (mainBuffer.getMagnitude (ch, 0, numSamples), std::memory_order_relaxed);
+        masterMeter.update (mainBuffer, numSamples, transport.getSampleRate());
+        loudness.process (mainBuffer, numSamples);
 
         // Main output path: the first two channels get the master mix; extra
         // device channels (when the main path is the default) mirror it.
@@ -692,6 +734,7 @@ void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)
     if (device != nullptr)
         transport.setSampleRate (device->getCurrentSampleRate());
     drums.reset();
+    loudness.prepare (transport.getSampleRate(), maxBlock);
     for (auto& slot : synthSlots)
         if (slot.id >= 0) slot.synth.prepare (transport.getSampleRate());
 }

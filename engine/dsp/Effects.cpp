@@ -129,6 +129,28 @@ Biquad::Coefficients Biquad::peak (double sr, double freq, double gainDb, double
     return { (float) (b0 / a0), (float) (b1 / a0), (float) (b2 / a0), (float) (a1 / a0), (float) (a2 / a0) };
 }
 
+Biquad::Coefficients Biquad::highShelfQ (double sr, double freq, double gainDb, double q) noexcept
+{
+    const double A = std::pow (10.0, gainDb / 40.0);
+    const double w0 = juce::MathConstants<double>::twoPi * juce::jlimit (10.0, sr * 0.45, freq) / sr;
+    const double cosw = std::cos (w0), sinw = std::sin (w0);
+    const double alpha = sinw / (2.0 * q);
+    const double sq = 2.0 * std::sqrt (A) * alpha;
+    const double b0 = A * ((A + 1) + (A - 1) * cosw + sq), b1 = -2 * A * ((A - 1) + (A + 1) * cosw), b2 = A * ((A + 1) + (A - 1) * cosw - sq);
+    const double a0 = (A + 1) - (A - 1) * cosw + sq, a1 = 2 * ((A - 1) - (A + 1) * cosw), a2 = (A + 1) - (A - 1) * cosw - sq;
+    return { (float) (b0 / a0), (float) (b1 / a0), (float) (b2 / a0), (float) (a1 / a0), (float) (a2 / a0) };
+}
+
+Biquad::Coefficients Biquad::highPass (double sr, double freq, double q) noexcept
+{
+    const double w0 = juce::MathConstants<double>::twoPi * juce::jlimit (1.0, sr * 0.45, freq) / sr;
+    const double cosw = std::cos (w0), sinw = std::sin (w0);
+    const double alpha = sinw / (2.0 * q);
+    const double b0 = (1 + cosw) / 2, b1 = -(1 + cosw), b2 = (1 + cosw) / 2;
+    const double a0 = 1 + alpha, a1 = -2 * cosw, a2 = 1 - alpha;
+    return { (float) (b0 / a0), (float) (b1 / a0), (float) (b2 / a0), (float) (a1 / a0), (float) (a2 / a0) };
+}
+
 void Biquad::process (const Coefficients& c, State& s, float* d, int n) noexcept
 {
     for (int i = 0; i < n; ++i)

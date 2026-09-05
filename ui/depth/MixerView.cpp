@@ -357,6 +357,29 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (clipBounds.expanded (2).contains (e.getPosition())) { clipHeld = false; repaint(); return; }
+
+        if (meterBounds.expanded (4).contains (e.getPosition()))
+        {
+            if (e.mods.isPopupMenu())
+            {
+                juce::PopupMenu menu;
+                int id = 1;
+                for (auto m : { model::MeterType::samplePeak, model::MeterType::rms, model::MeterType::peakAndRms, model::MeterType::vu,
+                                model::MeterType::k12, model::MeterType::k14, model::MeterType::k20 })
+                    menu.addItem (id++, model::meterTypeName (m), true, track() != nullptr && track()->meterType == m);
+                if (isMaster()) { menu.addSeparator(); menu.addItem (100, "Reset loudness / peaks"); }
+                menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this] (int result)
+                {
+                    if (result == 0) return;
+                    if (result == 100) { mixer.loudness.reset(); clipHeld = false; return; }
+                    issue (std::make_unique<model::SetMeterTypeCommand> (index, (model::MeterType) (result - 1)));
+                });
+                return;
+            }
+            if (isMaster()) { clipHeld = false; return; }
+        }
+
         if (isMaster()) return;
         if (mixer.onSelectTrack) mixer.onSelectTrack (index);
 
@@ -407,25 +430,91 @@ public:
         }
         if (! isMaster()) g.drawText ("SENDS", 4, sendsY - 12, getWidth() - 8, 10, juce::Justification::centredLeft);
 
-        // Meter beside the fader
-        const float peakL = isMaster() ? mixer.graph.getMasterPeak (0) : mixer.graph.getStripPeak (index, 0);
-        const float peakR = isMaster() ? mixer.graph.getMasterPeak (1) : mixer.graph.getStripPeak (index, 1);
-        auto drawMeter = [&] (juce::Rectangle<int> r, float peak, float& held)
+        // Meters beside the fader, drawn per the track's meter type
+        const auto type = t->meterType;
+        struct Scale { float minDb, maxDb, zeroDb; };   // meter range and where the "0" mark sits, in the displayed unit
+        const Scale scale = type == model::MeterType::vu ? Scale { -20.0f, 3.0f, 0.0f }
+                          : type == model::MeterType::k12 || type == model::MeterType::k14 || type == model::MeterType::k20 ? Scale { -24.0f, 12.0f, 0.0f }
+                          : Scale { -60.0f, 6.0f, 0.0f };
+        const float offset = type == model::MeterType::k12 ? 12.0f : type == model::MeterType::k14 ? 14.0f : type == model::MeterType::k20 ? 20.0f
+                           : type == model::MeterType::vu ? 18.0f : 0.0f;   // dB added to RMS so 0 on the meter = -offset dBFS
+        const bool useRms = type != model::MeterType::samplePeak;
+        const bool showPeakLine = type == model::MeterType::peakAndRms || offset > 0.0f;
+
+        const bool clippedNow = isMaster() ? mixer.graph.getAndClearMasterClip() : mixer.graph.getAndClearStripClip (index);
+        if (clippedNow) clipHeld = true;
+
+        auto drawMeter = [&] (juce::Rectangle<int> r, int ch, float& held)
         {
-            held = juce::jmax (peak, held * 0.85f);
+            const float peak = isMaster() ? mixer.graph.getMasterPeak (ch) : mixer.graph.getStripPeak (index, ch);
+            const float rms  = isMaster() ? mixer.graph.getMasterRms (ch) : mixer.graph.getStripRms (index, ch);
+            const float value = useRms ? rms : peak;
+            held = juce::jmax (value, held * (useRms ? 0.97f : 0.85f));
+
             g.setColour (theme::background);
             g.fillRect (r);
-            const float db = juce::Decibels::gainToDecibels (held, -60.0f);
-            const float frac = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f);   // -60 .. +6 dB
-            auto lit = r.withTop (r.getBottom() - juce::roundToInt (frac * r.getHeight()));
-            g.setColour (db > 0.0f ? theme::record : db > -6.0f ? juce::Colour (0xfff1c40f) : theme::play);
+            auto yFor = [&] (float db) { return r.getBottom() - juce::roundToInt (juce::jlimit (0.0f, 1.0f, (db - scale.minDb) / (scale.maxDb - scale.minDb)) * r.getHeight()); };
+
+            const float db = juce::Decibels::gainToDecibels (held, -100.0f) + offset;
+            auto lit = r.withTop (yFor (db));
+            g.setColour (db > scale.zeroDb ? theme::record : db > scale.zeroDb - 6.0f ? juce::Colour (0xfff1c40f) : theme::play);
             g.fillRect (lit);
-            const int zeroY = r.getBottom() - juce::roundToInt (60.0f / 66.0f * r.getHeight());
+
+            if (showPeakLine)
+            {
+                const int py = yFor (juce::Decibels::gainToDecibels (peak, -100.0f) + (offset > 0.0f ? 0.0f : 0.0f) + (type == model::MeterType::peakAndRms ? 0.0f : offset));
+                g.setColour (theme::text);
+                g.drawHorizontalLine (py, (float) r.getX(), (float) r.getRight());
+            }
             g.setColour (theme::gridStrong);
-            g.drawHorizontalLine (zeroY, (float) r.getX(), (float) r.getRight());
+            g.drawHorizontalLine (yFor (scale.zeroDb), (float) r.getX(), (float) r.getRight());
         };
-        drawMeter (meterBounds.withWidth (meterBounds.getWidth() / 2 - 1), peakL, heldL);
-        drawMeter (meterBounds.withLeft (meterBounds.getCentreX() + 1), peakR, heldR);
+        drawMeter (meterBounds.withWidth (meterBounds.getWidth() / 2 - 1), 0, heldL);
+        drawMeter (meterBounds.withLeft (meterBounds.getCentreX() + 1), 1, heldR);
+
+        // Clip indicator (holds until clicked) + meter type tag
+        g.setColour (clipHeld ? theme::record : theme::background);
+        g.fillRect (clipBounds);
+        g.setColour (theme::textDim);
+        g.setFont (juce::FontOptions (8.0f));
+        g.drawText (type == model::MeterType::samplePeak ? "PK" : type == model::MeterType::rms ? "RMS" : type == model::MeterType::peakAndRms ? "P+R"
+                    : type == model::MeterType::vu ? "VU" : type == model::MeterType::k12 ? "K12" : type == model::MeterType::k14 ? "K14" : "K20",
+                    clipBounds.translated (0, 8).withHeight (10), juce::Justification::centred);
+
+        // Gain-reduction bars on dynamics inserts
+        for (int i = 0; i < insertButtons.size(); ++i)
+        {
+            const auto& ins = t->inserts[(size_t) i];
+            if (ins.isEmpty()) continue;
+            const float gr = ins.instance->getMeter();
+            if (gr <= 0.01f) continue;
+            auto bar = insertButtons[i]->getBounds().removeFromRight (5).reduced (0, 2);
+            g.setColour (theme::background);
+            g.fillRect (bar);
+            g.setColour (juce::Colour (0xffe67e22));
+            g.fillRect (bar.withHeight (juce::roundToInt (juce::jlimit (0.0f, 1.0f, gr / 20.0f) * bar.getHeight())));
+        }
+
+        // Master: loudness readout
+        if (isMaster())
+        {
+            const auto r = mixer.loudness.getReadings();
+            auto fmt = [] (float v) { return v <= -99.0f ? juce::String ("-") : juce::String (v, 1); };
+            g.setColour (theme::text);
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            auto area = loudnessBounds;
+            auto line = [&] (const juce::String& label, const juce::String& value)
+            {
+                auto row = area.removeFromTop (12);
+                g.setColour (theme::textDim); g.drawText (label, row, juce::Justification::centredLeft);
+                g.setColour (theme::text);    g.drawText (value, row, juce::Justification::centredRight);
+            };
+            line ("M",   fmt (r.momentary));
+            line ("S",   fmt (r.shortTerm));
+            line ("I",   fmt (r.integrated) + " LUFS");
+            line ("LRA", juce::String (r.range, 1) + " LU");
+            line ("TP",  fmt (r.truePeakDb) + " dBTP");
+        }
 
         // Fader dB readout
         g.setColour (theme::accent);
@@ -475,9 +564,17 @@ public:
             ms.removeFromLeft (2);
             solo.setBounds (ms);
         }
+        if (isMaster())
+        {
+            loudnessBounds = area.removeFromBottom (62);
+            area.removeFromBottom (4);
+        }
         dbBounds = area.removeFromBottom (16);
         area.removeFromBottom (2);
-        meterBounds = area.removeFromRight (14).reduced (0, 6);
+        auto meterColumn = area.removeFromRight (isMaster() ? 22 : 14);
+        clipBounds = meterColumn.removeFromTop (6).reduced (1, 0);
+        meterColumn.removeFromTop (12);   // meter type tag
+        meterBounds = meterColumn.reduced (0, 4);
         area.removeFromRight (4);
         fader.setBounds (area);
     }
@@ -491,9 +588,10 @@ private:
     juce::Slider pan, fader;
     juce::TextButton mute { "M" }, solo { "S" };
     juce::ComboBox output, autoMode;
-    juce::Rectangle<int> meterBounds, dbBounds, panLabelBounds;
+    juce::Rectangle<int> meterBounds, dbBounds, panLabelBounds, clipBounds, loudnessBounds;
     int sendsY = 0;
     float heldL = 0.0f, heldR = 0.0f;
+    bool clipHeld = false;
     bool gesture = false, changed = false, syncing = false;
 };
 
@@ -507,6 +605,7 @@ MixerView::MixerView (model::Session& s, engine::AudioGraph& g, std::function<do
     viewport.setViewedComponent (&stripHolder, false);
     viewport.setScrollBarsShown (false, true);
     delays = model::DelayCompensation::compute (session);
+    loudness.setSampleRate (sampleRate());
     masterStrip = std::make_unique<ChannelStrip> (*this, -1);
     addAndMakeVisible (*masterStrip);
     rebuildStrips();
@@ -533,6 +632,11 @@ void MixerView::sessionChanged (model::Session&)
 
 void MixerView::timerCallback()
 {
+    // Always drain the loudness FIFO so the analyser keeps integrating while hidden.
+    loudnessScratch.clear();
+    graph.getLoudnessSource().drain (loudnessScratch);
+    for (const auto& b : loudnessScratch) loudness.addBlock (b);
+
     if (! isShowing()) return;
     for (auto* s : strips) { s->followAutomation(); s->repaint(); }
     masterStrip->repaint();

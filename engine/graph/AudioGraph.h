@@ -19,6 +19,7 @@
 #include "../dsp/DrumMachine.h"
 #include "../dsp/Synth.h"
 #include "../io/Recorder.h"
+#include "../metering/Loudness.h"
 #include "../transport/Transport.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -69,6 +70,11 @@ public:
     static constexpr int numBuses = 8;
     float getStripPeak (int strip, int channel) const noexcept;
     float getMasterPeak (int channel) const noexcept;
+    float getStripRms (int strip, int channel) const noexcept;    // 300 ms integrated
+    float getMasterRms (int channel) const noexcept;
+    bool  getAndClearStripClip (int strip) noexcept;              // true if any sample exceeded 0 dBFS since last call
+    bool  getAndClearMasterClip() noexcept;
+    LoudnessSource& getLoudnessSource() noexcept { return loudness; }
 
     // juce::AudioIODeviceCallback
     void audioDeviceIOCallbackWithContext (const float* const* inputChannelData, int numInputChannels,
@@ -114,7 +120,14 @@ private:
     juce::AudioBuffer<float> stripBuffer { 2, maxBlock };
     juce::AudioBuffer<float> mainBuffer { 2, maxBlock };
     std::array<juce::AudioBuffer<float>, numBuses> busBuffers;
-    struct Meter { std::array<std::atomic<float>, 2> peak { 0.0f, 0.0f }; };
+    struct Meter
+    {
+        std::array<std::atomic<float>, 2> peak { 0.0f, 0.0f };
+        std::array<std::atomic<float>, 2> meanSquare { 0.0f, 0.0f };   // 300 ms exponential average
+        std::atomic<bool> clipped { false };
+        void update (const juce::AudioBuffer<float>& b, int numSamples, double sampleRate) noexcept;
+        void clear() noexcept;
+    };
     std::array<Meter, maxStrips> stripMeters;
     Meter masterMeter;
     const RenderStrip defaultStrip {};
@@ -128,6 +141,7 @@ private:
         void process (juce::AudioBuffer<float>& io, int numSamples, int delay) noexcept;
     };
     std::array<StripDelay, maxStrips> stripDelays;
+    LoudnessSource loudness;
 
     const juce::AudioBuffer<float>* previewSource = nullptr;  // identity of the current preview
     int previewPosition = 0;

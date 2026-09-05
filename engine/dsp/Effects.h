@@ -72,6 +72,8 @@ struct Biquad
     static Coefficients lowShelf  (double sampleRate, double freq, double gainDb, double slope = 1.0) noexcept;
     static Coefficients highShelf (double sampleRate, double freq, double gainDb, double slope = 1.0) noexcept;
     static Coefficients peak      (double sampleRate, double freq, double gainDb, double q) noexcept;
+    static Coefficients highShelfQ (double sampleRate, double freq, double gainDb, double q) noexcept;
+    static Coefficients highPass  (double sampleRate, double freq, double q) noexcept;
 
     static void process (const Coefficients&, State&, float* data, int numSamples) noexcept;
 };

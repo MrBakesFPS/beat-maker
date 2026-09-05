@@ -204,7 +204,7 @@ beat-maker/
 - [~] Full mixer: 10 inserts, 10 sends, aux tracks, buses, VCA, groups. *(2026-09-05: strip pipeline with 10 inserts (EQ/Compressor/Delay/Reverb built in), 5 sends pre/post to 8 buses, aux inputs, output routing, master strip with inserts, post-fader meters, Mix window. Pending: 10 sends, VCA, groups.)*
 - [x] I/O Setup window; automatic delay compensation. *(Done 2026-09-05: Input/Output/Bus paths with device channel mapping, path-based track routing, direct outs, bus renaming; ADC aligning sources, bus feeds and aux returns with per-track user offsets and a dly readout; compressor lookahead as the first latent insert.)*
 - [~] Automation: all modes, lanes for every parameter. *(2026-09-05: Off/Read/Touch/Latch/Write with pass recording; lanes for volume (ramped), pan, mute (stepped), sends, insert params; breakpoint editing in the track area; controls follow in Read. Pending: Trim, Preview/Capture, master automation, thinning.)*
-- [ ] Metering suite (peak/RMS/K/LUFS).
+- [x] Metering suite (peak/RMS/K/LUFS). *(Done 2026-09-05: per-track Sample Peak/RMS/Peak+RMS/VU/K-12/K-14/K-20, clip hold, gain-reduction bars, BS.1770 M/S/I/LRA/True Peak on the master with exact K-weighting for any sample rate.)*
 - **Milestone:** An engineer can mix a 48-track session with routing comparable to Pro Tools.
 
 ### Phase 3 — Plugins & Instruments (Weeks 23–30)

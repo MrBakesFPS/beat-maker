@@ -7,6 +7,7 @@
 #include <MixerCommands.h>
 #include <Session.h>
 #include <graph/AudioGraph.h>
+#include <metering/Loudness.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
@@ -49,6 +50,9 @@ private:
     juce::OwnedArray<ChannelStrip> strips;
     std::unique_ptr<ChannelStrip> masterStrip;
     std::vector<model::StripDelayInfo> delays;
+
+    engine::LoudnessAnalyser loudness;
+    std::vector<engine::LoudnessBlock> loudnessScratch;
 };
 
 } // namespace beatmaker::ui

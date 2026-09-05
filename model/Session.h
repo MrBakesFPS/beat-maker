@@ -102,6 +102,24 @@ struct Send
 
 enum class AutomationMode { off, read, touch, latch, write };
 
+// Pro Tools-style meter types. K-System meters show RMS with 0 at -12/-14/-20 dBFS.
+enum class MeterType { samplePeak, rms, peakAndRms, vu, k12, k14, k20 };
+
+inline const char* meterTypeName (MeterType m)
+{
+    switch (m)
+    {
+        case MeterType::samplePeak: return "Sample Peak";
+        case MeterType::rms:        return "RMS";
+        case MeterType::peakAndRms: return "Peak + RMS";
+        case MeterType::vu:         return "VU";
+        case MeterType::k12:        return "K-12";
+        case MeterType::k14:        return "K-14";
+        case MeterType::k20:        return "K-20";
+    }
+    return "";
+}
+
 inline const char* automationModeName (AutomationMode m)
 {
     switch (m) { case AutomationMode::off: return "Off"; case AutomationMode::read: return "Read"; case AutomationMode::touch: return "Touch";
@@ -140,6 +158,8 @@ struct Track
     std::array<Send, numSendSlots> sends;
     int outputBus = -1;      // -1 = main mix
     int inputBus = -1;       // aux tracks: which bus feeds this strip
+
+    MeterType meterType = MeterType::samplePeak;
 
     // Automation
     AutomationMode automationMode = AutomationMode::read;
@@ -546,6 +566,19 @@ private:
     int index;
     engine::ParamId param;
     bool writing;
+};
+
+class SetMeterTypeCommand final : public Command
+{
+public:
+    SetMeterTypeCommand (int trackIndex, MeterType type) : index (trackIndex), meterType (type) {}
+    juce::String getName() const override { return "Meter Type"; }
+    bool isUndoable() const override { return false; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->meterType = meterType; }
+    void undo (Session&) override {}
+private:
+    int index;
+    MeterType meterType;
 };
 
 class SetIOSetupCommand final : public Command
