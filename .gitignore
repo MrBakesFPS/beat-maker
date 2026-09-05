@@ -1,0 +1,19 @@
+# Build
+build/
+out/
+cmake-build-*/
+compile_commands.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Sessions / user data
+*.bmk/
+*.bmkt/
+Session File Backups/
