@@ -10,6 +10,7 @@
 #include "depth/GroupDialog.h"
 #include "depth/IOSetupDialog.h"
 #include "depth/MixerView.h"
+#include "depth/PluginWindow.h"
 #include "shared/EditSettings.h"
 #include "shared/Theme.h"
 #include "surface/LoopBrowser.h"
@@ -24,6 +25,7 @@
 #include <GroupLogic.h>
 #include <LoopLibrary.h>
 #include <Playlists.h>
+#include <PluginHost.h>
 #include <bounce/Bouncer.h>
 #include <dsp/DrumKitFactory.h>
 #include <dsp/Resampler.h>
@@ -90,6 +92,11 @@ public:
         mixerView.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
         mixerView.automatedValue = [this] (int t, const engine::ParamId& p) { return automation.displayedValue (t, p); };
         mixerView.onTrimChanged = [this] (int t, float db, bool g) { automation.trimChanged (t, db, g); };
+
+        mixerView.knownPlugins = [this] { return pluginManager.getKnownPlugins().getTypes(); };
+        mixerView.onScanPlugins = [this] { scanPlugins(); };
+        mixerView.onInsertPlugin = [this] (int track, int slot, const juce::PluginDescription& desc) { insertPlugin (track, slot, desc); };
+        mixerView.onOpenPluginEditor = [this] (int track, int slot) { openPluginEditor (track, slot); };
         smartControls.onParameterChanged = [this] (int t, const engine::ParamId& p, float v, bool g) { automation.parameterChanged (t, p, v, g); };
         smartControls.onGestureEnded = [this] (int t, const engine::ParamId& p) { automation.gestureEnded (t, p); };
         trackArea.onAutomationModeChanged = [this] (int t, model::AutomationMode m)
@@ -209,6 +216,7 @@ public:
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
+    void scanPluginsFromCommandLine() { scanPlugins(); }
 
     // --clip-gain-demo: a gain line on the first audio clip, Clip Gain view on, zoomed to fit
     void clipGainDemoFromCommandLine()
@@ -641,6 +649,61 @@ private:
         transportBar.setLibraryVisible (visible);
         if (! visible) loopBrowser.stopPreview();
         resized();
+    }
+
+    //==========================================================================
+    // Plugins
+
+    void scanPlugins()
+    {
+        if (pluginManager.isScanning()) { statusMessage = "Plugin scan already running"; updateStatus(); return; }
+        statusMessage = "Scanning for plugins (" + pluginManager.getFormatNames().joinIntoString (", ") + ")...";
+        updateStatus();
+        pluginManager.scanAsync (
+            [this] (float progress, const juce::String& file)
+            {
+                statusMessage = "Scanning plugins " + juce::String (juce::roundToInt (progress * 100.0f)) + "%   " + juce::File (file).getFileName();
+                updateStatus();
+            },
+            [this]
+            {
+                const int n = pluginManager.getKnownPlugins().getNumTypes();
+                const int bad = pluginManager.getKnownPlugins().getBlacklistedFiles().size();
+                statusMessage = "Plugin scan finished: " + juce::String (n) + (n == 1 ? " plugin" : " plugins")
+                              + (bad > 0 ? ", " + juce::String (bad) + " blacklisted (crashed or failed validation)" : juce::String());
+                updateStatus();
+            });
+    }
+
+    void insertPlugin (int trackIndex, int slot, const juce::PluginDescription& desc)
+    {
+        juce::String error;
+        auto fx = pluginManager.instantiate (desc, engine.getSampleRate(), engine::AudioGraph::maxBlock, error);
+        if (fx == nullptr) { statusMessage = "Plugin failed to load: " + error; updateStatus(); return; }
+        session.execute (std::make_unique<model::SetPluginInsertCommand> (trackIndex, slot, fx, desc.createIdentifierString()));
+        statusMessage = "Inserted " + desc.name + " (" + desc.pluginFormatName + ", latency " + juce::String (fx->getLatencySamples ({})) + " samples)";
+        updateStatus();
+    }
+
+    void openPluginEditor (int trackIndex, int slot)
+    {
+        auto* t = session.getTrackOrMaster (trackIndex);
+        if (t == nullptr || ! juce::isPositiveAndBelow (slot, model::Track::numInsertSlots)) return;
+        auto* fx = dynamic_cast<plugins::PluginEffect*> (t->inserts[(size_t) slot].instance.get());
+        if (fx == nullptr) return;
+
+        // One window per instance
+        for (auto& w : pluginWindows)
+            if (w.effect == fx) { w.window->toFront (true); return; }
+
+        auto window = std::make_unique<ui::PluginWindow> (*fx, [this, fx]
+        {
+            juce::MessageManager::callAsync ([this, fx]
+            {
+                std::erase_if (pluginWindows, [fx] (const OpenPluginWindow& w) { return w.effect == fx; });
+            });
+        });
+        pluginWindows.push_back ({ fx, std::move (window) });
     }
 
     //==========================================================================
@@ -1169,6 +1232,12 @@ private:
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
     std::unique_ptr<BounceJob> bounceJob;
+
+    plugins::PluginManager pluginManager {
+        juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("Beat Maker").getChildFile ("plugins.xml"),
+        juce::File::getSpecialLocation (juce::File::currentExecutableFile) };
+    struct OpenPluginWindow { plugins::PluginEffect* effect; std::unique_ptr<ui::PluginWindow> window; };
+    std::vector<OpenPluginWindow> pluginWindows;
 };
 
 void MainComponent::showBounceDialog() { showBounceDialogImpl(); }
@@ -1183,6 +1252,18 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
+        // Out-of-process plugin validation: scan one plugin, print its descriptions, exit.
+        for (const auto& arg : getCommandLineParameterArray())
+            if (arg.startsWith ("--scan-plugin="))
+            {
+                const auto spec = arg.fromFirstOccurrenceOf ("=", false, false);
+                const int code = plugins::PluginManager::runScanChild (spec.upToFirstOccurrenceOf ("|", false, false),
+                                                                       spec.fromFirstOccurrenceOf ("|", false, false));
+                setApplicationReturnValue (code);
+                quit();
+                return;
+            }
+
         std::signal (SIGTERM, onTerminationSignal);
         std::signal (SIGINT,  onTerminationSignal);
         quitPoller.startTimer (100);
@@ -1216,6 +1297,7 @@ public:
             else if (arg == "--vca") main.addVcaTrackFromCommandLine();
             else if (arg == "--playlist-demo") main.playlistDemoFromCommandLine();
             else if (arg == "--clip-gain-demo") main.clipGainDemoFromCommandLine();
+            else if (arg == "--scan-plugins") main.scanPluginsFromCommandLine();
             else if (arg == "--group-demo") main.groupDemoFromCommandLine();
             else if (arg.startsWith ("--fades=")) main.applyFadesFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--loop=")) main.importLoopFromCommandLine (juce::File::getCurrentWorkingDirectory()

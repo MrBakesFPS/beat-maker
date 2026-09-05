@@ -23,6 +23,26 @@ private:
     Insert fresh, old;
 };
 
+// Put an already-instantiated hosted plugin into a slot (created by the PluginManager on the message thread).
+class SetPluginInsertCommand final : public Command
+{
+public:
+    SetPluginInsertCommand (int trackIndex, int slotIndex, std::shared_ptr<engine::Effect> effect, juce::String identifier)
+        : index (trackIndex), slot (slotIndex)
+    {
+        fresh.type = engine::EffectType::plugin;
+        fresh.instance = std::move (effect);
+        fresh.params = std::make_shared<const engine::InsertParams> (engine::InsertParams { engine::EffectType::plugin, {} });
+        fresh.pluginIdentifier = std::move (identifier);
+    }
+    juce::String getName() const override { return "Insert Plugin"; }
+    void execute (Session&) override;
+    void undo (Session&) override;
+private:
+    int index, slot;
+    Insert fresh, old;
+};
+
 class SetInsertParamsCommand final : public Command
 {
 public:

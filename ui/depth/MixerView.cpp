@@ -316,9 +316,12 @@ public:
         for (int i = 0; i < insertButtons.size(); ++i)
         {
             const auto& ins = t->inserts[(size_t) i];
-            insertButtons[i]->setButtonText (ins.isEmpty() ? "-" : engine::Effect::typeName (ins.type));
-            insertButtons[i]->setColour (juce::TextButton::buttonColourId, ins.isEmpty() ? theme::background : ins.bypass ? theme::panelDark : theme::accent.darker (0.55f));
-            insertButtons[i]->setTooltip (ins.isEmpty() ? "Click to add an insert" : juce::String (engine::Effect::typeName (ins.type)) + (ins.bypass ? " (bypassed)" : "") + "\nClick: edit   Right-click: bypass / replace / remove");
+            insertButtons[i]->setButtonText (ins.isEmpty() ? "-" : ins.displayName());
+            insertButtons[i]->setColour (juce::TextButton::buttonColourId, ins.isEmpty() ? theme::background : ins.bypass ? theme::panelDark
+                                         : ins.isPlugin() ? juce::Colour (0xff5b6ea8) : theme::accent.darker (0.55f));
+            insertButtons[i]->setTooltip (ins.isEmpty() ? "Click to add an insert (built-in or plugin)" : ins.displayName() + (ins.bypass ? " (bypassed)" : "")
+                                          + (ins.isPlugin() ? "\nClick: open the plugin window   Right-click: bypass / replace / remove"
+                                                            : "\nClick: edit   Right-click: bypass / replace / remove"));
         }
         for (int i = 0; i < sendButtons.size(); ++i)
         {
@@ -373,21 +376,49 @@ public:
             int id = 1;
             for (auto type : engine::Effect::availableTypes())
                 menu.addItem (id++, engine::Effect::typeName (type), true, ins.type == type);
+
+            // Hosted plugins, grouped by format
+            const auto plugins = mixer.knownPlugins ? mixer.knownPlugins() : juce::Array<juce::PluginDescription>();
+            juce::PopupMenu pluginMenu;
+            juce::StringArray formatsSeen;
+            for (const auto& d : plugins) formatsSeen.addIfNotAlreadyThere (d.pluginFormatName);
+            for (const auto& fmt : formatsSeen)
+            {
+                juce::PopupMenu sub;
+                for (int i = 0; i < plugins.size(); ++i)
+                    if (plugins[i].pluginFormatName == fmt)
+                        sub.addItem (1000 + i, plugins[i].name + (plugins[i].manufacturerName.isNotEmpty() ? "  (" + plugins[i].manufacturerName + ")" : juce::String()),
+                                     true, ins.isPlugin() && ins.pluginIdentifier == plugins[i].createIdentifierString());
+                pluginMenu.addSubMenu (fmt, sub);
+            }
+            if (plugins.isEmpty()) pluginMenu.addItem (999, "No plugins found - scan first", false);
+            pluginMenu.addSeparator();
+            pluginMenu.addItem (998, "Scan for Plugins...");
+            menu.addSubMenu ("Plugins", pluginMenu);
+
             if (! ins.isEmpty())
             {
                 menu.addSeparator();
                 menu.addItem (100, "Bypass", true, ins.bypass);
                 menu.addItem (101, "Remove Insert");
             }
-            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (insertButtons[slot]), [this, slot] (int result)
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (insertButtons[slot]), [this, slot, plugins] (int result)
             {
                 if (result == 0) return;
                 auto* tr = track();
                 if (tr == nullptr) return;
-                if (result == 100)      issue (std::make_unique<model::SetInsertBypassCommand> (index, slot, ! tr->inserts[(size_t) slot].bypass));
-                else if (result == 101) issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::EffectType::none, mixer.sampleRate()));
-                else                    issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::Effect::availableTypes()[(size_t) (result - 1)], mixer.sampleRate()));
+                if (result == 100)       issue (std::make_unique<model::SetInsertBypassCommand> (index, slot, ! tr->inserts[(size_t) slot].bypass));
+                else if (result == 101)  issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::EffectType::none, mixer.sampleRate()));
+                else if (result == 998)  { if (mixer.onScanPlugins) mixer.onScanPlugins(); }
+                else if (result >= 1000) { if (mixer.onInsertPlugin && result - 1000 < plugins.size()) mixer.onInsertPlugin (index, slot, plugins[result - 1000]); }
+                else                     issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::Effect::availableTypes()[(size_t) (result - 1)], mixer.sampleRate()));
             });
+            return;
+        }
+
+        if (ins.isPlugin())
+        {
+            if (mixer.onOpenPluginEditor) mixer.onOpenPluginEditor (index, slot);
             return;
         }
 

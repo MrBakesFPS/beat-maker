@@ -36,7 +36,17 @@ Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-**Phases 0, 1 and 2 complete.**
+**Phases 0, 1 and 2 complete. Phase 3 in progress.**
+
+- Plugin hosting: VST3 and LV2 on Linux (AU on macOS) through JUCE. From any
+  insert slot choose Plugins > Scan for Plugins..., then pick a plugin by
+  format. Scanning validates each plugin in a separate process (the app
+  relaunches itself with --scan-plugin=...), so a plugin that crashes or hangs
+  is blacklisted instead of taking the host down; the list persists in
+  ~/.config/Beat Maker/plugins.xml. Loaded plugins report their latency to
+  delay compensation, expose their parameters to automation lanes, and open
+  their own editor window (or a generic one) when clicked. CLAP has no JUCE
+  host yet and is deferred; plugins run in-process once loaded.
 
 - Edit modes and tools (Pro Tools layout): Shuffle, Slip, Spot and Grid modes
   (F1-F4; Grid has a value selector and Absolute/Relative toggle), and the
@@ -162,9 +172,9 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Next is Phase 3: VST3/CLAP/LV2/AU plugin hosting with a sandbox, the full
-bundled effects suite and instruments, Elastic-style time stretching and
-Beat Detective-style transient tools. See PLAN.md §5.
+Still to come in Phase 3: the full bundled effects suite and instruments,
+Elastic-style time stretching, Beat Detective-style transient tools, CLAP
+hosting. See PLAN.md §5.
 
 ## Architecture in one paragraph
 

@@ -94,7 +94,10 @@ struct Insert
     std::shared_ptr<engine::Effect> instance;
     std::shared_ptr<const engine::InsertParams> params;
     bool bypass = false;
+    juce::String pluginIdentifier;   // hosted plugins: PluginDescription::createIdentifierString()
     bool isEmpty() const noexcept { return type == engine::EffectType::none || instance == nullptr; }
+    bool isPlugin() const noexcept { return type == engine::EffectType::plugin; }
+    juce::String displayName() const { return instance != nullptr ? instance->getDisplayName() : juce::String (engine::Effect::typeName (type)); }
 };
 
 struct Send

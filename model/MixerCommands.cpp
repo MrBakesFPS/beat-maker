@@ -26,6 +26,9 @@ SetInsertCommand::SetInsertCommand (int trackIndex, int slotIndex, engine::Effec
 void SetInsertCommand::execute (Session& s) { if (auto* i = insertAt (s, index, slot)) { old = *i; *i = fresh; } }
 void SetInsertCommand::undo (Session& s)    { if (auto* i = insertAt (s, index, slot)) *i = old; }
 
+void SetPluginInsertCommand::execute (Session& s) { if (auto* i = insertAt (s, index, slot)) { old = *i; *i = fresh; } }
+void SetPluginInsertCommand::undo (Session& s)    { if (auto* i = insertAt (s, index, slot)) *i = old; }
+
 void SetInsertParamsCommand::execute (Session& s) { if (auto* i = insertAt (s, index, slot)) { old = i->params; i->params = params; } }
 void SetInsertParamsCommand::undo (Session& s)    { if (auto* i = insertAt (s, index, slot)) i->params = old; }
 

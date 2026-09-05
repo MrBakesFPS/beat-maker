@@ -540,11 +540,15 @@ void AudioGraph::processInserts (const std::vector<RenderInsert>& inserts, juce:
         if (owner != nullptr && owner->automationRead)
             for (const auto& a : owner->automation)
                 if (! a.bypass && a.lane != nullptr && ! a.lane->isEmpty()
-                    && a.lane->param.type == ParamId::Type::insertParam && a.lane->param.index == ins.slot
-                    && juce::isPositiveAndBelow (a.lane->param.sub, (int) local.values.size()))
+                    && a.lane->param.type == ParamId::Type::insertParam && a.lane->param.index == ins.slot)
                 {
-                    if (! automated) { local = *ins.params; automated = true; }
-                    local.values[(size_t) a.lane->param.sub] = a.lane->valueAt (blockStart, local.values[(size_t) a.lane->param.sub]);
+                    if (ins.fx->getType() == EffectType::plugin)
+                        ins.fx->setAutomatedParameter (a.lane->param.sub, a.lane->valueAt (blockStart, 0.0f));
+                    else if (juce::isPositiveAndBelow (a.lane->param.sub, (int) local.values.size()))
+                    {
+                        if (! automated) { local = *ins.params; automated = true; }
+                        local.values[(size_t) a.lane->param.sub] = a.lane->valueAt (blockStart, local.values[(size_t) a.lane->param.sub]);
+                    }
                 }
 
         ins.fx->process (buffer, numSamples, automated ? local : *ins.params);

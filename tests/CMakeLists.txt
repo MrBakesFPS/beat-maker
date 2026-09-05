@@ -26,6 +26,7 @@ target_sources(beatmaker_tests PRIVATE
     playlists_test.cpp
     trim_master_test.cpp
     clip_gain_scrub_pencil_test.cpp
+    plugin_host_test.cpp
     recorder_test.cpp
     bounce_test.cpp
     loop_library_test.cpp
@@ -43,6 +44,7 @@ target_link_libraries(beatmaker_tests PRIVATE
     beatmaker_engine
     beatmaker_model
     beatmaker_persistence
+    beatmaker_plugins
     Catch2::Catch2WithMain
     juce::juce_audio_formats
     juce::juce_graphics

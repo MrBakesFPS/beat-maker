@@ -73,6 +73,8 @@ public:
     float getOutputPeak (int channel) const noexcept;
     int getNumActiveVoices() const noexcept { return drums.getNumActiveVoices(); }
 
+    static constexpr int maxBlock = 8192;   // largest block rendered in one pass (plugins are prepared for this)
+
     // Meters (message thread readout): post-fader peak per strip and master.
     static constexpr int maxStrips = 64;
     static constexpr int numBuses = 8;
@@ -94,7 +96,6 @@ public:
 
 private:
     static constexpr int maxOutputs = 32;
-    static constexpr int maxBlock = 8192;
 
     void renderRange (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples);
     void renderStripSources (int stripIndex, const float* const* inputs, int numInputs, juce::int64 pos, bool playing, int numSamples);

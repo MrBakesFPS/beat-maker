@@ -33,6 +33,7 @@ target_link_libraries(BeatMaker PRIVATE
     beatmaker_engine
     beatmaker_model
     beatmaker_persistence
+    beatmaker_plugins
     juce::juce_audio_utils
     juce::juce_gui_extra
     PUBLIC

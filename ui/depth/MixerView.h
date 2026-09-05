@@ -10,6 +10,7 @@
 #include <graph/AudioGraph.h>
 #include <metering/Loudness.h>
 
+#include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
 
@@ -32,6 +33,12 @@ public:
     std::function<void (int, const engine::ParamId&, float, bool)> onParameterChanged;
     std::function<void (int, const engine::ParamId&)> onGestureEnded;
     std::function<void (int, float trimDb, bool gestureActive)> onTrimChanged;   // Trim mode fader moves
+
+    // Plugin hosting hooks
+    std::function<juce::Array<juce::PluginDescription>()> knownPlugins;
+    std::function<void (int trackIndex, int slot, const juce::PluginDescription&)> onInsertPlugin;
+    std::function<void (int trackIndex, int slot)> onOpenPluginEditor;
+    std::function<void()> onScanPlugins;
     std::function<std::optional<float> (int, const engine::ParamId&)> automatedValue;   // value to display when reading
 
     void paint (juce::Graphics&) override;

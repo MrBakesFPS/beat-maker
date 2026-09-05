@@ -13,7 +13,7 @@
 namespace beatmaker::engine
 {
 
-enum class EffectType { none, eq, compressor, delay, reverb };
+enum class EffectType { none, eq, compressor, delay, reverb, plugin };
 
 struct ParamInfo
 {
@@ -47,6 +47,10 @@ public:
 
     // Samples of delay this effect adds for the given parameters (for ADC).
     virtual int getLatencySamples (const InsertParams&) const noexcept { return 0; }
+
+    // Hosted plugins: set a parameter from an automation lane (normalised 0..1). RT-safe.
+    virtual void setAutomatedParameter (int /*index*/, float /*normalised*/) noexcept {}
+    virtual juce::String getDisplayName() const { return typeName (getType()); }
 
     static std::unique_ptr<Effect> create (EffectType, double sampleRate, int maxBlockSize = 8192);
     static const std::vector<ParamInfo>& paramInfo (EffectType);

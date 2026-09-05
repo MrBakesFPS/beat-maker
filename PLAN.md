@@ -208,7 +208,7 @@ beat-maker/
 - [x] **Milestone:** An engineer can mix a 48-track session with routing comparable to Pro Tools. *(Reached 2026-09-05.)*
 
 ### Phase 3 — Plugins & Instruments (Weeks 23–30)
-- [ ] VST3 + CLAP hosting with scanner and sandbox; LV2 (Linux) and AU (macOS).
+- [~] VST3 + CLAP hosting with scanner and sandbox; LV2 (Linux) and AU (macOS). *(2026-09-05: VST3/LV2/AU via JUCE with out-of-process scan validation and blacklist, latency to ADC, parameter automation, editor windows. CLAP pending (no JUCE host); out-of-process *hosting* pending.)*
 - [ ] Bundled effects suite complete; sidechain routing.
 - [ ] Sampler, subtractive and wavetable synths.
 - [ ] Elastic-style time stretch with warp markers; Beat Detective-style tools.

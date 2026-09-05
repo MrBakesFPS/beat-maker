@@ -22,6 +22,7 @@ const char* Effect::typeName (EffectType t)
         case EffectType::compressor: return "Compressor";
         case EffectType::delay:      return "Delay";
         case EffectType::reverb:     return "Reverb";
+        case EffectType::plugin:     return "Plugin";
     }
     return "";
 }
@@ -61,7 +62,8 @@ const std::vector<ParamInfo>& Effect::paramInfo (EffectType t)
         case EffectType::compressor: return comp;
         case EffectType::delay:      return delay;
         case EffectType::reverb:     return reverb;
-        case EffectType::none:       break;
+        case EffectType::none:
+        case EffectType::plugin:     break;
     }
     return none;
 }
@@ -85,7 +87,8 @@ std::unique_ptr<Effect> Effect::create (EffectType t, double sampleRate, int max
         case EffectType::compressor: fx = std::make_unique<CompressorEffect>(); break;
         case EffectType::delay:      fx = std::make_unique<DelayEffect>(); break;
         case EffectType::reverb:     fx = std::make_unique<ReverbEffect>(); break;
-        case EffectType::none:       return nullptr;
+        case EffectType::none:
+        case EffectType::plugin:     return nullptr;   // plugins are created by the PluginManager
     }
     fx->prepare (sampleRate, maxBlockSize);
     return fx;
