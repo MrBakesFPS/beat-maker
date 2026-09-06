@@ -371,6 +371,7 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
             if (t < from) continue;
 
             const int numSteps = rp.pattern->numSteps;
+            if (! rp.loop && k >= numSteps) break;   // plays once
             const int step = (int) (((k % numSteps) + numSteps) % numSteps);
             const int delay = (int) (t - rangeStart);
 
@@ -410,6 +411,7 @@ void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
         {
             const juce::int64 iterationStart = origin + (juce::int64) std::llround ((double) k * periodSamples);
             if (iterationStart >= to) break;
+            if (! clip.loop && k != 0) { if (k > 0) break; continue; }   // plays once
 
             const bool identity = clip.props.isIdentity();
             const juce::int64 delaySamples = identity ? 0 : (juce::int64) std::llround (clip.props.delayMs * 0.001 * transport.getSampleRate());

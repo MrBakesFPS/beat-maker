@@ -227,6 +227,7 @@ private:
 
     // Elastic audio
     void showClipMenu (const model::ClipRef&, juce::Point<int> screenPos);
+    void showLoopMenu (const model::ClipRef&, juce::Point<int> screenPos);
     int warpMarkerAt (const model::ClipRef&, juce::Point<int>) const;   // -1 = none
     void applyElastic (const model::ClipRef&, engine::StretchSpec, const juce::String& name);
     void quantizeSelection();

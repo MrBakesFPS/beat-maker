@@ -76,6 +76,8 @@ public:
     using View = TimelineView;   // viewSource / onViewChanged / onStatus come from EditorPanel
     // A note added past the clip's end: the app extends the clip (samples at the clip's rate).
     std::function<void (int trackIndex, int clipIndex, juce::int64 newLengthSamples)> onClipExtend;
+    std::function<void (int trackIndex, int clipIndex, bool loop)> onClipLoopChanged;
+    bool clipLoops() const;   // the clip repeats its sequence
     bool isLinked() const override { return linked; }
     void setLinked (bool) override;
     void unrollLoop() override;   // one sequence as long as the clip, every repeat written out
@@ -192,7 +194,7 @@ private:
     int defaultVelocity = 100, softVelocity = 70;
     juce::ComboBox presetBox;
     juce::Label presetLabel { {}, "Sound" };
-    juce::TextButton linkButton { "Link" }, unrollButton { "Unroll" }, rowsSmaller { "-" }, rowsBigger { "+" };
+    juce::TextButton linkButton { "Link" }, loopButton { "Loop" }, unrollButton { "Unroll" }, rowsSmaller { "-" }, rowsBigger { "+" };
     juce::ScrollBar pitchScroll { true };
     bool draggingKeyboard = false; int keyboardDragStartPitch = 0;
     void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;

@@ -2,7 +2,7 @@
 
 ## The Mix window
 
-**X** opens a Pro Tools-style Mix window with one channel strip per track plus a Master strip. Each strip has 10 insert slots (5 shown) hosting the built-in effects or plugins (click to edit the knobs in a callout, right-click to bypass, replace or remove), 5 sends to 8 stereo buses with pre/post-fader switching and level, a pan knob, a fader with a post-fader meter, mute and solo, and output routing (Main or a bus). Aux Input tracks read a bus and can carry inserts and sends of their own. Every knob and fader gesture is one undo step, and the same strip pipeline runs live and in Bounce.
+**X** opens a Pro Tools-style Mix window with one channel strip per track plus a Master strip. When the strips do not fit, the wheel over them or the scrollbar underneath scrolls sideways; the Master stays at the right. Each strip has 10 insert slots (5 shown) hosting the built-in effects or plugins (click to edit the knobs in a callout, right-click to bypass, replace or remove), 5 sends to 8 stereo buses with pre/post-fader switching and level, a pan knob, a fader with a post-fader meter, mute and solo, and output routing (Main or a bus). Aux Input tracks read a bus and can carry inserts and sends of their own. Every knob and fader gesture is one undo step, and the same strip pipeline runs live and in Bounce.
 
 The pan law is centre-compensated; the depth (-2.5, -3, -4.5 or -6 dB) is a preference and goes through the engine.
 

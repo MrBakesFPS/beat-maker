@@ -28,6 +28,11 @@ PianoRoll::PianoRoll (model::Session& s, engine::Transport& t, engine::AudioGrap
     linkButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
     linkButton.setTooltip ("Link the time axis to the tracks: the notes sit under their clip and scrolling or zooming either view moves both");
     linkButton.onClick = [this] { setLinked (linkButton.getToggleState()); };
+    addAndMakeVisible (loopButton);
+    loopButton.setClickingTogglesState (true);
+    loopButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+    loopButton.setTooltip ("Loop: repeat the notes for the clip's length. Off: they play once. Lengthen the clip in the tracks (drag its right edge) to loop further");
+    loopButton.onClick = [this] { if (auto* c = getClip(); c != nullptr && onClipLoopChanged) onClipLoopChanged (trackIndex, clipIndex, loopButton.getToggleState()); };
     addAndMakeVisible (unrollButton);
     unrollButton.setTooltip ("Write the loop out so every bar of the clip can be edited on its own (happens by itself when you edit a repeat)");
     unrollButton.onClick = [this] { unrollLoop(); };
@@ -219,6 +224,8 @@ double PianoRoll::sequenceBeatAt (double timelineBeat) const
     return s;
 }
 
+bool PianoRoll::clipLoops() const { auto* c = getClip(); return c != nullptr && c->loop; }
+
 void PianoRoll::repeatsInView (int& first, int& last) const
 {
     const double clipEnd = clipStartBeats() + clipLengthBeats();
@@ -227,6 +234,7 @@ void PianoRoll::repeatsInView (int& first, int& last) const
     first = (int) std::floor ((viewStart - clipStartBeats() + loopOffsetBeats()) / sequenceLength());
     last = (int) std::floor ((viewEnd - clipStartBeats() + loopOffsetBeats() - 1.0e-9) / sequenceLength());
     first = juce::jmax (first, firstRepeat());
+    if (! clipLoops()) last = juce::jmin (last, firstRepeat());   // plays once
     if (last < first) last = first - 1;
 }
 
@@ -365,6 +373,8 @@ void PianoRoll::resized()
     header.removeFromLeft (8);
     linkButton.setBounds (header.removeFromLeft (46));
     header.removeFromLeft (4);
+    loopButton.setBounds (header.removeFromLeft (48));
+    header.removeFromLeft (4);
     unrollButton.setBounds (header.removeFromLeft (56));
     header.removeFromLeft (8);
     rowsSmaller.setBounds (header.removeFromLeft (22));
@@ -397,8 +407,10 @@ void PianoRoll::paint (juce::Graphics& g)
     auto selectedHas = [&idx] (int i) { return std::find (idx.begin(), idx.end(), i) != idx.end(); };
     const int kb = grid.getX() - keyboardWidth;   // keyboard sits just left of the lanes
     const double clipStart = clipStartBeats(), clipEnd = clipStart + clipLengthBeats();
-    const bool loops = clipLengthBeats() > sequenceLength() + 1.0e-6;
+    const bool longer = clipLengthBeats() > sequenceLength() + 1.0e-6;
+    const bool loops = longer && clipLoops();
     unrollButton.setEnabled (loops);
+    loopButton.setToggleState (clipLoops(), juce::dontSendNotification);
 
     // Header: name and readout
     g.setColour (theme::panel);
@@ -409,7 +421,7 @@ void PianoRoll::paint (juce::Graphics& g)
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.5f));
     g.drawText (describeSelection() + "    " + juce::String (EditSettings::modeName (mode())) + " | " + EditSettings::toolName (tool()) + " | grid " + juce::String (gridBeats(), 2)
-                + (loops ? "  |  loop of " + juce::String (sequenceLength() / beatsPerBar, 1) + " bars" : juce::String()),
+                + (loops ? "  |  loop of " + juce::String (sequenceLength() / beatsPerBar, 1) + " bars" : longer ? juce::String ("  |  plays once") : juce::String()),
                 getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (660).withTrimmedRight (8), juce::Justification::centredRight, true);
 
     // Left panel (under the track headers when linked)
@@ -469,8 +481,13 @@ void PianoRoll::paint (juce::Graphics& g)
             g.drawText (isBar ? juce::String (bar) : juce::String (bar) + "." + juce::String (b), (int) x + 3, headerHeight, 40, rulerHeight, juce::Justification::centredLeft);
         }
     }
-    // Loop boundaries
+    // Loop boundaries; with Loop off the part of the clip after the notes is shaded
     int firstK, lastK; repeatsInView (firstK, lastK);
+    if (longer && ! clipLoops())
+    {
+        const float xe = xForBeat (repeatStartBeats (firstRepeat()) + sequenceLength());
+        if (xe < cx1) { g.setColour (theme::panelDark.withAlpha (0.35f)); g.fillRect (juce::Rectangle<float> (juce::jmax (xe, (float) grid.getX()), (float) grid.getY(), cx1 - juce::jmax (xe, (float) grid.getX()), (float) grid.getHeight())); }
+    }
     if (loops)
     {
         g.setColour (theme::accent.withAlpha (0.35f));
@@ -599,7 +616,14 @@ void PianoRoll::audition (int pitch, float velocity)
 bool PianoRoll::unrollIfGhost (int repeat)
 {
     if (! isGhost (repeat)) return false;
-    unrollLoop();
+    if (clipLoops()) { unrollLoop(); return true; }
+    // Not looping: the notes simply grow to cover the clip
+    if (auto* seq = getSequence())
+    {
+        auto grown = *seq;
+        grown.lengthBeats = juce::jmax (grown.lengthBeats, clipLengthBeats() + loopOffsetBeats());
+        commit (std::move (grown), "Extend Notes");
+    }
     return true;
 }
 
@@ -636,8 +660,8 @@ void PianoRoll::addNoteAt (int pitch, double timelineBeat, bool soft, bool start
     const double clipEnd = clipStartBeats() + clipLengthBeats();
     if (snappedT + juce::jmin (lastNoteLength, gridBeats()) > clipEnd + 1.0e-6)
     {
-        // Past the clip: grow it to the next grid line after the note (unrolling first so the new bar is independent)
-        if (clipLengthBeats() > sequenceLength() + 1.0e-6) unrollLoop();
+        // Past the clip: grow it to the next grid line after the note (unrolling a loop first so the new bar is independent)
+        if (clipLengthBeats() > sequenceLength() + 1.0e-6) unrollIfGhost (firstRepeat() + 1);
         const double newEndBeat = NoteEdits::snap (snappedT + lastNoteLength + gridBeats() * 0.999, gridBeats());
         const auto newLength = (juce::int64) std::llround (transport.beatsToSeconds (newEndBeat - clipStartBeats()) * clip->sampleRate);
         if (onClipExtend) onClipExtend (trackIndex, clipIndex, newLength);

@@ -2,7 +2,7 @@
 
 ## Drum Machine
 
-A Drum Machine track has a synthesised 16-pad kit and a 4-bar pattern clip with a starter beat. Smart Controls add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals, Perc and Sub.
+A Drum Machine track has a synthesised 16-pad kit and a one-bar pattern clip with a starter beat. Smart Controls add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals, Perc and Sub.
 
 ### Drum editor
 
@@ -16,9 +16,13 @@ The step sequencer in the editor panel works like the [note editor](#note-editor
 
 Keyboard focus is shared with the note editor: Ctrl+Alt+N or the Editor button in the toolbar switches between the editor panel and the tracks, and the Edit and View commands act on whichever has focus.
 
+## Looping clips
+
+A pattern or MIDI clip plays its content once unless **Loop** is on: the Loop button in the editor header, or right-click the clip in the tracks. With Loop on the clip repeats its notes or steps for its whole length, so the loop goes as far as the clip does: drag the clip's right edge with the Trimmer or Smart Tool, or right-click it and pick a Loop Length of 1 to 32 bars (or type a number). **Play Once** in the same menu switches looping off and shrinks the clip back to its content. With Loop off, a clip longer than its content is silent after the content ends; adding notes or steps there extends the content instead of looping it. Sessions saved before this option keep looping as they did.
+
 ## Instruments
 
-Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track driven by MIDI clips. New instrument tracks start with a two-bar arpeggio. The Sound menu lists each instrument's presets; Smart Controls show one knob per parameter the instrument describes.
+Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track driven by MIDI clips. New instrument tracks start with a two-bar arpeggio clip that plays once. The Sound menu lists each instrument's presets; Smart Controls show one knob per parameter the instrument describes.
 
 - **Synth**: polyphonic subtractive synth (PolyBLEP saw, square, triangle and sine, a detuned second oscillator, state-variable low-pass with envelope, ADSR).
 - **FM Synth**: two-operator FM with ratio, decaying index and feedback, for bells, keys and basses.

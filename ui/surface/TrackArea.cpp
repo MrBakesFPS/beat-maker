@@ -181,6 +181,7 @@ void TrackArea::ensurePlayheadVisible()
 
 void TrackArea::resized()
 {
+    updateScrollRange();   // clamp the scroll to the new size before anything is placed
     for (int i = 0; i < (int) trackControls.size(); ++i)
     {
         auto& c = trackControls[(size_t) i];
@@ -209,7 +210,6 @@ void TrackArea::resized()
     vScroll.setBounds (getWidth() - scrollBarWidth, theme::rulerHeight, scrollBarWidth, juce::jmax (0, getHeight() - theme::rulerHeight));
     rulerOverlay.setBounds (0, 0, getWidth(), theme::rulerHeight);
     rulerOverlay.toFront (false);
-    updateScrollRange();
     // Controls that slid under the ruler must not take clicks through it
     for (int i = 0; i < (int) trackControls.size(); ++i)
     {
@@ -964,9 +964,10 @@ void TrackArea::paintMidiClip (juce::Graphics& g, const model::Track& track, con
         const double periodSeconds = transport.beatsToSeconds (seq.lengthBeats);
         const float periodWidth = (float) (periodSeconds * pixelsPerSecond);
         const int iterations = (int) std::ceil (clip.getLengthSeconds() / periodSeconds);
+        const int shownIterations = clip.loop ? iterations : juce::jmin (iterations, 1);
 
         g.setColour (track.colour.contrasting (0.9f).withAlpha (0.9f));
-        for (int k = 0; k < iterations; ++k)
+        for (int k = 0; k < shownIterations; ++k)
         {
             const float x0 = area.getX() + k * periodWidth;
             if (x0 > r.getRight()) break;
@@ -1253,9 +1254,10 @@ void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, 
     if (stepWidth >= 2.0f)
     {
         const int totalSteps = (int) std::ceil (clip.getLengthSeconds() / stepSeconds);
+    const int shownSteps = clip.loop ? totalSteps : juce::jmin (totalSteps, pattern.numSteps);
         g.setColour (track.colour.contrasting (0.9f).withAlpha (0.9f));
 
-        for (int k = 0; k < totalSteps; ++k)
+        for (int k = 0; k < shownSteps; ++k)
         {
             const float x = dotArea.getX() + k * stepWidth;
             if (x > r.getRight() || x + stepWidth < r.getX()) continue;
@@ -1597,6 +1599,13 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
         if (! isSelected (*hit)) selectClip (*hit, false);
         dragAnchorSeconds = xToSeconds ((float) e.x);
         showClipMenu (*hit, e.getScreenPosition());
+        return;
+    }
+    // Right-click on a pattern or MIDI clip: looping.
+    if (hit->kind != model::ClipRef::Kind::audio && e.mods.isPopupMenu())
+    {
+        if (! isSelected (*hit)) selectClip (*hit, false);
+        showLoopMenu (*hit, e.getScreenPosition());
         return;
     }
 
@@ -2437,6 +2446,60 @@ int TrackArea::warpMarkerAt (const model::ClipRef& ref, juce::Point<int> p) cons
         if (std::abs (x - (float) p.x) <= 6.0f) return i;
     }
     return -1;
+}
+
+// Loop settings of a pattern or MIDI clip: on/off, and how far the loop goes (the clip's length).
+void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screenPos)
+{
+    const auto* t = session.getTrack (ref.track);
+    if (t == nullptr) return;
+    const bool midi = ref.kind == model::ClipRef::Kind::midi;
+    if (midi ? ref.index >= (int) t->midiClips.size() : ref.index >= (int) t->patternClips.size()) return;
+    const bool loop = midi ? t->midiClips[(size_t) ref.index].loop : t->patternClips[(size_t) ref.index].loop;
+    const double contentBeats = midi ? (t->midiClips[(size_t) ref.index].sequence != nullptr ? t->midiClips[(size_t) ref.index].sequence->lengthBeats : 0.0)
+                                     : (t->patternClips[(size_t) ref.index].pattern != nullptr ? t->patternClips[(size_t) ref.index].pattern->getLengthBeats() : 0.0);
+    const double sr = midi ? t->midiClips[(size_t) ref.index].sampleRate : t->patternClips[(size_t) ref.index].sampleRate;
+    const juce::int64 start = midi ? t->midiClips[(size_t) ref.index].timelineStart : t->patternClips[(size_t) ref.index].timelineStart;
+    const juce::int64 length = midi ? t->midiClips[(size_t) ref.index].length : t->patternClips[(size_t) ref.index].length;
+    const int bpb = juce::jmax (1, transport.getBeatsPerBar());
+    const double lengthBars = transport.secondsToBeats ((double) length / sr) / bpb;
+
+    juce::PopupMenu menu, bars;
+    menu.addItem (1, "Loop Clip", true, loop);
+    menu.addItem (2, "Play Once (clip as long as its " + juce::String (contentBeats / bpb, 1) + " bars)", contentBeats > 0.0);
+    for (int n : { 1, 2, 4, 8, 16, 32 }) bars.addItem (10 + n, juce::String (n) + (n == 1 ? " bar" : " bars"), true, std::abs (lengthBars - n) < 0.01);
+    bars.addItem (60, "Other...");
+    menu.addSubMenu ("Loop Length", bars);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, ref, midi, loop, contentBeats, sr, start, bpb] (int result)
+    {
+        if (result == 0) return;
+        auto setLength = [this, ref, midi, sr, start, bpb] (double barsWanted)
+        {
+            const auto newLength = (juce::int64) std::llround (transport.beatsToSeconds (barsWanted * bpb) * sr);
+            auto compound = std::make_unique<model::CompoundCommand> ("Loop Length");
+            compound->add (std::make_unique<model::SetClipLoopCommand> (ref.track, midi, ref.index, true));
+            compound->add (std::make_unique<model::TrimClipCommand> (ref, start, juce::jmax<juce::int64> (1, newLength)));
+            session.execute (std::move (compound));
+            if (onStatus) onStatus ("Loops for " + juce::String (barsWanted, 1) + " bars");
+        };
+        if (result == 1) session.execute (std::make_unique<model::SetClipLoopCommand> (ref.track, midi, ref.index, ! loop));
+        else if (result == 2)
+        {
+            auto compound = std::make_unique<model::CompoundCommand> ("Play Once");
+            compound->add (std::make_unique<model::SetClipLoopCommand> (ref.track, midi, ref.index, false));
+            compound->add (std::make_unique<model::TrimClipCommand> (ref, start, juce::jmax<juce::int64> (1, (juce::int64) std::llround (transport.beatsToSeconds (contentBeats) * sr))));
+            session.execute (std::move (compound));
+        }
+        else if (result >= 11 && result <= 42) setLength (result - 10);
+        else if (result == 60)
+        {
+            auto* w = new juce::AlertWindow ("Loop Length", "How many bars should the clip loop for?", juce::MessageBoxIconType::NoIcon);
+            w->addTextEditor ("bars", "8", "Bars");
+            w->addButton ("Set", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            w->enterModalState (true, juce::ModalCallbackFunction::create ([w, setLength] (int r) { if (r == 1) { const double b = w->getTextEditorContents ("bars").getDoubleValue(); if (b > 0.0) setLength (b); } }), true);
+        }
+    });
 }
 
 void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screenPos)

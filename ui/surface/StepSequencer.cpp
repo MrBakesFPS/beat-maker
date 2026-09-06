@@ -16,6 +16,11 @@ StepSequencer::StepSequencer (model::Session& s, engine::Transport& t, engine::A
     linkButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
     linkButton.setTooltip ("Link the time axis to the tracks: the steps sit under their clip and scrolling or zooming either view moves both");
     linkButton.onClick = [this] { setLinked (linkButton.getToggleState()); };
+    addAndMakeVisible (loopButton);
+    loopButton.setClickingTogglesState (true);
+    loopButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+    loopButton.setTooltip ("Loop: repeat the pattern for the clip's length. Off: it plays once. Lengthen the clip in the tracks (drag its right edge) to loop further");
+    loopButton.onClick = [this] { if (getClip() != nullptr && onClipLoopChanged) onClipLoopChanged (trackIndex, clipIndex, loopButton.getToggleState()); };
     addAndMakeVisible (unrollButton);
     unrollButton.setTooltip ("Write the loop out so every bar of the clip can be edited on its own (happens by itself when you edit a repeat)");
     unrollButton.onClick = [this] { unrollLoop(); };
@@ -105,6 +110,7 @@ void StepSequencer::repeatsInView (int& first, int& last) const
     const double viewEnd = juce::jmin (clipEnd, beatAtX (gridBounds().getRight()));
     first = juce::jmax (firstRepeat(), (int) std::floor ((viewStart - clipStartBeats() + loopOffsetBeats()) / len));
     last = (int) std::floor ((viewEnd - clipStartBeats() + loopOffsetBeats() - 1.0e-9) / len);
+    if (! clipLoops()) last = juce::jmin (last, firstRepeat());   // plays once
     if (last < first) last = first - 1;
 }
 int StepSequencer::padAt (int y) const
@@ -173,7 +179,12 @@ void StepSequencer::liveCommit (engine::StepPattern updated, const juce::String&
 bool StepSequencer::unrollIfGhost (int repeat)
 {
     if (! isGhost (repeat)) return false;
-    unrollLoop();
+    if (clipLoops()) { unrollLoop(); return true; }
+    if (auto* p = getPattern())   // not looping: the pattern grows to cover the clip
+    {
+        const int steps = (int) std::ceil ((clipLengthBeats() + loopOffsetBeats()) / stepBeats() - 1.0e-6);
+        if (steps > p->numSteps) commit (StepEdits::resize (*p, steps), "Extend Pattern");
+    }
     return true;
 }
 void StepSequencer::unrollLoop()
@@ -192,7 +203,7 @@ bool StepSequencer::extendClipTo (double timelineBeat)
     if (clip == nullptr || p == nullptr) return false;
     const double clipEnd = clipStartBeats() + clipLengthBeats();
     if (timelineBeat < clipEnd) return true;
-    if (clipLengthBeats() > p->getLengthBeats() + 1.0e-6) unrollLoop();
+    if (clipLengthBeats() > p->getLengthBeats() + 1.0e-6) unrollIfGhost (firstRepeat() + 1);
     const int bpb = juce::jmax (1, transport.getBeatsPerBar());
     const double newEndBeat = std::ceil ((timelineBeat + stepBeats()) / bpb - 1.0e-9) * bpb;   // grow to the next bar
     const auto newLength = (juce::int64) std::llround (transport.beatsToSeconds (newEndBeat - clipStartBeats()) * clip->sampleRate);
@@ -304,6 +315,8 @@ void StepSequencer::resized()
     header.removeFromLeft (4);
     linkButton.setBounds (header.removeFromLeft (46));
     header.removeFromLeft (4);
+    loopButton.setBounds (header.removeFromLeft (48));
+    header.removeFromLeft (4);
     unrollButton.setBounds (header.removeFromLeft (56));
 }
 
@@ -328,8 +341,10 @@ void StepSequencer::paint (juce::Graphics& g)
     const float rh = (float) grid.getHeight() / (float) engine::DrumKit::numPads;
     const int padsX = grid.getX() - padColumnWidth;
     const double clipStart = clipStartBeats(), clipEnd = clipStart + clipLengthBeats();
-    const bool loops = clipLengthBeats() > pattern->getLengthBeats() + 1.0e-6;
+    const bool longer = clipLengthBeats() > pattern->getLengthBeats() + 1.0e-6;
+    const bool loops = longer && clipLoops();
     unrollButton.setEnabled (loops);
+    loopButton.setToggleState (clipLoops(), juce::dontSendNotification);
 
     // Header
     g.setColour (theme::panel);
@@ -340,7 +355,7 @@ void StepSequencer::paint (juce::Graphics& g)
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.5f));
     g.drawText (describeSelection() + "    " + EditSettings::toolName (tool()) + "  |  1/" + juce::String (pattern->stepsPerBeat * 4) + " steps"
-                + (loops ? "  |  loop of " + juce::String (pattern->getLengthBeats() / beatsPerBar, 1) + " bars" : juce::String()),
+                + (loops ? "  |  loop of " + juce::String (pattern->getLengthBeats() / beatsPerBar, 1) + " bars" : longer ? juce::String ("  |  plays once") : juce::String()),
                 getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (400).withTrimmedRight (8), juce::Justification::centredRight, true);
 
     // Pad column and row shading
@@ -433,6 +448,11 @@ void StepSequencer::paint (juce::Graphics& g)
     {
         g.setColour (theme::accent.withAlpha (0.35f));
         for (int k = firstK; k <= lastK + 1; ++k) { const double t = repeatStartBeats (k); if (t > clipStart && t < clipEnd) g.drawVerticalLine ((int) xForBeat (t), (float) grid.getY(), (float) grid.getBottom()); }
+    }
+    else if (longer)
+    {
+        const float xe = xForBeat (repeatStartBeats (firstRepeat()) + pattern->getLengthBeats());
+        if (xe < cx1) { g.setColour (theme::panelDark.withAlpha (0.35f)); g.fillRect (juce::Rectangle<float> (juce::jmax (xe, (float) grid.getX()), (float) grid.getY(), cx1 - juce::jmax (xe, (float) grid.getX()), (float) grid.getHeight())); }
     }
 
     // Velocity lane: the hits of the focus pad
@@ -558,7 +578,8 @@ void StepSequencer::mouseDrag (const juce::MouseEvent& e)
     if (drag == Drag::paint)
     {
         auto cell = cellAt (e.getPosition());
-        if (cell.step < 0 || isGhost (cell.repeat) || (cell.pad == lastPaintPad && cell.step == lastPaintStep)) return;
+        if (cell.step < 0 || (cell.pad == lastPaintPad && cell.step == lastPaintStep)) return;
+        if (isGhost (cell.repeat)) return;   // a stroke stays within the first pass; click a repeat to unroll first
         lastPaintPad = cell.pad; lastPaintStep = cell.step;
         if (dragChanged) session.undo();   // the whole stroke is one undo step: rebuild it from the base
         dragChanged = true;

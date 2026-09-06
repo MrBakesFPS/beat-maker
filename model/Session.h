@@ -76,6 +76,7 @@ struct PatternClip
     juce::int64 length        = 0;
     juce::int64 loopOffset    = 0;   // pattern position (samples) at timelineStart; lets trims/splits keep phase
     float gain = 1.0f;
+    bool loop = false;               // repeat the pattern for the clip's length (off: it plays once)
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
@@ -92,6 +93,7 @@ struct MidiClip
     juce::int64 length        = 0;
     juce::int64 loopOffset    = 0;   // sequence position (samples) at timelineStart
     float gain = 1.0f;
+    bool loop = false;               // repeat the sequence for the clip's length (off: it plays once)
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
@@ -380,6 +382,7 @@ private:
     friend class AddPatternClipCommand;
     friend class SetStepCommand;
     friend class ReplacePatternCommand;
+    friend class SetClipLoopCommand;
     friend class SetPadSampleCommand;
     friend class AddMidiClipCommand;
     friend class ReplaceMidiSequenceCommand;
@@ -626,6 +629,25 @@ private:
     int index, clipIndex;
     std::shared_ptr<const engine::StepPattern> newPattern, oldPattern;
     juce::String name;
+};
+
+// Loop on/off for a pattern or MIDI clip.
+class SetClipLoopCommand final : public Command
+{
+public:
+    SetClipLoopCommand (int trackIndex, bool isMidi, int clipIndex, bool loopOn) : index (trackIndex), midi (isMidi), clip (clipIndex), on (loopOn) {}
+    juce::String getName() const override { return on ? "Loop Clip" : "Play Clip Once"; }
+    void execute (Session& s) override { apply (s, on, &was); }
+    void undo (Session& s) override { apply (s, was, nullptr); }
+private:
+    void apply (Session& s, bool value, bool* remember)
+    {
+        if (! juce::isPositiveAndBelow (index, (int) s.tracks.size())) return;
+        auto& t = s.tracks[(size_t) index];
+        if (midi) { if (juce::isPositiveAndBelow (clip, (int) t.midiClips.size())) { if (remember) *remember = t.midiClips[(size_t) clip].loop; t.midiClips[(size_t) clip].loop = value; } }
+        else      { if (juce::isPositiveAndBelow (clip, (int) t.patternClips.size())) { if (remember) *remember = t.patternClips[(size_t) clip].loop; t.patternClips[(size_t) clip].loop = value; } }
+    }
+    int index; bool midi; int clip; bool on, was = false;
 };
 
 // Copy-on-write replacement of one pad's sample.

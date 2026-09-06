@@ -128,6 +128,8 @@ public:
             return v;
         };
         pianoRoll.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
+        pianoRoll.onClipLoopChanged = [this] (int track, int clip, bool on) { session.execute (std::make_unique<model::SetClipLoopCommand> (track, true, clip, on)); };
+        sequencer.onClipLoopChanged = [this] (int track, int clip, bool on) { session.execute (std::make_unique<model::SetClipLoopCommand> (track, false, clip, on)); };
         pianoRoll.onClipExtend = [this] (int track, int clip, juce::int64 newLength)
         {
             auto* t = session.getTrack (track);
@@ -837,7 +839,10 @@ public:
         }
         else editorResizer.setVisible (false);
         if (controlsVisible)
-            smartControls.setBounds (area.removeFromBottom (ui::SmartControls::preferredHeight));
+        {
+            smartControls.setBounds (area.removeFromTop (ui::SmartControls::preferredHeight));   // above the tracks
+            area.removeFromTop (2);
+        }
         if (libraryVisible)
             loopBrowser.setBounds (area.removeFromLeft (juce::jmin (280, area.getWidth() / 3)));
         trackArea.setBounds (area);
@@ -1902,13 +1907,15 @@ private:
         const int index = raw->getTrackIndex();
         applyNewTrackDefaults (index);
 
-        // A 4-bar pattern clip with a starter beat so Play makes sound immediately.
+        // A one-bar pattern clip with a starter beat so Play makes sound immediately;
+        // it plays once until Loop is switched on and the clip is lengthened.
         const auto& transport = engine.getTransport();
         model::PatternClip clip;
         clip.name       = "Beat";
         clip.pattern    = std::make_shared<const engine::StepPattern> (engine::StepPattern::createDefaultBeat());
         clip.sampleRate = engine.getSampleRate();
-        clip.length     = (juce::int64) std::llround (transport.beatsToSeconds (4.0 * transport.getBeatsPerBar()) * clip.sampleRate);
+        clip.length     = (juce::int64) std::llround (transport.beatsToSeconds (clip.pattern->getLengthBeats()) * clip.sampleRate);
+        clip.loop       = false;
         session.execute (std::make_unique<model::AddPatternClipCommand> (index, std::move (clip)));
 
         trackArea.setSelectedTrack (index);
@@ -1939,13 +1946,15 @@ private:
         const int index = raw->getTrackIndex();
         applyNewTrackDefaults (index);
 
-        // A 4-bar clip looping a 2-bar arpeggio so Play makes sound immediately.
+        // A two-bar arpeggio clip so Play makes sound immediately; it plays once
+        // until Loop is switched on and the clip is lengthened.
         const auto& transport = engine.getTransport();
         model::MidiClip clip;
         clip.name       = "Arp";
         clip.sequence   = std::make_shared<const engine::MidiSequence> (engine::MidiSequence::createDefaultArpeggio());
         clip.sampleRate = engine.getSampleRate();
-        clip.length     = (juce::int64) std::llround (transport.beatsToSeconds (4.0 * transport.getBeatsPerBar()) * clip.sampleRate);
+        clip.length     = (juce::int64) std::llround (transport.beatsToSeconds (clip.sequence->lengthBeats) * clip.sampleRate);
+        clip.loop       = false;
         session.execute (std::make_unique<model::AddMidiClipCommand> (index, std::move (clip)));
 
         trackArea.setSelectedTrack (index);

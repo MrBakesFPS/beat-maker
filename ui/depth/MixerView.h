@@ -44,6 +44,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     static constexpr int preferredHeight = 440;
 

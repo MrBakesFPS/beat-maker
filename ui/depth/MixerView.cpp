@@ -936,6 +936,8 @@ MixerView::MixerView (model::Session& s, engine::AudioGraph& g, std::function<do
     addAndMakeVisible (viewport);
     viewport.setViewedComponent (&stripHolder, false);
     viewport.setScrollBarsShown (false, true);
+    viewport.setScrollBarThickness (12);
+    viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::never);
     delays = model::DelayCompensation::compute (session);
     loudness.setSampleRate (sampleRate());
     masterStrip = std::make_unique<ChannelStrip> (*this, -1);
@@ -960,6 +962,13 @@ void MixerView::sessionChanged (model::Session&)
     if (strips.size() != session.getNumTracks()) rebuildStrips();
     else for (auto* s : strips) s->sync();
     masterStrip->sync();
+}
+
+void MixerView::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w)
+{
+    // The wheel over the strips scrolls them sideways (knobs and faders take the wheel themselves).
+    const float d = std::abs (w.deltaX) > std::abs (w.deltaY) ? w.deltaX : w.deltaY;
+    viewport.setViewPosition (viewport.getViewPositionX() - juce::roundToInt (d * 160.0f), viewport.getViewPositionY());
 }
 
 void MixerView::timerCallback()
@@ -991,7 +1000,7 @@ void MixerView::resized()
     auto area = getLocalBounds();
     masterStrip->setBounds (area.removeFromRight (ChannelStrip::width + 8).withTrimmedLeft (8));
     viewport.setBounds (area);
-    stripHolder.setSize (juce::jmax (area.getWidth(), strips.size() * ChannelStrip::width), area.getHeight() - (viewport.isHorizontalScrollBarShown() ? 8 : 0));
+    stripHolder.setSize (juce::jmax (area.getWidth(), strips.size() * ChannelStrip::width), area.getHeight() - (viewport.isHorizontalScrollBarShown() ? 12 : 0));
     for (int i = 0; i < strips.size(); ++i)
         strips[i]->setBounds (i * ChannelStrip::width, 0, ChannelStrip::width, stripHolder.getHeight());
 }

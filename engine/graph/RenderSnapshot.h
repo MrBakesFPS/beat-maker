@@ -63,6 +63,7 @@ struct RenderPattern
     float gain                = 1.0f;
     int strip                 = 0;
     juce::int64 loopOffset    = 0;    // pattern position at timelineStart
+    bool loop                 = true; // off: the pattern plays once from the origin
 };
 
 // An instrument track: the stateful voice pool lives in the model (like an
@@ -86,6 +87,7 @@ struct RenderMidiClip
     float gain                = 1.0f;
     juce::int64 loopOffset    = 0;    // sequence position at timelineStart
     MidiRealtimeProps props;          // track real-time properties
+    bool loop                 = true; // off: the sequence plays once from the origin
 };
 
 // Pass a device input straight to the outputs (input monitoring).

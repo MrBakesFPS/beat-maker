@@ -101,6 +101,24 @@ TEST_CASE ("Pattern loops for the clip length and honours the clip start")
     CHECK (r.nonZeroIndices() == std::vector<int> { 1000, 25000, 49000 });
 }
 
+TEST_CASE ("A pattern with Loop off plays once for the clip's length")
+{
+    Renderer r;
+    r.transport.setSampleRate (48000.0);
+    r.transport.setBpm (120.0);
+    auto pattern = std::make_shared<StepPattern>();
+    pattern->numSteps = 4;
+    pattern->set (0, 0, 127);
+    auto snap = std::make_unique<RenderSnapshot>();
+    beatmaker::engine::RenderPattern rp { pattern, makeTestKit(), 1000, 50000, 1.0f };
+    rp.loop = false;
+    snap->patterns.push_back (rp);
+    r.graph.setSnapshot (std::move (snap));
+    r.transport.play();
+    r.renderAll (80000, 700);
+    CHECK (r.nonZeroIndices() == std::vector<int> { 1000 });   // no repeats at 25000 and 49000
+}
+
 TEST_CASE ("Velocity scales the hit and pattern gain applies")
 {
     Renderer r;

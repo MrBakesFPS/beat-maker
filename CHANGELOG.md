@@ -7,6 +7,11 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 ### Added
 - A message-thread profiler: System Usage shows interface stalls and the costliest operations, and `--profile-ui[=seconds]` prints the profile.
 
+### Changed
+- New pattern and MIDI clips play their content once: a one-bar beat and a two-bar arpeggio. Loop is a per-clip switch (editor header button or right-click menu) and the loop's reach is the clip's length, set by trimming or the Loop Length menu; Play Once shrinks a clip back to its content.
+- Smart Controls sit above the tracks instead of between the tracks and the editor panel.
+- The mixer's strips scroll sideways with the wheel and a thicker scrollbar.
+
 ### Fixed
 - The track list scrolls when there are more tracks than fit: wheel over the tracks, a scrollbar at the right, and the selected track kept in view; Shift+wheel scrolls time. The ruler stays fixed while headers slide under it. `--scroll-tracks=<px>` flag.
 - Interface lag: the note and drum editors repainted everything thirty times a second while linked (the drum grid alone took about 30 ms per paint), and the track area repainted everything every tick. All three now repaint only the playhead columns unless the view or the content changed, and the drum grid draws lines instead of an outline per empty cell.

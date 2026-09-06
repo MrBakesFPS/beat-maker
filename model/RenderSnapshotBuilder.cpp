@@ -163,6 +163,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rp.length        = audible ? clip.length : 0;
             rp.loopOffset    = clip.loopOffset;
             rp.gain          = clip.gain;
+            rp.loop          = clip.loop;
             rp.strip         = i;
             snapshot->patterns.push_back (std::move (rp));
         }
@@ -182,6 +183,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
                 rm.loopOffset    = clip.loopOffset;
                 rm.gain          = clip.gain;
                 rm.props         = track.midiProps;
+                rm.loop          = clip.loop;
                 snapshot->midiClips.push_back (std::move (rm));
             }
         }

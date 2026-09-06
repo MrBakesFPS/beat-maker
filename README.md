@@ -147,7 +147,8 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   data resumed after the pass); while stopped, a fader move scales the whole
   lane. Trim faders spring back and show the offset while you hold them.
 - Mixer (X): a Pro Tools-style Mix window with one channel strip per track
-  plus a Master strip. Each strip has 10 insert slots (5 shown) hosting the
+  plus a Master strip; the strips scroll sideways with the wheel or the
+  scrollbar when they do not fit, the Master stays put. Each strip has 10 insert slots (5 shown) hosting the
   built-in effects or hosted plugins (click to edit the knobs in a
   callout, right-click to bypass, replace or remove), 5 sends to 8 stereo
   buses with pre/post-fader switching and level, a pan knob, a fader with a
@@ -191,7 +192,7 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
 
 - Audio tracks: import files (open dialog, drag-and-drop, command line), shown
   as waveform clips on colour-coded tracks.
-- Drum Machine tracks: a synthesised 16-pad kit, a 4-bar pattern clip with a
+- Drum Machine tracks: a synthesised 16-pad kit, a one-bar pattern clip with a
   starter beat, and a step-sequencer editor panel drawn on the session
   timeline like the note editor: linked to the tracks' view by default (the
   steps sit under their clip, scrolling or zooming either view moves both),
@@ -205,7 +206,8 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   Left/Right nudge a step, Delete, Ctrl+A/C/X/V/D. Painting past the clip's
   end extends the clip to the next bar. Click a pad name to audition it, drop
   an audio file on a pad row to replace its sample.
-- Smart Controls (B): a macro-knob strip for the selected track. Every track
+- Smart Controls (B): a macro-knob strip for the selected track, shown above
+  the tracks. Every track
   has Volume and Pan (-3 dB centre-compensated pan law); instrument tracks add
   one knob per parameter the instrument describes (a Wave menu where it has
   one); drum tracks add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals,
@@ -213,7 +215,15 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
 - Instrument tracks (Add Track > Instrument Track, or Ctrl+I for the Synth):
   six bundled instruments driven by MIDI clips edited in the note editor (the
   Sound menu lists the instrument's presets). New instrument tracks start with
-  a two-bar arpeggio.
+  a two-bar arpeggio clip.
+- Looping clips: a pattern or MIDI clip plays its content once unless Loop is
+  on (the Loop button in the editor header, or right-click the clip). With
+  Loop on, the clip repeats its notes or steps for its whole length, so how
+  far the loop goes is the clip's length: drag its right edge, or pick 1 to 32
+  bars (or type a number) from the clip's Loop Length menu; Play Once shrinks
+  it back to its content. With Loop off, a clip longer than its content is
+  silent past the end until you add notes or steps there, which extends the
+  content instead. Older sessions keep looping as they did.
 - Note editor: the piano roll is drawn on the session timeline and, with
   Link on (the default), follows the tracks' view: the same ruler and zoom,
   the notes sit under their clip, and scrolling or zooming either view moves

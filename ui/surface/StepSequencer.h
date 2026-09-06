@@ -39,6 +39,8 @@ public:
     std::function<void (int trackIndex, int clipIndex, std::shared_ptr<const engine::StepPattern>, juce::String)> onPatternChanged;
     std::function<void (int trackIndex, int pad, const juce::File&)> onPadSampleDropped;
     std::function<void (int trackIndex, int clipIndex, juce::int64 newLengthSamples)> onClipExtend;
+    std::function<void (int trackIndex, int clipIndex, bool loop)> onClipLoopChanged;
+    bool clipLoops() const { auto* c = getClip(); return c != nullptr && c->loop; }
 
     // EditorPanel
     bool hasTarget() const override { return getPattern() != nullptr; }
@@ -158,7 +160,7 @@ private:
     int lastPaintPad = -1, lastPaintStep = -1;
     model::StepEdits::Cells strokeCells;
 
-    juce::TextButton linkButton { "Link" }, unrollButton { "Unroll" };
+    juce::TextButton linkButton { "Link" }, loopButton { "Loop" }, unrollButton { "Unroll" };
 };
 
 } // namespace beatmaker::ui
