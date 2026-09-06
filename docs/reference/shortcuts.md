@@ -77,6 +77,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Transpose Down an Octave |  |  |
 | Velocity +10 |  |  |
 | Velocity -10 |  |  |
+| Unroll Loop (write every repeat out) |  |  |
+| Note Editor Follows the Tracks' View on/off |  |  |
 | Announce Note Selection |  |  |
 
 ## Edit Mode

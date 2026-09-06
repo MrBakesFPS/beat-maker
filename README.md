@@ -204,7 +204,14 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   six bundled instruments driven by MIDI clips edited in the note editor (the
   Sound menu lists the instrument's presets). New instrument tracks start with
   a two-bar arpeggio.
-- Note editor: the piano roll shares the edit window's settings. Grid mode
+- Note editor: the piano roll is drawn on the session timeline and, with
+  Link on (the default), follows the tracks' view: the same ruler and zoom,
+  the notes sit under their clip, and scrolling or zooming either view moves
+  both (Link off gives it its own view). A looping clip shows every repeat
+  of its sequence, the later ones as ghosts; the first edit inside a ghost,
+  or the Unroll button, writes the loop out so every bar of the clip is
+  editable on its own, and a note added past the clip's end grows the clip.
+  The piano roll shares the edit window's settings. Grid mode
   snaps to the toolbar's grid value (Relative snaps the movement), Slip is
   free, Spot (or a double-click) types a note's bar|beat|tick and length. The
   Zoomer zooms (click, Alt-click, drag a range), the Trimmer drags either edge,

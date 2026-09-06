@@ -17,7 +17,11 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 
 ### Note editor
 
-The piano roll in the editor panel shares the edit window's settings, so the toolbar means the same thing in both places:
+The piano roll in the editor panel is drawn on the session timeline. With **Link** on (the default) it follows the tracks' view: the same ruler and zoom, the notes sit directly under their clip, and scrolling or zooming in either view moves both. Link off gives the note editor a view of its own (Ctrl+wheel zooms, Shift+wheel scrolls, Alt+Z fits the clip).
+
+A looping clip (the default two-bar arpeggio in a four-bar clip, say) shows every repeat of its sequence; the repeats after the first are drawn as ghosts with a loop line between them. Editing a ghost note, or pressing **Unroll**, writes the loop out so that each bar of the clip is its own notes; a note added past the clip's end extends the clip. The header reads out the selection and the loop length.
+
+The editor shares the edit window's settings, so the toolbar means the same thing in both places:
 
 - **Modes**: Grid snaps note starts and lengths to the toolbar's grid value (Relative snaps the movement and keeps a note's offset from the grid); Slip is free; Spot, or a double-click on a note, opens a dialog to type its start as bar|beat|tick and its length.
 - **Tools**: the Zoomer zooms (click in, Alt-click out, drag a range), the Trimmer drags whichever edge is nearer, the Selector rubber-bands, the Grabber moves, the Pencil adds a note where you click (keep dragging to set its length) and paints velocities in the lane, and the Smart Tool does the right one by where you click: edges trim, the body grabs, empty space adds a note on release or selects when dragged.

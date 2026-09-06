@@ -109,6 +109,21 @@ public:
         editSettings.onChanged = [this] { editToolbar.refresh(); trackArea.repaint(); pianoRoll.repaint(); };
         pianoRoll.setEditSettings (&editSettings);
         pianoRoll.onStatus = [this] (const juce::String& s) { statusMessage = s; updateStatus(); };
+        pianoRoll.viewSource = [this]
+        {
+            ui::PianoRoll::View v;
+            trackArea.getView (v.startSeconds, v.pixelsPerSecond);
+            v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - pianoRoll.getX();
+            v.laneWidth = juce::jmax (50, trackArea.getWidth() - ui::theme::trackHeaderWidth);
+            return v;
+        };
+        pianoRoll.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
+        pianoRoll.onClipExtend = [this] (int track, int clip, juce::int64 newLength)
+        {
+            auto* t = session.getTrack (track);
+            if (t == nullptr || ! juce::isPositiveAndBelow (clip, (int) t->midiClips.size())) return;
+            session.execute (std::make_unique<model::TrimClipCommand> (model::ClipRef { track, model::ClipRef::Kind::midi, clip }, t->midiClips[(size_t) clip].timelineStart, newLength));
+        };
         editToolbar.notesFocused = [this] { return notesFocused(); };
         editToolbar.onFocusNotes = [this] (bool notes) { focusNotes (notes); };
         trackArea.onTimeSelectionChanged = [this] { updateLoopRange(); };
@@ -860,6 +875,8 @@ public:
         add ("notes.octaveDown", "Notes", "Transpose Down an Octave", {}, 0, [this] { pianoRoll.transposeSelection (-12); }, [this] { return pianoRoll.hasSelection(); });
         add ("notes.louder", "Notes", "Velocity +10", {}, 0, [this] { pianoRoll.changeVelocity (10); }, [this] { return pianoRoll.hasSelection(); });
         add ("notes.softer", "Notes", "Velocity -10", {}, 0, [this] { pianoRoll.changeVelocity (-10); }, [this] { return pianoRoll.hasSelection(); });
+        add ("notes.unroll", "Notes", "Unroll Loop (write every repeat out)", {}, 0, [this] { focusNotes (true); pianoRoll.unrollLoop(); }, [this] { return pianoRoll.hasTarget(); });
+        add ("notes.linkView", "Notes", "Note Editor Follows the Tracks' View on/off", {}, 0, [this] { pianoRoll.setLinked (! pianoRoll.isLinked()); }, [this] { return pianoRoll.hasTarget(); });
         add ("notes.describe", "Notes", "Announce Note Selection", {}, 0, [this] { statusMessage = pianoRoll.describeSelection(); updateStatus(); juce::AccessibilityHandler::postAnnouncement (statusMessage, juce::AccessibilityHandler::AnnouncementPriority::high); });
         add ("edit.quantize", "Edit", "Quantize Audio to Grid", {}, 0, [this] { trackArea.quantizeSelectionPublic(); });
         add ("edit.addMarker", "Edit", "Add Memory Location at Insertion", {}, 0, [this] { trackArea.addMarkerAtPlayhead (false); });

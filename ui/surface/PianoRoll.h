@@ -1,11 +1,16 @@
-// PianoRoll: the note editor for one MidiClip. It shares the edit window's
-// settings (mode, tool, grid, relative grid, Commands Focus): Grid snaps,
-// Slip is free, Spot types a position; the Zoomer zooms, the Trimmer drags
-// either edge, the Selector rubber-bands, the Grabber moves, the Pencil adds
-// and paints velocities, the Smart Tool does the right one by where you
-// click. Multi-selection, a velocity lane, zoom and scroll, and the same
-// keyboard vocabulary as the tracks. Every edit is one undo step through
-// onSequenceChanged.
+// PianoRoll: the note editor for one MidiClip, drawn on the session
+// timeline. By default its time axis is linked to the track area, so the
+// notes sit under their clip and scrolling or zooming either view moves
+// both; Link off gives it a view of its own. A looping clip shows every
+// repeat of its sequence; the repeats after the first are ghosts, and the
+// first edit inside a ghost unrolls the loop so each bar becomes
+// independent. It shares the edit window's settings (mode, tool, grid,
+// relative grid, Commands Focus): Grid snaps, Slip is free, Spot types a
+// position; the Zoomer zooms, the Trimmer drags either edge, the Selector
+// rubber-bands, the Grabber moves, the Pencil adds and paints velocities,
+// the Smart Tool does the right one by where you click. Multi-selection, a
+// velocity lane, and the same keyboard vocabulary as the tracks. Every edit
+// is one undo step through onSequenceChanged.
 #pragma once
 
 #include "../shared/EditSettings.h"
@@ -57,6 +62,17 @@ public:
     std::function<void (int trackIndex, int clipIndex, std::shared_ptr<const engine::MidiSequence>, juce::String)> onSequenceChanged;
     std::function<void (int trackIndex, int presetIndex)> onPresetChanged;
     std::function<void (const juce::String&)> onStatus;
+    // Time axis link with the track area: the source gives the lane origin (in
+    // this component's coordinates), the view start and the pixels per second;
+    // the sink receives scroll and zoom made here.
+    struct View { double originX = 0.0, startSeconds = 0.0, pixelsPerSecond = 60.0, laneWidth = 800.0; };
+    std::function<View()> viewSource;
+    std::function<void (double startSeconds, double pixelsPerSecond)> onViewChanged;
+    // A note added past the clip's end: the app extends the clip (samples at the clip's rate).
+    std::function<void (int trackIndex, int clipIndex, juce::int64 newLengthSamples)> onClipExtend;
+    bool isLinked() const noexcept { return linked; }
+    void setLinked (bool);
+    void unrollLoop();   // one sequence as long as the clip, every repeat written out
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -79,6 +95,7 @@ private:
     static constexpr int edgeGrab      = 6;
 
     enum class Drag { none, pending, move, resizeEnd, resizeStart, band, velocity, zoomBand };
+    struct Instance { int note = -1; int repeat = 0; };   // a drawn note: sequence note index and loop repeat
 
     void timerCallback() override;
     const model::Track* getTrack() const;
@@ -93,20 +110,32 @@ private:
     double snapBeat (double beat) const noexcept { return snapping() ? model::NoteEdits::snap (beat, gridBeats()) : beat; }
     double snapDelta (double anchorStart, double delta) const noexcept;   // Grid: absolute or relative per the setting
 
-    // Geometry
+    // Timeline geometry: x <-> session seconds <-> session beats
+    View view() const;
+    int originX() const;
+    double secondsAtX (int x) const;
+    float xForSeconds (double s) const;
+    double clipStartBeats() const;
+    double clipLengthBeats() const;
+    double loopOffsetBeats() const;
+    int firstRepeat() const;                       // index of the repeat that starts the clip
+    double repeatStartBeats (int repeat) const;    // timeline beats
+    double sequenceBeatAt (double timelineBeat) const;   // wrapped into the sequence
+    bool isGhost (int repeat) const { return repeat != firstRepeat(); }
+    juce::Rectangle<float> instanceRect (const engine::NoteEvent&, int repeat) const;
+    Instance instanceAt (juce::Point<int>) const;
+    void repeatsInView (int& first, int& last) const;
     juce::Rectangle<int> gridBounds() const;
     juce::Rectangle<int> velocityBounds() const;
     juce::Rectangle<int> rulerBounds() const;
     int visibleRows() const;
     int pitchAtY (int y) const;
-    double beatAtX (int x) const;
+    double beatAtX (int x) const;                  // timeline beats
     float xForBeat (double beat) const;
     int yForPitch (int pitch) const;
-    double visibleBeats() const;
     double sequenceLength() const;
-    void clampView();
-    juce::Rectangle<float> noteRect (const engine::NoteEvent&) const;
-    int noteAt (juce::Point<int>) const;
+    void applyView (double startSeconds, double pixelsPerSecond);
+    int noteAt (juce::Point<int> p) const { return instanceAt (p).note; }
     int velocityBarAt (int x) const;
     static bool isBlackKey (int pitch) { const int n = pitch % 12; return n == 1 || n == 3 || n == 6 || n == 8 || n == 10; }
     static juce::String noteName (int pitch);
@@ -123,7 +152,8 @@ private:
     void apply (engine::MidiSequence updated, const juce::String& action, const std::vector<model::NoteKey>* keepKeys = nullptr);
     void commit (engine::MidiSequence updated, const juce::String& action);
     void liveCommit (engine::MidiSequence updated, const juce::String& action);   // during a drag: one undo step in total
-    void addNoteAt (int pitch, double beat, bool soft, bool startResize, juce::Point<int> at);
+    void addNoteAt (int pitch, double timelineBeat, bool soft, bool startResize, juce::Point<int> at);
+    bool unrollIfGhost (int repeat);               // returns true when the loop was unrolled
     void spotNote (int index);
     void audition (int pitch, float velocity = 0.8f);
     void refreshPresetBox();
@@ -136,7 +166,8 @@ private:
 
     int trackIndex = -1, clipIndex = -1;
     int lowestPitch = 48;         // bottom row (C3)
-    double scrollBeat = 0.0, pixelsPerBeat = 0.0;   // 0 = fit on next layout
+    bool linked = true;
+    double ownStartSeconds = 0.0, ownPixelsPerSecond = 0.0;   // when not linked (0 = fit the clip)
     std::vector<model::NoteKey> selection;
     int hoverNote = -1;
     double lastNoteLength = 0.5;
@@ -147,12 +178,14 @@ private:
     engine::MidiSequence dragBase;              // the sequence when the drag began
     std::vector<int> dragIndices;               // indices into dragBase
     engine::NoteEvent dragAnchor;               // the note that was clicked
+    int dragRepeat = 0;
     bool dragChanged = false;
     int velocityTarget = -1;
 
     int defaultVelocity = 100, softVelocity = 70;
     juce::ComboBox presetBox;
     juce::Label presetLabel { {}, "Sound" };
+    juce::TextButton linkButton { "Link" }, unrollButton { "Unroll" };
     engine::InstrumentType presetType = engine::InstrumentType::none;
     static inline std::vector<engine::NoteEvent> clipboard;
 };
