@@ -49,6 +49,7 @@ void SmartControls::addKnob (const juce::String& name, double min, double max, d
     Knob k;
     k.slider = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow);
     auto& s = *k.slider;
+    s.setTitle (name);
     s.setRange (min, max, 0.0);
     if (skewMidpoint > min && skewMidpoint < max) s.setSkewFactorFromMidPoint (skewMidpoint);
     s.setNumDecimalPlacesToDisplay (2);

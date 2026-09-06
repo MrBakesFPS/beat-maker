@@ -60,6 +60,9 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     bounceButton.setTooltip ("Bounce the arrangement to an audio file (Ctrl+B)");
     bounceButton.onClick = [this] { if (onBounce) onBounce(); };
 
+    recordButton.setTitle ("Record"); playButton.setTitle ("Play or stop"); stopButton.setTitle ("Stop"); rtzButton.setTitle ("Return to start");
+    recordModeButton.setTitle ("Record mode"); rollButton.setTitle ("Pre-roll and post-roll");
+    barsBeatsLcd.setTitle ("Bars and beats"); timeLcd.setTitle ("Time"); tempoLcd.setTitle ("Tempo");
     libraryButton.setTooltip ("Loop Library (L)");
     controlsButton.setTooltip ("Smart Controls for the selected track (B)");
     mixerButton.setTooltip ("Mix window: inserts, sends, faders, meters (X)");

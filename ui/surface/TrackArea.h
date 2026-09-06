@@ -99,6 +99,13 @@ public:
     int numSelectedAudioClips() const;
 
     bool keyPressed (const juce::KeyPress&) override;
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+    juce::String describeSelection() const;   // what a screen reader hears for the current selection
+    void focusGained (FocusChangeType) override { repaint(); }
+    void focusLost (FocusChangeType) override { repaint(); }
+    void selectTrackByOffset (int delta);     // Up/Down
+    void selectTrayByOffsetPublic (int delta) { selectTrackByOffset (delta); }
+    void stepPlayhead (int direction, bool extendSelection);   // Left/Right by the grid
 
     // (files, trackIndex or -1 for "new track", timeline position in seconds)
     std::function<void (const juce::StringArray&, int, double)> onFilesDropped;
@@ -195,6 +202,7 @@ private:
     double xToSeconds (float x) const;
     void ensurePlayheadVisible();
 
+    void paintBody (juce::Graphics&);
     void paintRuler (juce::Graphics&, juce::Rectangle<int>);
     void paintMarkerStrip (juce::Graphics&, juce::Rectangle<int>);
     int markerAtX (int x) const;   // marker id under x in the strip, -1 = none

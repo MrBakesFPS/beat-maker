@@ -367,6 +367,17 @@ Run the tests with `ctest --test-dir build`.
   tooltips on every control. Three sample projects (Lo-fi Beat, Synth Sketch,
   Podcast Intro) are generated from the bundled loops and instruments into
   `~/Music/Beat Maker/Sessions/Sample Projects` the first time you open them.
+- Accessibility: three themes in Preferences > Display (Dark, High Contrast
+  with WCAG AAA contrast for all text, and Light; every view and the standard
+  widgets follow the palette), an interface scale of 100 to 175%, screen
+  reader names on controls and knobs, a track-and-selection description
+  exposed to assistive technology and read on demand with Ctrl+Shift+/, and
+  spoken status messages (switchable). Full keyboard navigation of the edit
+  window: Up/Down select tracks, Left/Right move the playhead by the grid
+  value, Shift with arrows extends the selection, Shift+Return selects a
+  track's clips, Shift+M/S/R mute, solo or arm the selected track, and every
+  command is reachable from the palette. The focused edit window shows an
+  accent outline.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

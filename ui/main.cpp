@@ -82,6 +82,9 @@ class MainComponent final : public juce::Component,
 public:
     MainComponent()
     {
+        ui::theme::applyPalette (ui::theme::palette (juce::jlimit (0, 2, ui::Preferences (preferencesFile()).getInt ("display.theme"))));
+        ui::theme::applyLookAndFeel (lookAndFeel);
+        juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
         if (const auto error = engine.initialise (2, 2); error.isNotEmpty())
             statusMessage = "Audio device error: " + error;
 
@@ -275,6 +278,7 @@ public:
     ~MainComponent() override
     {
         stopTimer();
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
         if (engine.getRecorder().isRecording())
             finishRecording();
         session.removeListener (this);
@@ -865,6 +869,16 @@ public:
         add ("track.addAux", "Track", "New Aux Input", {}, 0, [this] { addAuxTrack(); });
         add ("track.addVca", "Track", "New VCA Master", {}, 0, [this] { addVcaTrack(); });
         add ("track.group", "Track", "New Group...", juce::KeyPress ('g', M::commandModifier, 0), 0, [this] { showGroupDialog (-1); });
+        add ("track.mute", "Track", "Mute Selected Track", juce::KeyPress ('m', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::mute); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
+        add ("track.solo", "Track", "Solo Selected Track", juce::KeyPress ('s', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::solo); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
+        add ("track.arm", "Track", "Record-arm Selected Track", juce::KeyPress ('r', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::arm); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isAudio(); });
+        add ("track.rename", "Track", "Rename Selected Track...", {}, 0, [this] { promptRenameTrack (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
+        add ("track.delete", "Track", "Delete Selected Track", {}, 0, [this] { const int i = trackArea.getSelectedTrack(); if (session.getTrack (i)) { session.execute (std::make_unique<model::RemoveTrackCommand> (i)); trackArea.setSelectedTrack (juce::jmin (i, session.getNumTracks() - 1)); } }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
+        add ("track.next", "Track", "Select Next Track", {}, 0, [this] { trackArea.selectTrayByOffsetPublic (1); });
+        add ("track.previous", "Track", "Select Previous Track", {}, 0, [this] { trackArea.selectTrayByOffsetPublic (-1); });
+        add ("transport.stepRight", "Transport", "Move Playhead Right by the Grid", {}, 0, [this] { trackArea.stepPlayhead (1, false); });
+        add ("transport.stepLeft", "Transport", "Move Playhead Left by the Grid", {}, 0, [this] { trackArea.stepPlayhead (-1, false); });
+        add ("help.whereAmI", "Help", "Announce Selection", juce::KeyPress ('/', M::commandModifier | M::shiftModifier, 0), 0, [this] { const auto text = trackArea.describeSelection(); statusMessage = text; updateStatus(); juce::AccessibilityHandler::postAnnouncement (text, juce::AccessibilityHandler::AnnouncementPriority::high); });
         add ("track.freeze", "Track", "Freeze Selected Track", {}, 0, [this] { freezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t) && ! t->isFrozen(); });
         add ("track.unfreeze", "Track", "Unfreeze Selected Track", {}, 0, [this] { unfreezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isFrozen(); });
         add ("track.commit", "Track", "Commit Selected Track", {}, 0, [this] { commitTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t); });
@@ -2135,6 +2149,20 @@ private:
     void applyPreferences (const juce::String& id)
     {
         auto is = [&] (const char* key) { return id.isEmpty() || id == key; };
+        if (is ("display.theme"))
+        {
+            ui::theme::applyPalette (ui::theme::palette (prefs.getInt ("display.theme")));
+            ui::theme::applyLookAndFeel (lookAndFeel);
+            sendLookAndFeelChange();
+            for (int i = 0; i < juce::Desktop::getInstance().getNumComponents(); ++i)
+                if (auto* c = juce::Desktop::getInstance().getComponent (i)) { c->sendLookAndFeelChange(); c->repaint(); }
+            repaint();
+        }
+        if (is ("display.uiScale"))
+        {
+            const float scales[] = { 1.0f, 1.25f, 1.5f, 1.75f };
+            juce::Desktop::getInstance().setGlobalScaleFactor (scales[juce::jlimit (0, 3, prefs.getInt ("display.uiScale"))]);
+        }
         if (is ("display.trackHeight"))
         {
             const int heights[] = { 88, 124, 168, 220 };
@@ -2463,6 +2491,17 @@ private:
             trackArea.setSelectedTrack (trackIndex + 1);
             statusMessage = "Committed " + t->name + " to a new audio track (source muted)"; updateStatus();
         }
+    }
+
+    void toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag flag)
+    {
+        const int i = trackArea.getSelectedTrack();
+        const auto* t = session.getTrack (i);
+        if (t == nullptr) return;
+        const bool current = flag == model::SetTrackFlagCommand::Flag::mute ? t->mute : flag == model::SetTrackFlagCommand::Flag::solo ? t->solo : t->armed;
+        session.execute (model::GroupLogic::flagCommand (session, i, flag, ! current));
+        statusMessage = t->name + (flag == model::SetTrackFlagCommand::Flag::mute ? (current ? ": unmuted" : ": muted") : flag == model::SetTrackFlagCommand::Flag::solo ? (current ? ": solo off" : ": soloed") : (current ? ": disarmed" : ": armed"));
+        updateStatus();
     }
 
     void promptRenameTrack (int trackIndex)
@@ -2870,6 +2909,11 @@ private:
         if (text.isEmpty())
             text = "Space: play/stop   R: record   Return: start   C: cycle   L: library   B: controls   X: mixer   E: editor   Ctrl+Shift+D: drums   Ctrl+I: synth   Ctrl+O: open   Ctrl+B: bounce";
         statusLabel.setText (text, juce::dontSendNotification);
+        if (statusMessage.isNotEmpty() && statusMessage != lastAnnounced && prefs.getBool ("display.announceStatus"))
+        {
+            lastAnnounced = statusMessage;
+            juce::AccessibilityHandler::postAnnouncement (statusMessage, juce::AccessibilityHandler::AnnouncementPriority::low);
+        }
     }
 
     engine::AudioEngine engine;
@@ -2911,6 +2955,8 @@ private:
     std::unique_ptr<StemJob> stemJob;
     std::unique_ptr<model::Session> importSource;
     juce::TooltipWindow tooltips { nullptr, 500 };
+    juce::LookAndFeel_V4 lookAndFeel;
+    juce::String lastAnnounced;
     ui::TourOverlay tour;
     juce::Component::SafePointer<juce::DialogWindow> welcomeWindow, tutorialsWindow, shortcutsWindow;
     bool playedOnce = false, bouncedOnce = false, mixedOnce = false, paletteOpenedOnce = false;

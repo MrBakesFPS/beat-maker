@@ -15,6 +15,9 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
 {
     session.addListener (this);
     setWantsKeyboardFocus (true);
+    setTitle ("Edit window");
+    setDescription ("Tracks and clips. Up and Down select a track, Left and Right move the playhead by the grid, Shift with arrows extends the selection, Shift+Return selects the track's clips.");
+    addTrackButton.setTitle ("Add track");
     addAndMakeVisible (addTrackButton);
     addTrackButton.setTooltip ("Add a track: audio, Drum Machine, any bundled instrument, aux input or VCA master");
     addTrackButton.onClick = [this]
@@ -189,6 +192,7 @@ void TrackArea::rebuildTrackControls()
         c.mute = std::make_unique<juce::TextButton> ("M");
         c.solo = std::make_unique<juce::TextButton> ("S");
         c.solo->setTooltip ("Solo: hear only soloed tracks");
+        c.mute->setTitle (track.name + " mute"); c.solo->setTitle (track.name + " solo");
 
         c.mute->setClickingTogglesState (true);
         c.solo->setClickingTogglesState (true);
@@ -228,6 +232,7 @@ void TrackArea::rebuildTrackControls()
 
             c.input = std::make_unique<juce::ComboBox>();
             c.input->setTooltip ("Record input (device channels or I/O Setup paths)");
+            c.input->setTitle (track.name + " input");
             c.input->setTooltip ("Input path (I/O Setup)");
             const auto& io = session.getIO();
             if (io.inputs.empty())
@@ -302,6 +307,7 @@ void TrackArea::rebuildTrackControls()
 
         c.autoView = std::make_unique<juce::ComboBox>();
         c.autoView->setTooltip ("What the lane shows: clips, clip gain, or an automation parameter");
+        c.autoView->setTitle (track.name + " lane view"); c.autoMode->setTitle (track.name + " automation mode");
         c.autoView->setTooltip ("Track view: clips, or an automation lane");
         c.autoView->addItem ("Clips", 1);
         if (track.isAudio()) c.autoView->addItem ("Clip Gain", 100);
@@ -403,6 +409,16 @@ juce::AudioThumbnail& TrackArea::thumbnailFor (const model::AudioClip& clip)
 // Painting
 
 void TrackArea::paint (juce::Graphics& g)
+{
+    paintBody (g);
+    if (hasKeyboardFocus (false))
+    {
+        g.setColour (theme::accent.withAlpha (0.9f));
+        g.drawRect (getLocalBounds(), 2);
+    }
+}
+
+void TrackArea::paintBody (juce::Graphics& g)
 {
     g.fillAll (theme::background);
 
@@ -932,7 +948,7 @@ void TrackArea::paintLiveRecording (juce::Graphics& g, const model::Track& track
 
     g.setColour (juce::Colours::black.withAlpha (0.35f));
     g.fillRoundedRectangle (clipRect.withHeight (16.0f), 4.0f);
-    g.setColour (theme::text);
+    g.setColour (juce::Colours::white);   // the name bar is always darkened, whatever the theme
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     g.drawText ("Recording...", clipRect.withHeight (16.0f).reduced (6.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, true);
     g.setColour (theme::record.brighter (0.4f));
@@ -2153,6 +2169,21 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress (juce::KeyPress::tabKey, 0, 0))                    { tabToTransient (true); return true; }
     if (key == juce::KeyPress (juce::KeyPress::tabKey, juce::ModifierKeys::shiftModifier, 0)) { tabToTransient (false); return true; }
     if (key == juce::KeyPress ('q', juce::ModifierKeys::altModifier, 0))         { quantizeSelection(); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::upKey, 0, 0))                     { selectTrackByOffset (-1); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::downKey, 0, 0))                   { selectTrackByOffset (1); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::leftKey, 0, 0))                   { stepPlayhead (-1, false); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::rightKey, 0, 0))                  { stepPlayhead (1, false); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::leftKey, juce::ModifierKeys::shiftModifier, 0))  { stepPlayhead (-1, true); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::rightKey, juce::ModifierKeys::shiftModifier, 0)) { stepPlayhead (1, true); return true; }
+    if (key == juce::KeyPress (juce::KeyPress::returnKey, juce::ModifierKeys::shiftModifier, 0))
+    {
+        // Select every clip of the selected track
+        selectedClips.clear();
+        for (const auto& r : model::ClipEdits::allClips (session, selectedTrack)) selectedClips.push_back (r);
+        juce::AccessibilityHandler::postAnnouncement (describeSelection(), juce::AccessibilityHandler::AnnouncementPriority::medium);
+        repaint();
+        return true;
+    }
     if (key == juce::KeyPress ('m', 0, 0))                                        { addMarkerAtPlayhead (false); return true; }
     if (key == juce::KeyPress ('m', juce::ModifierKeys::shiftModifier, 0))        { addMarkerAtPlayhead (true); return true; }
     for (int n = 1; n <= 9; ++n)
@@ -2835,6 +2866,90 @@ void TrackArea::pasteAtPlayhead (bool selectPasted)
     if (selectPasted) selectedClips = pasted;
     if (onStatus) onStatus ("Pasted " + juce::String (pasted.size()) + (pasted.size() == 1 ? " clip" : " clips") + " at " + juce::String (at, 2) + " s");
     repaint();
+}
+
+} // namespace beatmaker::ui
+
+//==============================================================================
+// Keyboard navigation and accessibility
+
+namespace beatmaker::ui
+{
+
+void TrackArea::selectTrackByOffset (int delta)
+{
+    if (session.getNumTracks() == 0) return;
+    const int next = juce::jlimit (0, session.getNumTracks() - 1, (selectedTrack < 0 ? (delta > 0 ? -1 : session.getNumTracks()) : selectedTrack) + delta);
+    setSelectedTrack (next);
+    // Keep the selected track in view
+    const int top = trackTop (next), bottom = top + trackHeightFor (next);
+    juce::ignoreUnused (top, bottom);
+    juce::AccessibilityHandler::postAnnouncement (describeSelection(), juce::AccessibilityHandler::AnnouncementPriority::medium);
+    repaint();
+}
+
+void TrackArea::stepPlayhead (int direction, bool extendSelection)
+{
+    const double step = gridSeconds() > 0.0 ? gridSeconds() : transport.beatsToSeconds (1.0);
+    if (extendSelection)
+    {
+        if (! timeSelection.isValid())
+        {
+            timeSelection = {};
+            timeSelection.start = timeSelection.end = snapSeconds (transport.getPositionSeconds());
+            timeSelection.firstTrack = timeSelection.lastTrack = juce::jmax (0, selectedTrack);
+        }
+        timeSelection.end = juce::jmax (timeSelection.start, timeSelection.end + direction * step);
+        setTimeSelection (timeSelection);
+        transport.setPositionSeconds (timeSelection.end);
+    }
+    else
+        transport.setPositionSeconds (juce::jmax (0.0, snapSeconds (transport.getPositionSeconds()) + direction * step));
+    ensurePlayheadVisible();
+    if (onTimeSelectionChanged) onTimeSelectionChanged();
+    repaint();
+}
+
+juce::String TrackArea::describeSelection() const
+{
+    juce::String text;
+    const auto bb = transport.barBeatForSeconds (transport.getPositionSeconds());
+    text << "Bar " << bb.bar << " beat " << bb.beat << ". ";
+    if (const auto* t = session.getTrack (selectedTrack))
+    {
+        text << "Track " << (selectedTrack + 1) << " " << t->name;
+        if (t->mute) text << ", muted";
+        if (t->solo) text << ", soloed";
+        if (t->armed) text << ", armed";
+        if (t->isFrozen()) text << ", frozen";
+        text << ". ";
+    }
+    else text << "No track selected. ";
+    if (! selectedClips.empty())
+    {
+        text << selectedClips.size() << (selectedClips.size() == 1 ? " clip selected" : " clips selected");
+        if (const auto t = model::ClipEdits::timing (session, selectedClips[0])) text << ": " << t->name << " at " << juce::String ((double) t->start / t->sampleRate, 2) << " seconds";
+        text << ". ";
+    }
+    if (timeSelection.isValid()) text << "Selection " << juce::String (timeSelection.start, 2) << " to " << juce::String (timeSelection.end, 2) << " seconds. ";
+    return text;
+}
+
+std::unique_ptr<juce::AccessibilityHandler> TrackArea::createAccessibilityHandler()
+{
+    struct SelectionValue final : juce::AccessibilityValueInterface
+    {
+        explicit SelectionValue (TrackArea& a) : area (a) {}
+        bool isReadOnly() const override { return true; }
+        double getCurrentValue() const override { return area.selectedTrack + 1; }
+        juce::String getCurrentValueAsString() const override { return area.describeSelection(); }
+        void setValue (double) override {}
+        void setValueAsString (const juce::String&) override {}
+        AccessibleValueRange getRange() const override { return { { 0.0, (double) area.session.getNumTracks() }, 1.0 }; }
+        TrackArea& area;
+    };
+    return std::make_unique<juce::AccessibilityHandler> (*this, juce::AccessibilityRole::group, juce::AccessibilityActions(),
+                                                         juce::AccessibilityHandler::Interfaces { std::make_unique<SelectionValue> (*this) });
 }
 
 } // namespace beatmaker::ui

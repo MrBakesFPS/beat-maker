@@ -79,6 +79,7 @@ public:
         for (size_t i = 0; i < info.size(); ++i)
         {
             auto* s = sliders.add (new juce::Slider (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow));
+            s->setTitle (juce::String (info[i].name));
             s->setRange (info[i].min, info[i].max, 0.0);
             if (info[i].skewMidpoint > info[i].min && info[i].skewMidpoint < info[i].max) s->setSkewFactorFromMidPoint (info[i].skewMidpoint);
             s->setNumDecimalPlacesToDisplay (info[i].max - info[i].min > 100.0f ? 0 : 1);
