@@ -23,7 +23,10 @@ target_sources(BeatMaker PRIVATE
     depth/GroupDialog.cpp
     depth/BeatDetectiveDialog.cpp
     depth/MemoryLocationsWindow.cpp
-    depth/NewSessionDialog.cpp)
+    depth/NewSessionDialog.cpp
+    depth/CommandPalette.cpp
+    depth/PreferencesWindow.cpp
+    shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     BEATMAKER_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"

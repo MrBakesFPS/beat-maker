@@ -20,6 +20,8 @@ target_sources(beatmaker_tests PRIVATE
     pitch_correction_test.cpp
     beat_detective_test.cpp
     session_file_test.cpp
+    preferences_test.cpp
+    ../ui/shared/Preferences.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp
@@ -62,6 +64,8 @@ target_link_libraries(beatmaker_tests PRIVATE
     Catch2::Catch2WithMain
     juce::juce_audio_formats
     juce::juce_graphics
+    juce::juce_gui_basics
+    juce::juce_data_structures
     PUBLIC
     juce::juce_recommended_config_flags)
 

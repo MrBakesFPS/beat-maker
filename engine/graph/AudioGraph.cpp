@@ -664,7 +664,7 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
     // Fader (ramped) + pan
     for (int ch = 0; ch < 2; ++ch)
     {
-        const float pg = panGainForChannel (pan, ch);
+        const float pg = panGainForChannel (pan, ch, current->panDepthDb);
         stripBuffer.applyGainRamp (ch, 0, numSamples, gainStart * pg, gainEnd * pg);
     }
 

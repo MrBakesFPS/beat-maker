@@ -24,12 +24,17 @@ namespace beatmaker::engine
 // Pan law: -3 dB centre-compensated (centre = unity, hard side = +3 dB), the
 // Pro Tools default. pan is -1 (left) .. +1 (right). Channels beyond the
 // first stereo pair are unaffected.
-inline float panGainForChannel (float pan, int channel) noexcept
+// Centre-compensated pan law. `depthDb` is the Pro Tools "pan depth": how
+// far the centre sits below a hard pan (2.5, 3, 4.5 or 6 dB). The centre is
+// always exactly unity; hard left/right gain +depth dB on their channel.
+inline float panGainForChannel (float pan, int channel, float depthDb = 3.0f) noexcept
 {
     if (channel > 1 || std::abs (pan) < 1.0e-6f) return 1.0f;   // centre is exactly unity
     const float theta = (juce::jlimit (-1.0f, 1.0f, pan) + 1.0f) * juce::MathConstants<float>::pi * 0.25f;
     const float g = channel == 0 ? std::cos (theta) : std::sin (theta);
-    return g * juce::MathConstants<float>::sqrt2;
+    if (std::abs (depthDb - 3.0f) < 0.05f) return g * juce::MathConstants<float>::sqrt2;
+    const float exponent = juce::jlimit (0.1f, 12.0f, depthDb) / 3.0103f;   // cos^p: centre lands depth dB down
+    return std::pow (juce::jmax (0.0f, g), exponent) * juce::Decibels::decibelsToGain (depthDb);   // cos(pi/2) is -4e-8 in float: keep pow real
 }
 
 struct RenderClip
@@ -171,6 +176,7 @@ struct RenderSnapshot
     std::shared_ptr<const juce::AudioBuffer<float>> preview;
     float previewGain = 0.8f;
     float masterGain = 1.0f;
+    float panDepthDb = 3.0f;   // pan law depth (preference)
 };
 
 } // namespace beatmaker::engine

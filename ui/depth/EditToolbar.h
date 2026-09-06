@@ -28,6 +28,7 @@ private:
     juce::ComboBox gridBox;
     juce::TextButton relativeButton { "Rel" };
     juce::TextButton tceButton { "TCE" };
+    juce::TextButton focusButton { "a-z" };
     juce::TextButton ioButton { "I/O..." };
     juce::Label hint;
 };

@@ -45,6 +45,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --record-mode=QuickPunch --record --punch-at=1 --punch-at=2 --stop-at=3
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --template="Beat Making" --save=song.bmk        # new from template, save
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --session=song.bmk --marker-demo                # open, add sections/markers
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pref=mixing.panDepth=3 --palette=zoom         # set a preference, open the palette
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -283,6 +284,25 @@ Run the tests with `ctest --test-dir build`.
   section to move it earlier or later, duplicate it, or delete its time; the
   clips of every track move with it, as one undo step. Ctrl+5 opens the
   Memory Locations window.
+- Preferences (Ctrl+,): Pro Tools-depth settings in Display, Operation,
+  Editing, Mixing, Processing and MIDI categories with a search box across
+  all of them, and every setting applies immediately: track height, pan depth
+  (-2.5/-3/-4.5/-6 dB, through the engine's pan law), default meter type and
+  automation mode for new tracks, latch record enable and solo latch,
+  timeline insertion follows playback, auto-backup interval and count,
+  record bit depth and audio files folder, default fade length and shape,
+  loop conform mode, background render threshold, piano-roll velocities and
+  more. Changed settings show a blue mark and can be reset per setting or per
+  category; they live in `~/.config/Beat Maker/Beat Maker.preferences`.
+- Command palette (Ctrl+Shift+P or Ctrl+K): type to find any command or
+  setting, Enter runs it. Every shortcut in the app is a registered command,
+  so the palette shows the key next to it.
+- Commands Keyboard Focus (the a-z button, Ctrl+Alt+K): single letters run
+  edit commands like Pro Tools: A/S trim start/end to the insertion, D/G fade
+  in/out to the insertion, F default fades, B separate, H duplicate, X/C/V
+  cut/copy/paste clips at the insertion, R/T zoom out/in, E zoom to the
+  selection. With focus on, the panel toggles keep working through
+  Ctrl+Shift+E/L/B/X and record through Ctrl+Space.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

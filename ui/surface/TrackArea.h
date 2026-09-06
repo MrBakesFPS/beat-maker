@@ -66,6 +66,24 @@ public:
     void nudgeSelectedClips (int direction);
     void nudgeClipGain (float deltaDb);
     void zoomToFit();
+    void zoomBy (double factor);          // around the playhead
+    void zoomToSelection();               // the time selection, else everything
+    void selectAllClips();
+
+    // Commands Keyboard Focus edits
+    void trimSelectionToPlayhead (bool start);                                     // A / S
+    void fadeSelectionToPlayhead (bool fadeIn, engine::FadeShape);                  // D / G
+    void applyDefaultFadesToSelection (double ms, engine::FadeShape);               // F
+    void cutSelection();
+    void copySelection();
+    void pasteAtPlayhead (bool selectPasted);
+    bool canPaste() const noexcept { return ! clipboard.empty(); }
+    bool hasSelection() const noexcept { return ! selectedClips.empty(); }
+    void quantizeSelectionPublic() { quantizeSelection(); }
+
+    // Display preferences
+    void setTrackHeight (int pixels);
+    int getTrackHeight() const noexcept { return trackHeight; }
 
     // Playlists: copy the time selection made on an alternate lane into the main playlist.
     void compSelectionToMain();
@@ -233,6 +251,9 @@ private:
     int selectedTrack = -1;
     std::vector<model::ClipRef> selectedClips;
     TimeSelection timeSelection;
+    int trackHeight = theme::trackHeight;
+    struct ClipboardItem { model::ClipRef::Kind kind; model::AudioClip audio; model::PatternClip pattern; model::MidiClip midi; double relativeStart = 0.0; int trackOffset = 0; };
+    std::vector<ClipboardItem> clipboard;
 
     Drag drag = Drag::none;
     model::ClipRef dragClip;

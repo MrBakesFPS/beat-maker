@@ -7,6 +7,10 @@
 #include "depth/BounceDialog.h"
 #include "depth/BeatDetectiveDialog.h"
 #include "depth/MemoryLocationsWindow.h"
+#include "depth/CommandPalette.h"
+#include "depth/PreferencesWindow.h"
+#include "shared/CommandRegistry.h"
+#include "shared/Preferences.h"
 #include "depth/NewSessionDialog.h"
 #include <SessionFile.h>
 #include "shared/ElasticJob.h"
@@ -193,9 +197,18 @@ public:
             session.execute (std::make_unique<model::SetInstrumentParamsCommand> (track, std::move (p), "Change Preset"));
         };
         trackArea.onStatus = [this] (const juce::String& text) { statusMessage = text; updateStatus(); };
+        registerCommands();
+        prefsListener = prefs.addListener ([this] (const juce::String& id) { applyPreferences (id); });
+        applyPreferences ({});
         trackArea.onOpenBeatDetective = [this] { showBeatDetective(); };
         trackArea.onMuteChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::mute, on)); };
-        trackArea.onSoloChanged = [this] (int i, bool on) { session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on)); };
+        trackArea.onSoloChanged = [this] (int i, bool on)
+        {
+            if (on && ! prefs.getBool ("mixing.soloLatch"))
+                for (int k = 0; k < session.getNumTracks(); ++k)
+                    if (k != i && session.getTracks()[(size_t) k].solo) session.execute (std::make_unique<model::SetTrackFlagCommand> (k, model::SetTrackFlagCommand::Flag::solo, false));
+            session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::solo, on));
+        };
         trackArea.onArmChanged  = [this] (int i, bool on)
         {
             // TrackPunch while rolling: the R button punches the track in/out instead of disarming it.
@@ -205,6 +218,9 @@ public:
                 setTrackPunched (i, ! t->punched);
                 return;
             }
+            if (on && ! prefs.getBool ("operation.latchRecordEnable"))
+                for (int k = 0; k < session.getNumTracks(); ++k)
+                    if (k != i && session.getTracks()[(size_t) k].armed) session.execute (std::make_unique<model::SetTrackFlagCommand> (k, model::SetTrackFlagCommand::Flag::arm, false));
             session.execute (model::GroupLogic::flagCommand (session, i, model::SetTrackFlagCommand::Flag::arm, on));
         };
         transportBar.onRecordModeClicked = [this] (juce::TextButton& b) { showRecordModeMenu (b); };
@@ -260,6 +276,24 @@ public:
     void setPunchRangeFromCommandLine (double start, double end) { trackArea.setTimeSelectionSeconds (start, end, 0); }
     void punchFromCommandLine() { if (engine.getRecorder().isRecording()) punchAll (! engine.getRecorder().isPunched (-1)); }
     void stopTransportFromCommandLine() { engine.getTransport().stop(); }
+    void showPreferencesFromCommandLine() { showPreferences ({}); }
+    void showPaletteFromCommandLine (const juce::String& query) { showCommandPalette (query); }
+    void setFocusModeFromCommandLine (bool on) { editSettings.commandsFocus = on; editSettings.notify(); }
+    void runCommandFromCommandLine (const juce::String& id) { if (! commands.run (id)) { statusMessage = "Unknown command: " + id; updateStatus(); } }
+    void setPreferenceFromCommandLine (const juce::String& id, const juce::String& value)
+    {
+        const auto* d = prefs.def (id);
+        if (d == nullptr) { statusMessage = "Unknown preference: " + id; updateStatus(); return; }
+        switch (d->type)
+        {
+            case ui::PrefDef::Type::toggle: prefs.set (id, value == "1" || value.equalsIgnoreCase ("true") || value.equalsIgnoreCase ("on")); break;
+            case ui::PrefDef::Type::number: prefs.set (id, value.getDoubleValue()); break;
+            case ui::PrefDef::Type::choice: prefs.set (id, value.getIntValue()); break;
+            case ui::PrefDef::Type::text:
+            case ui::PrefDef::Type::folder:
+            default:                        prefs.set (id, value); break;
+        }
+    }
     bool openSessionFromCommandLine (const juce::File& f) { return openSession (f); }
     bool saveSessionFromCommandLine (const juce::File& f) { return writeSession (f, f.hasFileExtension ("bmkt")); }
     void templateFromCommandLine (const juce::String& name)
@@ -568,7 +602,9 @@ public:
         s.startSample = 0;
         s.endSample   = (juce::int64) std::llround (session.getLengthSeconds() * s.sampleRate);
 
-        const auto result = engine::Bouncer::renderToFile (model::buildRenderSnapshot (session), s, file);
+        auto snapshot = model::buildRenderSnapshot (session);
+        snapshot->panDepthDb = panDepthDb();
+        const auto result = engine::Bouncer::renderToFile (std::move (snapshot), s, file);
         return describeBounce (result, file);
     }
 
@@ -638,54 +674,116 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
-        auto& transport = engine.getTransport();
-
-        if (key == juce::KeyPress::spaceKey)          { transport.togglePlay(); return true; }
-        if (key == juce::KeyPress::returnKey
-         || key == juce::KeyPress::homeKey)           { transport.returnToStart(); return true; }
-        if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0)) { session.undo(); return true; }
-        if (key == juce::KeyPress ('z', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)
-         || key == juce::KeyPress ('y', juce::ModifierKeys::commandModifier, 0)) { session.redo(); return true; }
-        if (key == juce::KeyPress ('o', juce::ModifierKeys::commandModifier, 0)) { openSessionChooser(); return true; }
-        if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier, 0)) { saveSession (false); return true; }
-        if (key == juce::KeyPress ('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { saveSession (true); return true; }
-        if (key == juce::KeyPress ('n', juce::ModifierKeys::commandModifier, 0)) { showNewSessionDialog(); return true; }
-        if (key == juce::KeyPress ('5', juce::ModifierKeys::commandModifier, 0)) { showMemoryLocations(); return true; }
-        if (key == juce::KeyPress ('c'))                      { transport.setLoopEnabled (! transport.isLoopEnabled()); return true; }
-        if (key == juce::KeyPress ('r'))                      { toggleRecord(); return true; }
-        if (key == juce::KeyPress ('e'))                      { setEditorVisible (! editorVisible); return true; }
-        if (key == juce::KeyPress ('l'))                      { setLibraryVisible (! libraryVisible); return true; }
-        if (key == juce::KeyPress ('b'))                      { setControlsVisible (! controlsVisible); return true; }
-        if (key == juce::KeyPress ('x'))                      { setMixerVisible (! mixerVisible); return true; }
-        if (key == juce::KeyPress::escapeKey)                 { loopBrowser.stopPreview(); return true; }
-        if (key == juce::KeyPress ('d', juce::ModifierKeys::commandModifier | juce::ModifierKeys::shiftModifier, 0)) { addDrumMachineTrack(); return true; }
-        if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier, 0)) { addInstrumentTrack (engine::InstrumentType::subtractive); return true; }
-
-        // Edit modes F1-F4, tools F5-F9 (Pro Tools layout)
-        using Mode = ui::EditSettings::Mode; using Tool = ui::EditSettings::Tool;
-        if (key == juce::KeyPress::F1Key) { editSettings.mode = Mode::shuffle; editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F2Key) { editSettings.mode = Mode::slip;    editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F3Key) { editSettings.mode = Mode::spot;    editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F4Key) { editSettings.mode = Mode::grid;    editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F5Key) { editSettings.tool = Tool::zoomer;   editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F6Key) { editSettings.tool = Tool::trimmer;  editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F7Key) { editSettings.tool = Tool::selector; editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F8Key) { editSettings.tool = Tool::grabber;  editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F9Key) { editSettings.tool = Tool::scrubber; editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F10Key) { editSettings.tool = Tool::pencil;  editSettings.notify(); return true; }
-        if (key == juce::KeyPress::F11Key) { editSettings.tool = Tool::smart;   editSettings.notify(); return true; }
-        if (key == juce::KeyPress ('z', juce::ModifierKeys::altModifier, 0))   { trackArea.zoomToFit(); return true; }
-        if (key == juce::KeyPress ('f', juce::ModifierKeys::commandModifier, 0)) { showFadesDialog(); return true; }
-        if (key == juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 0)) { showGroupDialog (-1); return true; }
-        if (key == juce::KeyPress ('8', juce::ModifierKeys::commandModifier, 0)) { showBeatDetective(); return true; }
-        if (key == juce::KeyPress ('i', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0)) { showIOSetupDialog(); return true; }
-
+        if (commands.handleKey (key, editSettings.commandsFocus)) return true;
         // Clip edits reach the track area even when it doesn't have focus
         if (trackArea.keyPressed (key)) return true;
-        if (key == juce::KeyPress ('b', juce::ModifierKeys::commandModifier, 0)) { showBounceDialogImpl(); return true; }
-
         return false;
     }
+
+    // Every shortcut lives in the registry so the command palette can list and run it.
+    void registerCommands()
+    {
+        using M = juce::ModifierKeys;
+        auto add = [this] (const char* id, const char* category, const char* name, juce::KeyPress key, juce::juce_wchar focusKey, std::function<void()> run, std::function<bool()> enabled = nullptr)
+        {
+            commands.add ({ id, name, category, key, focusKey, std::move (run), std::move (enabled) });
+        };
+        auto& transport = engine.getTransport();
+        auto notifyEdit = [this] { editSettings.notify(); };
+        using Mode = ui::EditSettings::Mode; using Tool = ui::EditSettings::Tool;
+
+        // Transport
+        add ("transport.playStop", "Transport", "Play / Stop", juce::KeyPress (juce::KeyPress::spaceKey), 0, [&transport] { transport.togglePlay(); });
+        add ("transport.returnToStart", "Transport", "Return to Start", juce::KeyPress (juce::KeyPress::returnKey), 0, [&transport] { transport.returnToStart(); });
+        add ("transport.returnToStartHome", "Transport", "Return to Start (Home)", juce::KeyPress (juce::KeyPress::homeKey), 0, [&transport] { transport.returnToStart(); });
+        add ("transport.record", "Transport", "Record / Punch", juce::KeyPress ('r'), 0, [this] { toggleRecord(); });
+        add ("transport.recordCtrl", "Transport", "Record / Punch (Ctrl+Space, works in focus mode)", juce::KeyPress (juce::KeyPress::spaceKey, M::commandModifier, 0), 0, [this] { toggleRecord(); });
+        add ("transport.cycle", "Transport", "Cycle on/off", juce::KeyPress ('c'), 0, [&transport] { transport.setLoopEnabled (! transport.isLoopEnabled()); });
+        add ("transport.cycleCtrl", "Transport", "Cycle on/off (Ctrl+Shift+C)", juce::KeyPress ('c', M::commandModifier | M::shiftModifier, 0), 0, [&transport] { transport.setLoopEnabled (! transport.isLoopEnabled()); });
+        add ("transport.stopPreview", "Transport", "Stop loop preview", juce::KeyPress (juce::KeyPress::escapeKey), 0, [this] { loopBrowser.stopPreview(); });
+
+        // File
+        add ("file.new", "File", "New Session...", juce::KeyPress ('n', M::commandModifier, 0), 0, [this] { showNewSessionDialog(); });
+        add ("file.open", "File", "Open Session or Audio...", juce::KeyPress ('o', M::commandModifier, 0), 0, [this] { openSessionChooser(); });
+        add ("file.save", "File", "Save", juce::KeyPress ('s', M::commandModifier, 0), 0, [this] { saveSession (false); });
+        add ("file.saveAs", "File", "Save As...", juce::KeyPress ('s', M::commandModifier | M::shiftModifier, 0), 0, [this] { saveSession (true); });
+        add ("file.saveTemplate", "File", "Save As Template...", {}, 0, [this] { saveAsTemplate(); });
+        add ("file.import", "File", "Import Audio Files...", {}, 0, [this] { openFileChooser(); });
+        add ("file.bounce", "File", "Bounce to Disk...", juce::KeyPress ('b', M::commandModifier, 0), 0, [this] { showBounceDialogImpl(); });
+
+        // Edit
+        add ("edit.undo", "Edit", "Undo", juce::KeyPress ('z', M::commandModifier, 0), 0, [this] { session.undo(); }, [this] { return session.getHistory().canUndo(); });
+        add ("edit.redo", "Edit", "Redo", juce::KeyPress ('z', M::commandModifier | M::shiftModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
+        add ("edit.redoY", "Edit", "Redo (Ctrl+Y)", juce::KeyPress ('y', M::commandModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
+        add ("edit.selectAll", "Edit", "Select All Clips", juce::KeyPress ('a', M::commandModifier, 0), 0, [this] { trackArea.selectAllClips(); });
+        add ("edit.cut", "Edit", "Cut", juce::KeyPress ('x', M::commandModifier, 0), 'x', [this] { trackArea.cutSelection(); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.copy", "Edit", "Copy", juce::KeyPress ('c', M::commandModifier, 0), 'c', [this] { trackArea.copySelection(); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.paste", "Edit", "Paste at Insertion", juce::KeyPress ('v', M::commandModifier, 0), 'v', [this] { trackArea.pasteAtPlayhead (prefs.getBool ("editing.autoSelectAfterPaste")); }, [this] { return trackArea.canPaste(); });
+        add ("edit.delete", "Edit", "Delete Selection", {}, 0, [this] { trackArea.deleteSelection(); });
+        add ("edit.separate", "Edit", "Separate Clip at Insertion", juce::KeyPress ('e', M::commandModifier, 0), 'b', [this] { trackArea.separateAtPlayhead(); });
+        add ("edit.duplicate", "Edit", "Duplicate Clips", juce::KeyPress ('d', M::commandModifier, 0), 'h', [this] { trackArea.duplicateSelectedClips(); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.trimStart", "Edit", "Trim Start to Insertion", {}, 'a', [this] { trackArea.trimSelectionToPlayhead (true); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.trimEnd", "Edit", "Trim End to Insertion", {}, 's', [this] { trackArea.trimSelectionToPlayhead (false); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.fadeIn", "Edit", "Fade In to Insertion", {}, 'd', [this] { trackArea.fadeSelectionToPlayhead (true, defaultFadeShape()); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.fadeOut", "Edit", "Fade Out from Insertion", {}, 'g', [this] { trackArea.fadeSelectionToPlayhead (false, defaultFadeShape()); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.fades", "Edit", "Apply Default Fades", {}, 'f', [this] { trackArea.applyDefaultFadesToSelection (prefs.getDouble ("editing.defaultFadeMs"), defaultFadeShape()); }, [this] { return trackArea.hasSelection(); });
+        add ("edit.fadesDialog", "Edit", "Fades...", juce::KeyPress ('f', M::commandModifier, 0), 0, [this] { showFadesDialog(); });
+        add ("edit.nudgeLeft", "Edit", "Nudge Earlier", {}, 0, [this] { trackArea.nudgeSelectedClips (-1); });
+        add ("edit.nudgeRight", "Edit", "Nudge Later", {}, 0, [this] { trackArea.nudgeSelectedClips (1); });
+        add ("edit.quantize", "Edit", "Quantize Audio to Grid", {}, 0, [this] { trackArea.quantizeSelectionPublic(); });
+        add ("edit.addMarker", "Edit", "Add Memory Location at Insertion", {}, 0, [this] { trackArea.addMarkerAtPlayhead (false); });
+        add ("edit.addSection", "Edit", "Add Section from Selection", {}, 0, [this] { trackArea.addMarkerAtPlayhead (true); });
+
+        // Edit modes and tools
+        add ("mode.shuffle", "Edit Mode", "Shuffle", juce::KeyPress (juce::KeyPress::F1Key), 0, [this, notifyEdit] { editSettings.mode = Mode::shuffle; notifyEdit(); });
+        add ("mode.slip", "Edit Mode", "Slip", juce::KeyPress (juce::KeyPress::F2Key), 0, [this, notifyEdit] { editSettings.mode = Mode::slip; notifyEdit(); });
+        add ("mode.spot", "Edit Mode", "Spot", juce::KeyPress (juce::KeyPress::F3Key), 0, [this, notifyEdit] { editSettings.mode = Mode::spot; notifyEdit(); });
+        add ("mode.grid", "Edit Mode", "Grid", juce::KeyPress (juce::KeyPress::F4Key), 0, [this, notifyEdit] { editSettings.mode = Mode::grid; notifyEdit(); });
+        add ("tool.zoomer", "Tool", "Zoomer", juce::KeyPress (juce::KeyPress::F5Key), 0, [this, notifyEdit] { editSettings.tool = Tool::zoomer; notifyEdit(); });
+        add ("tool.trimmer", "Tool", "Trimmer", juce::KeyPress (juce::KeyPress::F6Key), 0, [this, notifyEdit] { editSettings.tool = Tool::trimmer; notifyEdit(); });
+        add ("tool.selector", "Tool", "Selector", juce::KeyPress (juce::KeyPress::F7Key), 0, [this, notifyEdit] { editSettings.tool = Tool::selector; notifyEdit(); });
+        add ("tool.grabber", "Tool", "Grabber", juce::KeyPress (juce::KeyPress::F8Key), 0, [this, notifyEdit] { editSettings.tool = Tool::grabber; notifyEdit(); });
+        add ("tool.scrubber", "Tool", "Scrubber", juce::KeyPress (juce::KeyPress::F9Key), 0, [this, notifyEdit] { editSettings.tool = Tool::scrubber; notifyEdit(); });
+        add ("tool.pencil", "Tool", "Pencil", juce::KeyPress (juce::KeyPress::F10Key), 0, [this, notifyEdit] { editSettings.tool = Tool::pencil; notifyEdit(); });
+        add ("tool.smart", "Tool", "Smart Tool", juce::KeyPress (juce::KeyPress::F11Key), 0, [this, notifyEdit] { editSettings.tool = Tool::smart; notifyEdit(); });
+        add ("tool.tce", "Tool", "TCE Trimmer on/off", {}, 0, [this, notifyEdit] { editSettings.tceTrim = ! editSettings.tceTrim; notifyEdit(); });
+        add ("tool.focus", "Tool", "Commands Keyboard Focus on/off", juce::KeyPress ('k', M::commandModifier | M::altModifier, 0), 0, [this, notifyEdit] { editSettings.commandsFocus = ! editSettings.commandsFocus; notifyEdit(); statusMessage = editSettings.commandsFocus ? "Commands Keyboard Focus ON: A/S trim, D/G fades, F fades, B separate, H duplicate, X/C/V clipboard, R/T zoom, E zoom to fit" : "Commands Keyboard Focus off"; updateStatus(); });
+
+        // View
+        add ("view.zoomIn", "View", "Zoom In", juce::KeyPress ('t', M::commandModifier, 0), 't', [this] { trackArea.zoomBy (prefs.getDouble ("display.zoomSensitivity")); });
+        add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
+        add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { trackArea.zoomToSelection(); });
+        add ("view.editor", "View", "Editor panel", juce::KeyPress ('e'), 0, [this] { setEditorVisible (! editorVisible); });
+        add ("view.library", "View", "Loop Library", juce::KeyPress ('l'), 0, [this] { setLibraryVisible (! libraryVisible); });
+        add ("view.controls", "View", "Smart Controls", juce::KeyPress ('b'), 0, [this] { setControlsVisible (! controlsVisible); });
+        add ("view.mixer", "View", "Mix window", juce::KeyPress ('x'), 0, [this] { setMixerVisible (! mixerVisible); });
+        add ("view.editorCtrl", "View", "Editor panel (Ctrl+Shift+E)", juce::KeyPress ('e', M::commandModifier | M::shiftModifier, 0), 0, [this] { setEditorVisible (! editorVisible); });
+        add ("view.libraryCtrl", "View", "Loop Library (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { setLibraryVisible (! libraryVisible); });
+        add ("view.controlsCtrl", "View", "Smart Controls (Ctrl+Shift+B)", juce::KeyPress ('b', M::commandModifier | M::shiftModifier, 0), 0, [this] { setControlsVisible (! controlsVisible); });
+        add ("view.mixerCtrl", "View", "Mix window (Ctrl+Shift+X)", juce::KeyPress ('x', M::commandModifier | M::shiftModifier, 0), 0, [this] { setMixerVisible (! mixerVisible); });
+
+        // Track
+        add ("track.addAudio", "Track", "New Audio Track", juce::KeyPress ('n', M::commandModifier | M::shiftModifier, 0), 0, [this] { addTrack ("Audio " + juce::String (countTracks (model::Track::Type::audio) + 1)); });
+        add ("track.addDrums", "Track", "New Drum Machine Track", juce::KeyPress ('d', M::commandModifier | M::shiftModifier, 0), 0, [this] { addDrumMachineTrack(); });
+        add ("track.addSynth", "Track", "New Synth Track", juce::KeyPress ('i', M::commandModifier, 0), 0, [this] { addInstrumentTrack (engine::InstrumentType::subtractive); });
+        for (auto type : engine::Instrument::availableTypes())
+            add (("track.add." + juce::String (engine::Instrument::typeName (type)).removeCharacters (" ")).toRawUTF8(), "Track", ("New " + juce::String (engine::Instrument::typeName (type)) + " Track").toRawUTF8(), {}, 0, [this, type] { addInstrumentTrack (type); });
+        add ("track.addAux", "Track", "New Aux Input", {}, 0, [this] { addAuxTrack(); });
+        add ("track.addVca", "Track", "New VCA Master", {}, 0, [this] { addVcaTrack(); });
+        add ("track.group", "Track", "New Group...", juce::KeyPress ('g', M::commandModifier, 0), 0, [this] { showGroupDialog (-1); });
+
+        // Windows
+        add ("window.preferences", "Window", "Preferences...", juce::KeyPress (',', M::commandModifier, 0), 0, [this] { showPreferences ({}); });
+        add ("window.palette", "Window", "Command Palette", juce::KeyPress ('p', M::commandModifier | M::shiftModifier, 0), 0, [this] { showCommandPalette ({}); });
+        add ("window.paletteK", "Window", "Command Palette (Ctrl+K)", juce::KeyPress ('k', M::commandModifier, 0), 0, [this] { showCommandPalette ({}); });
+        add ("window.memoryLocations", "Window", "Memory Locations", juce::KeyPress ('5', M::commandModifier, 0), 0, [this] { showMemoryLocations(); });
+        add ("window.beatDetective", "Window", "Beat Detective", juce::KeyPress ('8', M::commandModifier, 0), 0, [this] { showBeatDetective(); });
+        add ("window.ioSetup", "Window", "I/O Setup", juce::KeyPress ('i', M::commandModifier | M::altModifier, 0), 0, [this] { showIOSetupDialog(); });
+        add ("window.scanPlugins", "Window", "Scan for Plugins", {}, 0, [this] { scanPlugins(); });
+    }
+
+    engine::FadeShape defaultFadeShape() const { return (engine::FadeShape) juce::jlimit (0, 2, prefs.getInt ("editing.defaultFadeShape")); }
+
 
 private:
     int addTrack (const juce::String& name)
@@ -697,6 +795,7 @@ private:
         auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
+        applyNewTrackDefaults (raw->getTrackIndex());
         return raw->getTrackIndex();
     }
 
@@ -822,7 +921,10 @@ private:
         juce::String conformNote;
         if (info.bpm > 0.0 && std::abs (info.bpm - sessionBpm) > 0.01)
         {
-            const auto mode = info.category == persistence::LoopInfo::Category::drums ? engine::StretchMode::rhythmic : engine::StretchMode::polyphonic;
+            const engine::StretchMode modes[] = { engine::StretchMode::polyphonic, engine::StretchMode::polyphonic, engine::StretchMode::rhythmic, engine::StretchMode::monophonic, engine::StretchMode::varispeed };
+            const int conformPref = prefs.getInt ("processing.loopConformMode");
+            const auto mode = conformPref == 0 ? (info.category == persistence::LoopInfo::Category::drums ? engine::StretchMode::rhythmic : engine::StretchMode::polyphonic)
+                                               : modes[juce::jlimit (0, 4, conformPref)];
             const auto& placed = session.getTracks()[(size_t) trackIndex].clips[(size_t) ref.index];
             auto stretch = std::make_unique<model::SetClipElasticCommand> (session, ref, model::Elastic::forTempo (placed, sessionBpm, mode), "Conform to Tempo");
             if (! stretch->wasCancelled())
@@ -855,6 +957,7 @@ private:
         auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
+        applyNewTrackDefaults (raw->getTrackIndex());
         trackArea.setSelectedTrack (raw->getTrackIndex());
         setMixerVisible (true);
     }
@@ -991,6 +1094,7 @@ private:
         auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
+        applyNewTrackDefaults (raw->getTrackIndex());
         trackArea.setSelectedTrack (raw->getTrackIndex());
         setMixerVisible (true);
     }
@@ -1250,7 +1354,9 @@ private:
 
     void runBounce (const engine::BounceSettings& settings, const juce::File& file)
     {
-        bounceJob = std::make_unique<BounceJob> (model::buildRenderSnapshot (session), settings, file,
+        auto snapshot = model::buildRenderSnapshot (session);
+        snapshot->panDepthDb = panDepthDb();
+        bounceJob = std::make_unique<BounceJob> (std::move (snapshot), settings, file,
             [this] (const engine::BounceResult& r, const juce::File& f)
             {
                 statusMessage = describeBounce (r, f);
@@ -1360,8 +1466,7 @@ private:
     void startRecording()
     {
         std::vector<engine::Recorder::Slot> slots;
-        const auto dir = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-                             .getChildFile ("Beat Maker").getChildFile ("Audio Files");
+        const auto dir = juce::File (prefs.getString ("operation.audioFilesFolder"));
 
         for (const auto& track : session.getTracks())
         {
@@ -1400,7 +1505,8 @@ private:
 
         if (rs.mode == model::RecordMode::loop && hasRange) { transport.setLoopRange (punchIn, punchOut); transport.setLoopEnabled (true); }
 
-        if (const auto error = engine.getRecorder().start (slots, engine.getSampleRate(), 24,
+        const int bitDepths[] = { 16, 24, 32 };
+        if (const auto error = engine.getRecorder().start (slots, engine.getSampleRate(), bitDepths[juce::jlimit (0, 2, prefs.getInt ("operation.recordBitDepth"))],
                                                            manual ? engine::Recorder::PunchMode::manual : engine::Recorder::PunchMode::whole);
             error.isNotEmpty())
         {
@@ -1528,7 +1634,14 @@ private:
 
     void timerCallback() override
     {
-        if (++autosaveCounter >= 20 * 60 * 3) { autosaveCounter = 0; autosaveTick(); }   // every 3 minutes at 20 Hz
+        const int autosaveMinutes = prefs.getInt ("operation.autosaveMinutes");
+        if (autosaveMinutes > 0 && ++autosaveCounter >= 20 * 60 * autosaveMinutes) { autosaveCounter = 0; autosaveTick(); }
+        // Timeline insertion follows playback: off = the playhead returns to where play started
+        const bool playingNow = engine.getTransport().isPlaying();
+        if (playingNow && ! wasPlayingLastTick) playStartSample = engine.getTransport().getPositionSamples();
+        if (! playingNow && wasPlayingLastTick && ! prefs.getBool ("operation.timelineFollowsPlayback") && ! engine.getRecorder().isRecording())
+            engine.getTransport().setPositionSamples (playStartSample);
+        wasPlayingLastTick = playingNow;
         // Post-roll reached: stop (the take is finished below).
         if (engine.getRecorder().isRecording() && autoStopSample >= 0 && engine.getTransport().getPositionSamples() >= autoStopSample)
             engine.getTransport().stop();
@@ -1555,6 +1668,7 @@ private:
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
         const int index = raw->getTrackIndex();
+        applyNewTrackDefaults (index);
 
         // A 4-bar pattern clip with a starter beat so Play makes sound immediately.
         const auto& transport = engine.getTransport();
@@ -1591,6 +1705,7 @@ private:
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
         const int index = raw->getTrackIndex();
+        applyNewTrackDefaults (index);
 
         // A 4-bar clip looping a 2-bar arpeggio so Play makes sound immediately.
         const auto& transport = engine.getTransport();
@@ -1893,6 +2008,90 @@ private:
         updateStatus();
     }
 
+    //==========================================================================
+    // Preferences and the command palette
+
+    static juce::File preferencesFile()
+    {
+        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("Beat Maker").getChildFile ("Beat Maker.preferences");
+    }
+
+    void applyPreferences (const juce::String& id)
+    {
+        auto is = [&] (const char* key) { return id.isEmpty() || id == key; };
+        if (is ("display.trackHeight"))
+        {
+            const int heights[] = { 88, 124, 168, 220 };
+            trackArea.setTrackHeight (heights[juce::jlimit (0, 3, prefs.getInt ("display.trackHeight"))]);
+        }
+        if (is ("processing.backgroundRenderSeconds")) ui::ElasticJob::asyncThresholdSeconds = prefs.getDouble ("processing.backgroundRenderSeconds");
+        if (is ("midi.defaultVelocity") || is ("midi.softVelocity")) pianoRoll.setDefaultVelocities (prefs.getInt ("midi.defaultVelocity"), prefs.getInt ("midi.softVelocity"));
+        if (is ("mixing.panDepth")) pushSnapshot();
+    }
+
+    float panDepthDb() const
+    {
+        const float depths[] = { 2.5f, 3.0f, 4.5f, 6.0f };
+        return depths[juce::jlimit (0, 3, prefs.getInt ("mixing.panDepth"))];
+    }
+
+    void applyNewTrackDefaults (int trackIndex)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr) return;
+        const auto meter = (model::MeterType) juce::jlimit (0, 6, prefs.getInt ("mixing.defaultMeterType"));
+        const auto mode = (model::AutomationMode) juce::jlimit (0, 5, prefs.getInt ("mixing.defaultAutomationMode"));
+        if (t->meterType != meter) session.execute (std::make_unique<model::SetMeterTypeCommand> (trackIndex, meter));
+        if (t->automationMode != mode) session.execute (std::make_unique<model::SetAutomationModeCommand> (trackIndex, mode));
+    }
+
+    void showPreferences (const juce::String& settingId)
+    {
+        if (preferencesWindow != nullptr)
+        {
+            preferencesWindow->setVisible (true); preferencesWindow->toFront (true);
+            if (preferencesContent != nullptr && settingId.isNotEmpty()) preferencesContent->showSetting (settingId);
+            return;
+        }
+        auto* content = new ui::PreferencesWindow (prefs);
+        preferencesContent = content;
+        content->chooseFolder = [this] (const juce::File& current)
+        {
+            fileChooser = std::make_unique<juce::FileChooser> ("Audio Files Folder", current.isDirectory() ? current : juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+            fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
+            {
+                if (fc.getResult().isDirectory()) prefs.set ("operation.audioFilesFolder", fc.getResult().getFullPathName());
+            });
+        };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Preferences";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        preferencesWindow = options.launchAsync();
+        if (settingId.isNotEmpty()) content->showSetting (settingId);
+    }
+
+    void showCommandPalette (const juce::String& query)
+    {
+        if (paletteWindow != nullptr) { paletteWindow->setVisible (false); }
+        auto* content = new ui::CommandPalette (commands, prefs);
+        content->onDismiss = [this] { if (paletteWindow != nullptr) paletteWindow->setVisible (false); grabKeyboardFocus(); };
+        content->onOpenPreference = [this] (const juce::String& id) { showPreferences (id); };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Command Palette";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        paletteWindow = options.launchAsync();
+        if (query.isNotEmpty()) content->setQuery (query);
+        content->grabKeyboardFocus();
+    }
+
     void showNewSessionDialog()
     {
         auto* dialog = new ui::NewSessionDialog (templateChoices(), "Untitled");
@@ -1969,7 +2168,7 @@ private:
         // keep the five newest
         auto old = backups.findChildFiles (juce::File::findDirectories, false, "autosave-*.bmkt");
         old.sort();
-        while (old.size() > 5) { old.getReference (0).deleteRecursively(); old.remove (0); }
+        while (old.size() > juce::jmax (1, prefs.getInt ("operation.autosaveCount"))) { old.getReference (0).deleteRecursively(); old.remove (0); }
     }
 
     void openFileChooser()
@@ -1992,6 +2191,7 @@ private:
     {
         auto snapshot = model::buildRenderSnapshot (session);
         snapshot->preview = previewAudio;
+        snapshot->panDepthDb = panDepthDb();
         engine.setSnapshot (std::move (snapshot));
     }
 
@@ -2054,7 +2254,13 @@ private:
     juce::File sessionFile;            // the open .bmk bundle (empty = Untitled)
     juce::String untitledName = "Untitled";
     int savedHistorySize = 0, autosaveCounter = 0;
-    juce::Component::SafePointer<juce::DialogWindow> memoryWindow;
+    juce::Component::SafePointer<juce::DialogWindow> memoryWindow, preferencesWindow, paletteWindow;
+    juce::Component::SafePointer<ui::PreferencesWindow> preferencesContent;
+    ui::Preferences prefs { preferencesFile() };
+    ui::CommandRegistry commands;
+    int prefsListener = -1;
+    bool wasPlayingLastTick = false;
+    juce::int64 playStartSample = 0;
     juce::Label statusLabel;
     juce::String statusMessage;
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -2132,6 +2338,15 @@ public:
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--marker-demo") main.markerDemoFromCommandLine();
+            else if (arg == "--prefs-window") main.showPreferencesFromCommandLine();
+            else if (arg.startsWith ("--palette")) main.showPaletteFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--pref="))
+            {
+                const auto spec = arg.fromFirstOccurrenceOf ("=", false, false);
+                main.setPreferenceFromCommandLine (spec.upToFirstOccurrenceOf ("=", false, false), spec.fromFirstOccurrenceOf ("=", false, false));
+            }
+            else if (arg == "--focus") main.setFocusModeFromCommandLine (true);
+            else if (arg.startsWith ("--run="))   main.runCommandFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--stop-at="))    // seconds after launch: stop the transport (smoke tests)
                 juce::Timer::callAfterDelay (juce::roundToInt (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue() * 1000.0), [&main] { main.stopTransportFromCommandLine(); });
             else if (arg.startsWith ("--punch-at="))   // seconds after launch: toggle punch (QuickPunch/TrackPunch smoke tests)

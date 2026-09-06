@@ -58,6 +58,12 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
     tceButton.setTooltip ("TCE Trimmer: trimming an audio clip stretches it (Elastic) instead of revealing or hiding audio");
     tceButton.onClick = [this] { settings.tceTrim = tceButton.getToggleState(); settings.notify(); };
 
+    addAndMakeVisible (focusButton);
+    focusButton.setClickingTogglesState (true);
+    focusButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe6b422).darker (0.3f));
+    focusButton.setTooltip ("Commands Keyboard Focus: A/S trim start/end, D/G fade in/out, F fades, B separate, H duplicate, X/C/V cut/copy/paste, R/T zoom, E zoom to fit (Ctrl+Alt+Z)");
+    focusButton.onClick = [this] { settings.commandsFocus = focusButton.getToggleState(); settings.notify(); };
+
     addAndMakeVisible (ioButton);
     ioButton.setTooltip ("I/O Setup: input/output/bus paths and delay compensation (Ctrl+Alt+I)");
     ioButton.onClick = [this] { if (onIOSetup) onIOSetup(); };
@@ -79,6 +85,7 @@ void EditToolbar::refresh()
     relativeButton.setToggleState (settings.relativeGrid, juce::dontSendNotification);
     relativeButton.setEnabled (settings.mode == EditSettings::Mode::grid);
     tceButton.setToggleState (settings.tceTrim, juce::dontSendNotification);
+    focusButton.setToggleState (settings.commandsFocus, juce::dontSendNotification);
 
     juce::String h = juce::String (EditSettings::modeName (settings.mode)) + "  |  " + EditSettings::toolName (settings.tool)
                    + "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Tab: transient   Alt+Q: quantize   right-click: Elastic";
@@ -104,6 +111,8 @@ void EditToolbar::resized()
     relativeButton.setBounds (area.removeFromLeft (36));
     area.removeFromLeft (4);
     tceButton.setBounds (area.removeFromLeft (40));
+    area.removeFromLeft (4);
+    focusButton.setBounds (area.removeFromLeft (36));
     area.removeFromLeft (12);
     ioButton.setBounds (area.removeFromRight (56));
     area.removeFromRight (8);

@@ -4,6 +4,7 @@
 #include <dsp/Fades.h>
 #include <Elastic.h>
 #include <Arrangement.h>
+#include <map>
 #include "../shared/ElasticJob.h"
 
 namespace beatmaker::ui
@@ -66,8 +67,8 @@ bool TrackArea::arePlaylistsShown (const model::Track& t) const { return playlis
 int TrackArea::trackHeightFor (int i) const
 {
     auto* t = session.getTrack (i);
-    if (t == nullptr) return theme::trackHeight;
-    return theme::trackHeight + (arePlaylistsShown (*t) ? (int) t->alternates.size() * alternateLaneHeight : 0);
+    if (t == nullptr) return trackHeight;
+    return trackHeight + (arePlaylistsShown (*t) ? (int) t->alternates.size() * alternateLaneHeight : 0);
 }
 
 int TrackArea::trackTop (int i) const
@@ -79,17 +80,17 @@ int TrackArea::trackTop (int i) const
 
 juce::Rectangle<int> TrackArea::getHeaderBounds (int i) const
 {
-    return { 0, trackTop (i), theme::trackHeaderWidth, theme::trackHeight };
+    return { 0, trackTop (i), theme::trackHeaderWidth, trackHeight };
 }
 
 juce::Rectangle<int> TrackArea::getLaneBounds (int i) const
 {
-    return { theme::trackHeaderWidth, trackTop (i), getWidth() - theme::trackHeaderWidth, theme::trackHeight };
+    return { theme::trackHeaderWidth, trackTop (i), getWidth() - theme::trackHeaderWidth, trackHeight };
 }
 
 juce::Rectangle<int> TrackArea::getAlternateLaneBounds (int i, int alternate) const
 {
-    return { 0, trackTop (i) + theme::trackHeight + alternate * alternateLaneHeight, getWidth(), alternateLaneHeight };
+    return { 0, trackTop (i) + trackHeight + alternate * alternateLaneHeight, getWidth(), alternateLaneHeight };
 }
 
 int TrackArea::trackIndexAtY (int y) const
@@ -104,7 +105,7 @@ int TrackArea::alternateAtY (int i, int y) const
 {
     auto* t = session.getTrack (i);
     if (t == nullptr || ! arePlaylistsShown (*t)) return -1;
-    const int rel = y - (trackTop (i) + theme::trackHeight);
+    const int rel = y - (trackTop (i) + trackHeight);
     if (rel < 0) return -1;
     const int alt = rel / alternateLaneHeight;
     return alt < (int) t->alternates.size() ? alt : -1;
@@ -2109,10 +2110,7 @@ bool TrackArea::keyPressed (const juce::KeyPress& key)
         if (key == juce::KeyPress ((juce::juce_wchar) ('0' + n), juce::ModifierKeys::altModifier, 0)) { recallMarker (n); return true; }
     if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0))
     {
-        selectedClips.clear();
-        for (int t = 0; t < session.getNumTracks(); ++t)
-            for (const auto& r : model::ClipEdits::allClips (session, t)) selectedClips.push_back (r);
-        repaint();
+        selectAllClips();
         return true;
     }
     return false;
@@ -2630,6 +2628,164 @@ void TrackArea::mouseDoubleClick (const juce::MouseEvent& e)
         transport.setPositionSeconds (snapSeconds (xToSeconds ((float) e.x)));
         addMarkerAtPlayhead (false);
     }
+}
+
+} // namespace beatmaker::ui
+
+//==============================================================================
+// Commands Keyboard Focus edits, clipboard, zoom, display preferences
+
+namespace beatmaker::ui
+{
+
+void TrackArea::setTrackHeight (int pixels)
+{
+    trackHeight = juce::jlimit (60, 320, pixels);
+    rebuildTrackControls();
+    resized();
+    repaint();
+}
+
+void TrackArea::selectAllClips()
+{
+    selectedClips.clear();
+    for (int t = 0; t < session.getNumTracks(); ++t)
+        for (const auto& r : model::ClipEdits::allClips (session, t)) selectedClips.push_back (r);
+    repaint();
+}
+
+void TrackArea::zoomBy (double factor)
+{
+    const double anchor = transport.getPositionSeconds();
+    const double x = secondsToX (anchor);
+    pixelsPerSecond = juce::jlimit (5.0, 400000.0, pixelsPerSecond * factor);
+    viewStartSeconds = juce::jmax (0.0, anchor - (x - theme::trackHeaderWidth) / pixelsPerSecond);
+    repaint();
+}
+
+void TrackArea::zoomToSelection()
+{
+    if (! timeSelection.isValid()) { zoomToFit(); return; }
+    const double width = juce::jmax (50, getWidth() - theme::trackHeaderWidth - 20);
+    viewStartSeconds = juce::jmax (0.0, timeSelection.start - 0.02 * (timeSelection.end - timeSelection.start));
+    pixelsPerSecond = juce::jlimit (5.0, 400000.0, width / juce::jmax (0.01, (timeSelection.end - timeSelection.start) * 1.04));
+    repaint();
+}
+
+void TrackArea::trimSelectionToPlayhead (bool start)
+{
+    const juce::int64 p = toSamples (transport.getPositionSeconds());
+    auto compound = std::make_unique<model::CompoundCommand> (start ? "Trim Start to Insertion" : "Trim End to Insertion");
+    for (const auto& ref : std::vector<model::ClipRef> (selectedClips))
+    {
+        const auto t = model::ClipEdits::timing (session, ref);
+        if (! t) continue;
+        const juce::int64 end = t->start + t->length;
+        if (start) { if (p >= end || p == t->start) continue; compound->add (model::GroupLogic::trimCommand (session, ref, p, end - p)); }
+        else       { if (p <= t->start || p == end) continue; compound->add (model::GroupLogic::trimCommand (session, ref, t->start, p - t->start)); }
+    }
+    if (compound->isEmpty()) { if (onStatus) onStatus ("Trim to insertion: put the playhead inside a selected clip"); return; }
+    session.execute (std::move (compound));
+    repaint();
+}
+
+void TrackArea::fadeSelectionToPlayhead (bool fadeIn, engine::FadeShape shape)
+{
+    const juce::int64 p = toSamples (transport.getPositionSeconds());
+    auto compound = std::make_unique<model::CompoundCommand> (fadeIn ? "Fade In to Insertion" : "Fade Out from Insertion");
+    for (const auto& ref : selectedClips)
+    {
+        if (ref.kind != model::ClipRef::Kind::audio) continue;
+        const auto* t = session.getTrack (ref.track);
+        if (t == nullptr || ref.index >= (int) t->clips.size()) continue;
+        const auto& c = t->clips[(size_t) ref.index];
+        const juce::int64 end = c.timelineStart + c.length;
+        if (p <= c.timelineStart || p >= end) continue;
+        if (fadeIn) compound->add (std::make_unique<model::SetClipFadesCommand> (ref, p - c.timelineStart, shape, c.fadeOut, c.fadeOutShape));
+        else        compound->add (std::make_unique<model::SetClipFadesCommand> (ref, c.fadeIn, c.fadeInShape, end - p, shape));
+    }
+    if (compound->isEmpty()) { if (onStatus) onStatus ("Fade to insertion: put the playhead inside a selected audio clip"); return; }
+    session.execute (std::move (compound));
+    repaint();
+}
+
+void TrackArea::applyDefaultFadesToSelection (double ms, engine::FadeShape shape)
+{
+    auto compound = std::make_unique<model::CompoundCommand> ("Fades");
+    for (const auto& ref : selectedClips)
+        if (ref.kind == model::ClipRef::Kind::audio)
+            if (const auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
+            {
+                const auto samples = (juce::int64) std::llround (ms * t->clips[(size_t) ref.index].sampleRate / 1000.0);
+                compound->add (std::make_unique<model::SetClipFadesCommand> (ref, samples, shape, samples, shape));
+            }
+    if (compound->isEmpty()) { if (onStatus) onStatus ("Fades: select audio clips first"); return; }
+    session.execute (std::move (compound));
+    repaint();
+}
+
+void TrackArea::copySelection()
+{
+    clipboard.clear();
+    double first = 1.0e18; int firstTrack = 1 << 30;
+    for (const auto& ref : selectedClips)
+        if (const auto t = model::ClipEdits::timing (session, ref)) { first = juce::jmin (first, (double) t->start / t->sampleRate); firstTrack = juce::jmin (firstTrack, ref.track); }
+    for (const auto& ref : selectedClips)
+    {
+        const auto* t = session.getTrack (ref.track);
+        if (t == nullptr) continue;
+        ClipboardItem item; item.kind = ref.kind; item.trackOffset = ref.track - firstTrack;
+        if (ref.kind == model::ClipRef::Kind::audio && ref.index < (int) t->clips.size())            { item.audio = t->clips[(size_t) ref.index]; item.relativeStart = item.audio.getStartSeconds() - first; }
+        else if (ref.kind == model::ClipRef::Kind::pattern && ref.index < (int) t->patternClips.size()) { item.pattern = t->patternClips[(size_t) ref.index]; item.relativeStart = item.pattern.getStartSeconds() - first; }
+        else if (ref.kind == model::ClipRef::Kind::midi && ref.index < (int) t->midiClips.size())    { item.midi = t->midiClips[(size_t) ref.index]; item.relativeStart = item.midi.getStartSeconds() - first; }
+        else continue;
+        clipboard.push_back (std::move (item));
+    }
+    if (onStatus) onStatus (clipboard.empty() ? "Copy: select clips first" : "Copied " + juce::String (clipboard.size()) + (clipboard.size() == 1 ? " clip" : " clips"));
+}
+
+void TrackArea::cutSelection()
+{
+    copySelection();
+    if (! clipboard.empty()) deleteSelection();
+}
+
+void TrackArea::pasteAtPlayhead (bool selectPasted)
+{
+    if (clipboard.empty()) { if (onStatus) onStatus ("Paste: nothing copied"); return; }
+    const int baseTrack = selectedTrack >= 0 ? selectedTrack : 0;
+    const double at = transport.getPositionSeconds();
+    auto compound = std::make_unique<model::CompoundCommand> ("Paste");
+    std::vector<model::ClipRef> pasted;
+    std::map<std::pair<int, int>, int> appended;
+    for (const auto& item : clipboard)
+    {
+        const int trackIndex = juce::jlimit (0, juce::jmax (0, session.getNumTracks() - 1), baseTrack + item.trackOffset);
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr || model::ClipEdits::kindForTrack (*t) != item.kind) continue;
+        const int newIndex = model::ClipEdits::numClips (*t, item.kind) + appended[{ trackIndex, (int) item.kind }]++;
+        if (item.kind == model::ClipRef::Kind::audio)
+        {
+            auto c = item.audio; c.timelineStart = (juce::int64) std::llround ((at + item.relativeStart) * c.sampleRate);
+            compound->add (std::make_unique<model::AddClipCommand> (trackIndex, std::move (c)));
+        }
+        else if (item.kind == model::ClipRef::Kind::pattern)
+        {
+            auto c = item.pattern; c.timelineStart = (juce::int64) std::llround ((at + item.relativeStart) * c.sampleRate);
+            compound->add (std::make_unique<model::AddPatternClipCommand> (trackIndex, std::move (c)));
+        }
+        else
+        {
+            auto c = item.midi; c.timelineStart = (juce::int64) std::llround ((at + item.relativeStart) * c.sampleRate);
+            compound->add (std::make_unique<model::AddMidiClipCommand> (trackIndex, std::move (c)));
+        }
+        pasted.push_back ({ trackIndex, item.kind, newIndex });
+    }
+    if (compound->isEmpty()) { if (onStatus) onStatus ("Paste: the target track holds a different kind of clip"); return; }
+    session.execute (std::move (compound));
+    if (selectPasted) selectedClips = pasted;
+    if (onStatus) onStatus ("Pasted " + juce::String (pasted.size()) + (pasted.size() == 1 ? " clip" : " clips") + " at " + juce::String (at, 2) + " s");
+    repaint();
 }
 
 } // namespace beatmaker::ui

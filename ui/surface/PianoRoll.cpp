@@ -294,7 +294,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     // Empty space: add a note
     engine::NoteEvent n;
     n.pitch = pitch;
-    n.velocity = e.mods.isShiftDown() ? 70 : 100;
+    n.velocity = e.mods.isShiftDown() ? softVelocity : defaultVelocity;
     n.startBeat = snap (beatAtX (e.x));
     n.lengthBeats = lastNoteLength;
     if (n.startBeat >= seq->lengthBeats) n.startBeat = seq->lengthBeats - gridBeats;

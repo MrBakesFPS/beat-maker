@@ -22,6 +22,7 @@ public:
     PianoRoll (model::Session& session, engine::Transport& transport, engine::AudioGraph& graph);
 
     void setTarget (int trackIndex, int midiClipIndex);
+    void setDefaultVelocities (int normal, int soft) { defaultVelocity = juce::jlimit (1, 127, normal); softVelocity = juce::jlimit (1, 127, soft); }
     int getTrackIndex() const noexcept { return trackIndex; }
 
     std::function<void (int trackIndex, int clipIndex, std::shared_ptr<const engine::MidiSequence>, juce::String)> onSequenceChanged;
@@ -81,6 +82,7 @@ private:
     juce::Point<int> dragStart;
     bool dragChanged = false;
 
+    int defaultVelocity = 100, softVelocity = 70;
     juce::ComboBox presetBox;
     juce::Label presetLabel { {}, "Sound" };
     engine::InstrumentType presetType = engine::InstrumentType::none;   // what presetBox currently lists
