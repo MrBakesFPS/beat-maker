@@ -36,6 +36,7 @@ target_sources(BeatMaker PRIVATE
     depth/TutorialWindow.cpp
     depth/ShortcutsWindow.cpp
     depth/SystemUsageWindow.cpp
+    depth/AafExportDialog.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE

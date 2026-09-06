@@ -378,6 +378,21 @@ Run the tests with `ctest --test-dir build`.
   track's clips, Shift+M/S/R mute, solo or arm the selected track, and every
   command is reachable from the palette. The focused edit window shows an
   accent outline.
+- Export AAF (Ctrl+Alt+A, or File... > Export AAF): the session as an
+  Advanced Authoring Format file for Pro Tools, Media Composer, Nuendo,
+  Resolve and anything else that reads AAF. One timeline slot per track
+  (stereo tracks become .L and .R slots, as Pro Tools expects), clips as
+  source clips with their positions and lengths, a timecode slot at 24, 25,
+  29.97 or 30 fps, and memory locations as markers. Audio is embedded as
+  16- or 24-bit PCM essence, or linked to WAV files written to a "<name>
+  Media" folder beside the file. Consolidated mode renders each clip's gain,
+  gain line and fades into its own audio so the other DAW hears exactly the
+  session; whole-file mode keeps the full source files with trim handles but
+  drops gain and fades. Instrument tracks are included once frozen. The
+  writer is Beat Maker's own (Compound File Binary container plus the AAF
+  stored format, with the standard dictionaries embedded), and its files
+  are checked against two independent readers, pyaaf2 and LibAAF. OMF is not
+  offered: Avid deprecated it and current DAWs import AAF.
 - System Usage (Ctrl+Shift+U, or click the CPU readout in the transport bar):
   audio CPU load with a peak hold and a count of callbacks that overran their
   budget, the heaviest tracks (per-strip timing on the audio thread, so a

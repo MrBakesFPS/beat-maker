@@ -17,6 +17,8 @@
 #include "depth/TutorialWindow.h"
 #include "depth/ShortcutsWindow.h"
 #include "depth/SystemUsageWindow.h"
+#include "depth/AafExportDialog.h"
+#include <AafExport.h>
 #include <SampleProjects.h>
 #include <SessionImport.h>
 #include <Freeze.h>
@@ -352,6 +354,8 @@ public:
     void showTutorialsFromCommandLine() { showTutorials(); }
     void showShortcutsFromCommandLine() { showShortcuts(); }
     void showSystemUsageFromCommandLine() { showSystemUsage(); }
+    void exportAafFromCommandLine (const juce::String& spec) { exportAafFromCommandLineImpl (spec); }
+    void showAafExportFromCommandLine() { showAafExport(); }
     void openSampleFromCommandLine (const juce::String& name) { openSampleProject (name); }
     bool wantsWelcomeAtStartup() const { return prefs.getBool ("display.showWelcome"); }
     // --import-session=<bundle>[,<seconds>]: every track, markers and tempo; placed at the offset (default absolute).
@@ -887,6 +891,7 @@ public:
         add ("track.unfreeze", "Track", "Unfreeze Selected Track", {}, 0, [this] { unfreezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isFrozen(); });
         add ("track.commit", "Track", "Commit Selected Track", {}, 0, [this] { commitTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t); });
         add ("file.stems", "File", "Export Stems...", juce::KeyPress ('b', M::commandModifier | M::altModifier, 0), 0, [this] { showStemExport(); });
+        add ("file.exportAaf", "File", "Export AAF...", juce::KeyPress ('a', M::commandModifier | M::altModifier, 0), 0, [this] { showAafExport(); });
         add ("file.importSession", "File", "Import Session Data...", juce::KeyPress ('i', M::shiftModifier | M::altModifier, 0), 0, [this] { chooseSessionToImport(); });
         add ("help.welcome", "Help", "Welcome Window", {}, 0, [this] { showWelcome(); });
         add ("help.tour", "Help", "Take the Tour", {}, 0, [this] { startTour(); });
@@ -2599,6 +2604,60 @@ private:
         stemJob->launchThread();
     }
 
+    juce::String currentSessionName() const { return sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled"); }
+
+    void exportAaf (const juce::File& file, const persistence::AafExportOptions& options)
+    {
+        const auto summary = persistence::AafExport::write (session, engine.getSampleRate(), currentSessionName(), file, options);
+        if (! summary.ok()) { statusMessage = "Export AAF failed: " + summary.error; updateStatus(); std::cout << "AAF export failed: " << summary.error << std::endl; return; }
+        statusMessage = "Exported AAF " + file.getFileName() + ": " + juce::String (summary.tracks) + " tracks, " + juce::String (summary.clips) + " clips, "
+                        + juce::String (summary.essences) + (options.embedAudio ? " embedded" : " linked") + " audio files, " + juce::String (summary.markers) + " markers ("
+                        + juce::File::descriptionOfSizeInBytes (summary.fileBytes) + ")";
+        updateStatus();
+        std::cout << "AAF " << file.getFullPathName() << " tracks=" << summary.tracks << " slots=" << summary.slots << " clips=" << summary.clips
+                  << " essences=" << summary.essences << " markers=" << summary.markers << " bytes=" << summary.fileBytes << std::endl;
+    }
+
+    // --export-aaf=<file>[,link][,whole][,16]: synchronous export for smoke tests.
+    void exportAafFromCommandLineImpl (const juce::String& spec)
+    {
+        const auto parts = juce::StringArray::fromTokens (spec, ",", {});
+        persistence::AafExportOptions o;
+        for (int i = 1; i < parts.size(); ++i)
+        {
+            if (parts[i] == "link") o.embedAudio = false;
+            else if (parts[i] == "whole") o.consolidateClips = false;
+            else if (parts[i] == "16") o.bitDepth = 16;
+        }
+        exportAaf (juce::File::getCurrentWorkingDirectory().getChildFile (parts[0]), o);
+    }
+
+    void showAafExport()
+    {
+        if (persistence::AafExport::exportableTracks (session).empty()) { statusMessage = "Export AAF: no audio tracks with clips (frozen instrument tracks count too)"; updateStatus(); return; }
+        auto* dialog = new ui::AafExportDialog (session);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Export AAF";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onExport = [this, window] (const persistence::AafExportOptions& o)
+        {
+            window->setVisible (false);
+            const auto base = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Bounces");
+            base.createDirectory();
+            fileChooser = std::make_unique<juce::FileChooser> ("Export AAF", base.getChildFile (currentSessionName() + ".aaf"), "*.aaf");
+            fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting, [this, o] (const juce::FileChooser& fc)
+            {
+                if (fc.getResult() != juce::File()) exportAaf (fc.getResult().withFileExtension ("aaf"), o);
+            });
+        };
+    }
+
     void showStemExport()
     {
         if (session.getNumTracks() == 0) { statusMessage = "Export Stems: the session is empty"; updateStatus(); return; }
@@ -2815,6 +2874,7 @@ private:
         menu.addItem (6, "Import Audio Files...");
         menu.addItem (8, "Import Session Data...  (Shift+Alt+I)");
         menu.addItem (9, "Export Stems...  (Ctrl+Alt+B)");
+        menu.addItem (12, "Export AAF...  (Ctrl+Alt+A)");
         menu.addItem (7, "Memory Locations...  (Ctrl+5)");
         juce::PopupMenu samples;
         int sid = 100;
@@ -2836,6 +2896,7 @@ private:
                 case 7: showMemoryLocations(); break;
                 case 8: chooseSessionToImport(); break;
                 case 9: showStemExport(); break;
+                case 12: showAafExport(); break;
                 case 10: showWelcome(); break;
                 case 11: showShortcuts(); break;
                 default:
@@ -3080,6 +3141,8 @@ public:
             else if (arg.startsWith ("--import-dialog=")) main.showImportDialogFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--unfreeze=")) main.unfreezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--commit=")) main.commitFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
+            else if (arg.startsWith ("--export-aaf=")) main.exportAafFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg == "--aaf-dialog") main.showAafExportFromCommandLine();
             else if (arg.startsWith ("--stems=")) main.stemsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();
             else if (arg.startsWith ("--sync=")) main.setSyncFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));

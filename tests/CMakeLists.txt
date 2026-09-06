@@ -28,6 +28,7 @@ target_sources(beatmaker_tests PRIVATE
     onboarding_test.cpp
     theme_test.cpp
     performance_test.cpp
+    aaf_export_test.cpp
     ../ui/shared/Preferences.cpp
     pan_test.cpp
     clip_edit_test.cpp

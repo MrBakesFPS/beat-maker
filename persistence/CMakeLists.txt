@@ -6,7 +6,11 @@ target_sources(beatmaker_persistence INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/LoopLibrary.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/SessionFile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/SessionImport.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/SampleProjects.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/SampleProjects.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/AafExport.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aaf/CfbWriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aaf/AafWriter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/aaf/AafDictionaryData.cpp)
 
 target_include_directories(beatmaker_persistence INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 
