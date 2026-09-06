@@ -35,6 +35,8 @@ LoopBrowser::LoopBrowser (persistence::LoopLibrary& lib) : library (lib)
     list.setColour (juce::ListBox::backgroundColourId, theme::background);
     list.setMultipleSelectionEnabled (false);
 
+    addFolderButton.setTooltip ("Add a folder of loops to the Library");
+    rescanButton.setTooltip ("Rescan the Library folders");
     addAndMakeVisible (addFolderButton);
     addFolderButton.setTooltip ("Add a folder of loops to the library");
     addFolderButton.onClick = [this] { if (onAddFolder) onAddFolder(); };

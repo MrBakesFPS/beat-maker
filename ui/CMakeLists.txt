@@ -31,6 +31,10 @@ target_sources(BeatMaker PRIVATE
     depth/ScriptConsole.cpp
     depth/StemExportDialog.cpp
     depth/ImportSessionDialog.cpp
+    depth/WelcomeWindow.cpp
+    depth/TourOverlay.cpp
+    depth/TutorialWindow.cpp
+    depth/ShortcutsWindow.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE

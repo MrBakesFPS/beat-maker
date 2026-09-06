@@ -25,6 +25,7 @@ target_sources(beatmaker_tests PRIVATE
     lua_test.cpp
     freeze_stems_test.cpp
     session_import_test.cpp
+    onboarding_test.cpp
     ../ui/shared/Preferences.cpp
     pan_test.cpp
     clip_edit_test.cpp

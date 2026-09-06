@@ -16,6 +16,7 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
     session.addListener (this);
     setWantsKeyboardFocus (true);
     addAndMakeVisible (addTrackButton);
+    addTrackButton.setTooltip ("Add a track: audio, Drum Machine, any bundled instrument, aux input or VCA master");
     addTrackButton.onClick = [this]
     {
         juce::PopupMenu menu;
@@ -187,6 +188,7 @@ void TrackArea::rebuildTrackControls()
         TrackControls c;
         c.mute = std::make_unique<juce::TextButton> ("M");
         c.solo = std::make_unique<juce::TextButton> ("S");
+        c.solo->setTooltip ("Solo: hear only soloed tracks");
 
         c.mute->setClickingTogglesState (true);
         c.solo->setClickingTogglesState (true);
@@ -194,7 +196,7 @@ void TrackArea::rebuildTrackControls()
         c.solo->setToggleState (track.solo, juce::dontSendNotification);
         c.mute->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xffe67e22));
         c.solo->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xfff1c40f));
-        c.mute->setTooltip ("Mute");
+        c.mute->setTooltip ("Mute (Solo on another track also silences this one)");
         c.solo->setTooltip ("Solo");
 
         c.mute->onClick = [this, i, b = c.mute.get()] { if (onMuteChanged) onMuteChanged (i, b->getToggleState()); };
@@ -216,6 +218,7 @@ void TrackArea::rebuildTrackControls()
             addAndMakeVisible (*c.arm);
 
             c.monitor = std::make_unique<juce::TextButton> ("I");
+            c.monitor->setTooltip ("Input monitoring: hear the input while stopped or recording");
             c.monitor->setClickingTogglesState (true);
             c.monitor->setToggleState (track.monitor, juce::dontSendNotification);
             c.monitor->setColour (juce::TextButton::buttonOnColourId, theme::play.darker (0.2f));
@@ -224,6 +227,7 @@ void TrackArea::rebuildTrackControls()
             addAndMakeVisible (*c.monitor);
 
             c.input = std::make_unique<juce::ComboBox>();
+            c.input->setTooltip ("Record input (device channels or I/O Setup paths)");
             c.input->setTooltip ("Input path (I/O Setup)");
             const auto& io = session.getIO();
             if (io.inputs.empty())
@@ -254,6 +258,7 @@ void TrackArea::rebuildTrackControls()
             addAndMakeVisible (*c.input);
 
             c.playlists = std::make_unique<juce::TextButton> ("P");
+            c.playlists->setTooltip ("Playlists: alternate takes for comping");
             c.playlists->setTooltip ("Playlists: new, duplicate, switch, show take lanes");
             c.playlists->setColour (juce::TextButton::buttonColourId, arePlaylistsShown (track) ? theme::accent.darker (0.5f) : theme::panel);
             c.playlists->onClick = [this, i] { showPlaylistMenu (i); };
@@ -296,6 +301,7 @@ void TrackArea::rebuildTrackControls()
         addAndMakeVisible (*c.autoMode);
 
         c.autoView = std::make_unique<juce::ComboBox>();
+        c.autoView->setTooltip ("What the lane shows: clips, clip gain, or an automation parameter");
         c.autoView->setTooltip ("Track view: clips, or an automation lane");
         c.autoView->addItem ("Clips", 1);
         if (track.isAudio()) c.autoView->addItem ("Clip Gain", 100);

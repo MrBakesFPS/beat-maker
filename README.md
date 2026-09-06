@@ -51,6 +51,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --script=build_song.lua --bounce=song.wav      # build a session from Lua and render it
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --elastic-demo --stems=stems --quit            # one WAV per track
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --synth --import-session=song.bmk,4 --save=merged.bmk --quit   # import at 4 s
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" "--sample-project=Lo-fi Beat" --tour                # open a sample project, start the tour
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --synth --freeze=2 --bounce=frozen.wav # freeze track 2, then bounce
 ```
 
@@ -357,6 +358,15 @@ Run the tests with `ctest --test-dir build`.
   return stem contains exactly the returns of the mix, and the stems sum back
   to the mix. Options: include aux returns in each stem, render through the
   master's inserts, cycle range only, file type, bit depth, tail.
+- Onboarding: a Welcome window on first launch (templates, sample projects,
+  tour, tutorials, shortcuts; switch it off there or in Preferences), a
+  two-minute spotlight Tour of the transport, Library, tracks, edit tools,
+  editor panel, Smart Controls, Mix window and command palette, Tutorials
+  whose steps tick themselves off as you work in the session (with a "Do it"
+  button per step), a searchable Keyboard Shortcuts window (Ctrl+/), and
+  tooltips on every control. Three sample projects (Lo-fi Beat, Synth Sketch,
+  Podcast Intro) are generated from the bundled loops and instruments into
+  `~/Music/Beat Maker/Sessions/Sample Projects` the first time you open them.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

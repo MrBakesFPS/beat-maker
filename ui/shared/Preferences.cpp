@@ -20,6 +20,7 @@ std::vector<PrefDef> Preferences::definitions()
         // Display
         choice ("display.trackHeight", "Display", "Default track height", "Height of track lanes in the edit window.", 1, { "Small", "Medium", "Large", "Extra Large" }),
         toggle ("display.showMarkerStrip", "Display", "Show memory locations strip", "The markers and sections strip above the ruler.", true),
+        toggle ("display.showWelcome", "Display", "Show the Welcome window at startup", "Templates, sample projects, the tour and tutorials when Beat Maker opens without a session.", true),
         toggle ("display.clipGainReadout", "Display", "Show clip gain on clips", "Append the clip gain in dB to clip names when it is not 0 dB.", true),
         number ("display.zoomSensitivity", "Display", "Zoom sensitivity", "How much Ctrl+wheel and the R/T focus keys zoom per step.", 1.5, 1.1, 3.0, 0.1, "x"),
 

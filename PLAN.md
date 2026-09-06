@@ -224,7 +224,7 @@ beat-maker/
 
 ### Phase 5 — Polish & Release (Weeks 39–46)
 - [~] Stem export, Import Session Data, AAF/OMF export. *(2026-09-06: stem export done (model/Freeze::stemSnapshot with a direct-output mute that keeps sends alive so stems sum to the mix; StemExportDialog, Ctrl+Alt+B, `--stems=<dir>`). Import Session Data done (persistence/SessionImport + ImportSessionDialog, Shift+Alt+I, `--import-session=<bundle>[,offset]`). AAF/OMF pending.)*
-- [ ] Onboarding, tooltips, in-app tutorials, sample projects.
+- [x] Onboarding, tooltips, in-app tutorials, sample projects. *(Done 2026-09-06: WelcomeWindow at startup (pref display.showWelcome), TourOverlay spotlight tour, TutorialWindow with self-completing steps (ui/shared/Tutorials.h), ShortcutsWindow (Ctrl+/), a TooltipWindow plus tooltips on the transport, headers and library, persistence/SampleProjects (Lo-fi Beat, Synth Sketch, Podcast Intro) generated on demand; flags --welcome, --tour, --tutorials, --shortcuts, --sample-project.)*
 - [~] Performance pass: CPU meter, freeze/commit tracks, disk cache. *(2026-09-06: freeze/commit done (Track::FreezeState, Freeze/Unfreeze commands, builder plays the render, DelayCompensation ignores baked inserts, session files keep the render; a frozen bounce is sample-identical to the live one). CPU meter and disk cache pending.)*
 - [ ] Accessibility (screen reader labels, high-contrast theme, full keyboard nav).
 - [ ] Beta program, crash reporting, docs site.

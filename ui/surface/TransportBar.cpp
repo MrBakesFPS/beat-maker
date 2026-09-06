@@ -60,6 +60,14 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     bounceButton.setTooltip ("Bounce the arrangement to an audio file (Ctrl+B)");
     bounceButton.onClick = [this] { if (onBounce) onBounce(); };
 
+    libraryButton.setTooltip ("Loop Library (L)");
+    controlsButton.setTooltip ("Smart Controls for the selected track (B)");
+    mixerButton.setTooltip ("Mix window: inserts, sends, faders, meters (X)");
+    editorButton.setTooltip ("Editor panel: step sequencer or piano roll for the selected track (E)");
+    bounceButton.setTooltip ("Bounce to Disk (Ctrl+B)");
+    playButton.setTooltip ("Play / Stop (Space)");
+    stopButton.setTooltip ("Stop");
+    rtzButton.setTooltip ("Return to Start (Return)");
     addAndMakeVisible (cycleButton);
     cycleButton.setClickingTogglesState (true);
     cycleButton.setToggleState (transport.isLoopEnabled(), juce::dontSendNotification);

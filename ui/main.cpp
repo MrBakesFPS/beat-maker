@@ -12,6 +12,11 @@
 #include "depth/ScriptConsole.h"
 #include "depth/StemExportDialog.h"
 #include "depth/ImportSessionDialog.h"
+#include "depth/WelcomeWindow.h"
+#include "depth/TourOverlay.h"
+#include "depth/TutorialWindow.h"
+#include "depth/ShortcutsWindow.h"
+#include <SampleProjects.h>
 #include <SessionImport.h>
 #include <Freeze.h>
 #include <LuaEngine.h>
@@ -215,6 +220,8 @@ public:
             session.execute (std::make_unique<model::SetInstrumentParamsCommand> (track, std::move (p), "Change Preset"));
         };
         trackArea.onStatus = [this] (const juce::String& text) { statusMessage = text; updateStatus(); };
+        addChildComponent (tour);
+        tour.onFinished = [this] { statusMessage = "Tour finished. Ctrl+Shift+P opens the command palette whenever you need something."; updateStatus(); grabKeyboardFocus(); };
         registerCommands();
         prefsListener = prefs.addListener ([this] (const juce::String& id) { applyPreferences (id); });
         applyPreferences ({});
@@ -334,6 +341,12 @@ public:
     void showScriptConsoleFromCommandLine() { showScriptConsole(); }
     void freezeFromCommandLine (int oneBased) { freezeTrack (oneBased - 1); }
     void showImportDialogFromCommandLine (const juce::File& bundle) { showImportSessionDialog (bundle); }
+    void showWelcomeFromCommandLine() { showWelcome(); }
+    void startTourFromCommandLine() { startTour(); }
+    void showTutorialsFromCommandLine() { showTutorials(); }
+    void showShortcutsFromCommandLine() { showShortcuts(); }
+    void openSampleFromCommandLine (const juce::String& name) { openSampleProject (name); }
+    bool wantsWelcomeAtStartup() const { return prefs.getBool ("display.showWelcome"); }
     // --import-session=<bundle>[,<seconds>]: every track, markers and tempo; placed at the offset (default absolute).
     void importSessionFromCommandLine (const juce::String& spec)
     {
@@ -727,6 +740,8 @@ public:
 
     void resized() override
     {
+        tour.setBounds (getLocalBounds());
+        tour.toFront (false);
         auto area = getLocalBounds();
         transportBar.setBounds (area.removeFromTop (ui::theme::transportHeight));
         editToolbar.setBounds (area.removeFromTop (ui::EditToolbar::preferredHeight));
@@ -855,6 +870,12 @@ public:
         add ("track.commit", "Track", "Commit Selected Track", {}, 0, [this] { commitTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t); });
         add ("file.stems", "File", "Export Stems...", juce::KeyPress ('b', M::commandModifier | M::altModifier, 0), 0, [this] { showStemExport(); });
         add ("file.importSession", "File", "Import Session Data...", juce::KeyPress ('i', M::shiftModifier | M::altModifier, 0), 0, [this] { chooseSessionToImport(); });
+        add ("help.welcome", "Help", "Welcome Window", {}, 0, [this] { showWelcome(); });
+        add ("help.tour", "Help", "Take the Tour", {}, 0, [this] { startTour(); });
+        add ("help.tutorials", "Help", "Tutorials", {}, 0, [this] { showTutorials(); });
+        add ("help.shortcuts", "Help", "Keyboard Shortcuts", juce::KeyPress ('/', M::commandModifier, 0), 0, [this] { showShortcuts(); });
+        for (const auto& sample : persistence::SampleProjects::list())
+            add (("file.sample." + juce::File::createLegalFileName (sample.name).replaceCharacter (' ', '-')).toRawUTF8(), "File", ("Open Sample Project: " + sample.name).toRawUTF8(), {}, 0, [this, name = sample.name] { openSampleProject (name); });
 
         // Windows
         add ("window.preferences", "Window", "Preferences...", juce::KeyPress (',', M::commandModifier, 0), 0, [this] { showPreferences ({}); });
@@ -1451,6 +1472,7 @@ private:
             [this] (const engine::BounceResult& r, const juce::File& f)
             {
                 statusMessage = describeBounce (r, f);
+                bouncedOnce = bouncedOnce || r.ok();
                 updateStatus();
                 if (r.ok()) f.revealToUser();
                 juce::MessageManager::callAsync ([this] { bounceJob.reset(); });
@@ -1729,6 +1751,8 @@ private:
         if (autosaveMinutes > 0 && ++autosaveCounter >= 20 * 60 * autosaveMinutes) { autosaveCounter = 0; autosaveTick(); }
         // Timeline insertion follows playback: off = the playhead returns to where play started
         const bool playingNow = engine.getTransport().isPlaying();
+        if (playingNow) playedOnce = true;
+        if (mixerVisible) mixedOnce = true;
         if (playingNow && ! wasPlayingLastTick) playStartSample = engine.getTransport().getPositionSamples();
         if (! playingNow && wasPlayingLastTick && ! prefs.getBool ("operation.timelineFollowsPlayback") && ! engine.getRecorder().isRecording())
             engine.getTransport().setPositionSamples (playStartSample);
@@ -2180,8 +2204,139 @@ private:
         options.useNativeTitleBar = true;
         options.resizable = false;
         paletteWindow = options.launchAsync();
+        paletteOpenedOnce = true;
         if (query.isNotEmpty()) content->setQuery (query);
         content->grabKeyboardFocus();
+    }
+
+    //==========================================================================
+    // Onboarding: welcome, tour, tutorials, shortcuts, sample projects
+
+    static juce::File samplesFolder() { return sessionsFolder().getChildFile ("Sample Projects"); }
+
+    void openSampleProject (const juce::String& name)
+    {
+        samplesFolder().createDirectory();
+        const auto bundle = samplesFolder().getChildFile (juce::File::createLegalFileName (name) + ".bmk");
+        if (! persistence::SessionFile::isSessionBundle (bundle))
+        {
+            model::Session scratch; persistence::TransportState ts; juce::String error;
+            const auto ctx = loadContext();
+            if (! persistence::SampleProjects::create (name, scratch, ts, engine.getSampleRate(), bundledLoopsFolder(), ctx.loadAudio, error)
+                || ! persistence::SessionFile::save (scratch, ts, bundle).isEmpty())
+            { statusMessage = "Sample project failed: " + error; updateStatus(); return; }
+        }
+        if (openSessionBundle (bundle)) { statusMessage = "Opened sample project " + name + "  (saved in " + samplesFolder().getFullPathName() + ")"; updateStatus(); }
+    }
+
+    void showWelcome()
+    {
+        if (welcomeWindow != nullptr) { welcomeWindow->setVisible (true); welcomeWindow->toFront (true); return; }
+        juce::StringArray names, descs;
+        for (const auto& s : persistence::SampleProjects::list()) { names.add (s.name); descs.add (s.description); }
+        auto* content = new ui::WelcomeWindow (names, descs, prefs.getBool ("display.showWelcome"));
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Welcome";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        welcomeWindow = options.launchAsync();
+        auto close = [this] { if (welcomeWindow != nullptr) welcomeWindow->setVisible (false); };
+        content->onClose = [close] { close(); };
+        content->onNewSession = [this, close] { close(); showNewSessionDialog(); };
+        content->onOpenSession = [this, close] { close(); openSessionChooser(); };
+        content->onOpenSample = [this, close] (const juce::String& n) { close(); openSampleProject (n); };
+        content->onTour = [this, close] { close(); startTour(); };
+        content->onTutorials = [this, close] { close(); showTutorials(); };
+        content->onShortcuts = [this] { showShortcuts(); };
+        content->onShowAtStartupChanged = [this] (bool on) { prefs.set ("display.showWelcome", on); };
+    }
+
+    void startTour()
+    {
+        std::vector<ui::TourOverlay::Step> steps;
+        steps.push_back ({ "Transport", "Space plays and stops, R records (arm a track first), C turns Cycle on. The Rec menu picks Normal, QuickPunch, TrackPunch or Loop record; Pre/Post sets pre- and post-roll.", [this] { return (juce::Component*) &transportBar; }, {} });
+        steps.push_back ({ "Loop Library", "Loops are conformed to the session tempo with Elastic Audio when you drag them in. Click a loop to audition it, double-click to add it at the playhead.", [this] { return (juce::Component*) &loopBrowser; }, [this] { setLibraryVisible (true); } });
+        steps.push_back ({ "Tracks", "+ Track adds audio, Drum Machine, any instrument, an aux input or a VCA. Right-click a header to rename, freeze or commit. The strip above the ruler holds memory locations and arrangement sections (M adds a marker).", [this] { return (juce::Component*) &trackArea; }, {} });
+        steps.push_back ({ "Edit modes and tools", "Shuffle / Slip / Spot / Grid and the Zoomer, Trimmer, Selector, Grabber, Scrubber, Pencil and Smart Tool (F1-F11). TCE makes the Trimmer stretch; a-z turns on single-key edit commands.", [this] { return (juce::Component*) &editToolbar; }, {} });
+        steps.push_back ({ "Editor panel", "The step sequencer for drum tracks and the piano roll for instruments, with presets. E hides and shows it.", [this] { return (juce::Component*) (sequencer.isVisible() ? (juce::Component*) &sequencer : (juce::Component*) &pianoRoll); }, [this] { setEditorVisible (true); } });
+        steps.push_back ({ "Smart Controls", "Macro knobs for the selected track: volume and pan, every instrument parameter, drum pad levels. A drag is one undo step.", [this] { return (juce::Component*) &smartControls; }, [this] { setControlsVisible (true); } });
+        steps.push_back ({ "Mix window", "One strip per track: ten inserts (built-in effects or plugins), five sends, fader, pan, meters, automation mode. Right-click an insert to change it; click to edit.", [this] { return (juce::Component*) &mixerView; }, [this] { setMixerVisible (true); } });
+        steps.push_back ({ "Command palette and Preferences", "Ctrl+Shift+P finds any command or setting by name; Ctrl+, opens Preferences; Ctrl+/ lists every shortcut. The File... button has sessions, templates, stems and import.", [this] { return (juce::Component*) &transportBar; }, [this] { setMixerVisible (false); } });
+        tour.start (std::move (steps));
+    }
+
+    std::vector<ui::Tutorial> makeTutorials()
+    {
+        auto hasTrack = [this] (std::function<bool (const model::Track&)> pred) { return [this, pred] { for (const auto& t : session.getTracks()) if (pred (t)) return true; return false; }; };
+        std::vector<ui::Tutorial> out;
+        ui::Tutorial beat;
+        beat.title = "Make your first beat";
+        beat.summary = "A drum track, an instrument, a loop, then play it back and bounce it.";
+        beat.steps = {
+            { "Add a Drum Machine track", "+ Track > Drum Machine Track. It comes with a starter beat; click steps in the sequencer to change it.", "track.addDrums", hasTrack ([] (const model::Track& t) { return t.isDrumMachine(); }) },
+            { "Add an instrument track", "+ Track > Instrument Track > Synth (or any other). Draw notes in the piano roll.", "track.addSynth", hasTrack ([] (const model::Track& t) { return t.isSynth(); }) },
+            { "Turn on Cycle", "Press C or click Cycle so the arrangement loops.", "transport.cycle", [this] { return engine.getTransport().isLoopEnabled(); } },
+            { "Press Play", "Space starts and stops the transport.", "transport.playStop", [this] { return engine.getTransport().isPlaying() || playedOnce; } },
+            { "Bounce to Disk", "Ctrl+B renders the arrangement to WAV, AIFF or FLAC.", "file.bounce", [this] { return bouncedOnce; } } };
+        out.push_back (beat);
+        ui::Tutorial rec;
+        rec.title = "Record audio";
+        rec.summary = "Arm an audio track, pick a record mode and punch in.";
+        rec.steps = {
+            { "Add an audio track", "+ Track > Audio Track (Ctrl+Shift+N).", "track.addAudio", hasTrack ([] (const model::Track& t) { return t.isAudio(); }) },
+            { "Arm it", "Click the track's R button and choose its input.", "", hasTrack ([] (const model::Track& t) { return t.isAudio() && t.armed; }) },
+            { "Record", "Press R (or Ctrl+Space). Stop ends the take. The Rec menu offers QuickPunch, TrackPunch and Loop record.", "transport.record", hasTrack ([] (const model::Track& t) { return t.isAudio() && ! t.clips.empty(); }) } };
+        out.push_back (rec);
+        ui::Tutorial mix;
+        mix.title = "Mix with inserts and sends";
+        mix.summary = "Open the mixer, add an effect, route a send to an aux return.";
+        mix.steps = {
+            { "Open the Mix window", "Press X.", "view.mixer", [this] { return mixerVisible || mixedOnce; } },
+            { "Add an insert", "Click an empty insert slot and pick an effect, or a plugin.", "", hasTrack ([] (const model::Track& t) { for (const auto& i : t.inserts) if (! i.isEmpty()) return true; return false; }) },
+            { "Add an aux input", "+ Track > Aux Input. It listens to a bus.", "track.addAux", hasTrack ([] (const model::Track& t) { return t.isAux(); }) },
+            { "Send a track to the bus", "Click a send slot on a track and choose the aux's bus.", "", hasTrack ([] (const model::Track& t) { for (const auto& s : t.sends) if (s.isActive()) return true; return false; }) } };
+        out.push_back (mix);
+        ui::Tutorial pro;
+        pro.title = "Pro Tools-depth tools";
+        pro.summary = "Elastic Audio, memory locations, automation and the command palette.";
+        pro.steps = {
+            { "Add a memory location", "Press M at the playhead; Alt+1..9 recalls; Ctrl+5 lists them.", "edit.addMarker", [this] { return ! session.getMarkers().empty(); } },
+            { "Stretch a clip", "Right-click an audio clip > Elastic Audio, or turn on TCE and trim its edge.", "", hasTrack ([] (const model::Track& t) { for (const auto& c : t.clips) if (c.isElastic()) return true; return false; }) },
+            { "Write some automation", "Set a track's automation mode to Write or Latch, play, and move its fader.", "", hasTrack ([] (const model::Track& t) { for (const auto& l : t.automation) if (l != nullptr && ! l->isEmpty()) return true; return false; }) },
+            { "Open the command palette", "Ctrl+Shift+P finds any command or setting.", "window.palette", [this] { return paletteOpenedOnce; } } };
+        out.push_back (pro);
+        return out;
+    }
+
+    void showTutorials()
+    {
+        if (tutorialsWindow != nullptr) { tutorialsWindow->setVisible (true); tutorialsWindow->toFront (true); return; }
+        auto* content = new ui::TutorialWindow (makeTutorials());
+        content->runCommand = [this] (const juce::String& id) { commands.run (id); };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Tutorials";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        tutorialsWindow = options.launchAsync();
+    }
+
+    void showShortcuts()
+    {
+        if (shortcutsWindow != nullptr) { shortcutsWindow->setVisible (true); shortcutsWindow->toFront (true); return; }
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (new ui::ShortcutsWindow (commands));
+        options.dialogTitle = "Keyboard Shortcuts";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        shortcutsWindow = options.launchAsync();
     }
 
     //==========================================================================
@@ -2602,6 +2757,13 @@ private:
         menu.addItem (8, "Import Session Data...  (Shift+Alt+I)");
         menu.addItem (9, "Export Stems...  (Ctrl+Alt+B)");
         menu.addItem (7, "Memory Locations...  (Ctrl+5)");
+        juce::PopupMenu samples;
+        int sid = 100;
+        for (const auto& sample : persistence::SampleProjects::list()) samples.addItem (sid++, sample.name);
+        menu.addSubMenu ("Open Sample Project", samples);
+        menu.addSeparator();
+        menu.addItem (10, "Welcome / Tour / Tutorials...");
+        menu.addItem (11, "Keyboard Shortcuts  (Ctrl+/)");
         menu.showMenuAsync (juce::PopupMenu::Options(), [this] (int r)
         {
             switch (r)
@@ -2615,7 +2777,11 @@ private:
                 case 7: showMemoryLocations(); break;
                 case 8: chooseSessionToImport(); break;
                 case 9: showStemExport(); break;
-                default: break;
+                case 10: showWelcome(); break;
+                case 11: showShortcuts(); break;
+                default:
+                    if (r >= 100) { const auto list = persistence::SampleProjects::list(); if (r - 100 < (int) list.size()) openSampleProject (list[(size_t) (r - 100)].name); }
+                    break;
             }
         });
     }
@@ -2744,6 +2910,10 @@ private:
     juce::Component::SafePointer<juce::DialogWindow> scriptWindow;
     std::unique_ptr<StemJob> stemJob;
     std::unique_ptr<model::Session> importSource;
+    juce::TooltipWindow tooltips { nullptr, 500 };
+    ui::TourOverlay tour;
+    juce::Component::SafePointer<juce::DialogWindow> welcomeWindow, tutorialsWindow, shortcutsWindow;
+    bool playedOnce = false, bouncedOnce = false, mixedOnce = false, paletteOpenedOnce = false;
     juce::Component::SafePointer<ui::ScriptConsole> scriptConsoleContent;
     juce::StringArray scriptCommands;
     ui::Preferences prefs { preferencesFile() };
@@ -2835,6 +3005,11 @@ public:
             else if (arg == "--script-console") main.showScriptConsoleFromCommandLine();
             else if (arg.startsWith ("--freeze=")) main.freezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--import-session=")) main.importSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg == "--welcome") main.showWelcomeFromCommandLine();
+            else if (arg == "--tour") main.startTourFromCommandLine();
+            else if (arg == "--tutorials") main.showTutorialsFromCommandLine();
+            else if (arg == "--shortcuts") main.showShortcutsFromCommandLine();
+            else if (arg.startsWith ("--sample-project=")) main.openSampleFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--import-dialog=")) main.showImportDialogFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--unfreeze=")) main.unfreezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--commit=")) main.commitFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
@@ -2880,6 +3055,10 @@ public:
             else if (const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (arg); f.existsAsFile())
                 main.importAudioFile (f);
         }
+
+        // First launch without arguments: the Welcome window.
+        if (getCommandLineParameterArray().isEmpty() && main.wantsWelcomeAtStartup())
+            juce::Timer::callAfterDelay (300, [&main] { main.showWelcomeFromCommandLine(); });
 
         // --quit: done with the command line (stems, saves, scripts) - exit.
         if (getCommandLineParameterArray().contains ("--quit")) { quit(); return; }
