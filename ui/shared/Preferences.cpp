@@ -34,6 +34,7 @@ std::vector<PrefDef> Preferences::definitions()
         number ("operation.autosaveCount", "Operation", "Auto-backups to keep", "Newest backups kept in Session File Backups.", 5.0, 1.0, 50.0, 1.0, ""),
         choice ("operation.recordBitDepth", "Operation", "Record bit depth", "Bit depth of new audio files.", 1, { "16-bit", "24-bit", "32-bit float" }),
         folder ("operation.audioFilesFolder", "Operation", "Audio files folder", "Where new recordings are written.", music.getChildFile ("Audio Files").getFullPathName()),
+        toggle ("operation.crashReports", "Operation", "Crash reports and recovery", "Write a report if Beat Maker crashes and offer the newest auto-backup on the next launch. Reports stay on this computer.", true),
         toggle ("operation.newSessionOnStart", "Operation", "Show New Session on startup", "Offer the templates dialog when Beat Maker starts.", false),
 
         // Editing

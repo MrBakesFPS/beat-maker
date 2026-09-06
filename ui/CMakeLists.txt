@@ -37,6 +37,8 @@ target_sources(BeatMaker PRIVATE
     depth/ShortcutsWindow.cpp
     depth/SystemUsageWindow.cpp
     depth/AafExportDialog.cpp
+    depth/CrashReportWindow.cpp
+    shared/CrashReporter.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
@@ -45,6 +47,10 @@ target_compile_definitions(BeatMaker PRIVATE
     JUCE_USE_CURL=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:BeatMaker,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:BeatMaker,JUCE_VERSION>")
+
+if(UNIX AND NOT APPLE)
+    target_link_options(BeatMaker PRIVATE -rdynamic)   # symbol names in crash backtraces
+endif()
 
 target_link_libraries(BeatMaker PRIVATE
     beatmaker_engine

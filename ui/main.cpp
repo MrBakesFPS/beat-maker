@@ -18,6 +18,8 @@
 #include "depth/ShortcutsWindow.h"
 #include "depth/SystemUsageWindow.h"
 #include "depth/AafExportDialog.h"
+#include "depth/CrashReportWindow.h"
+#include "shared/CrashReporter.h"
 #include <AafExport.h>
 #include <SampleProjects.h>
 #include <SessionImport.h>
@@ -354,6 +356,8 @@ public:
     void showTutorialsFromCommandLine() { showTutorials(); }
     void showShortcutsFromCommandLine() { showShortcuts(); }
     void showSystemUsageFromCommandLine() { showSystemUsage(); }
+    void showPendingCrashReportFromCommandLine() { showPendingCrashReport(); }
+    void reportProblemFromCommandLine() { reportProblem (false); }
     void exportAafFromCommandLine (const juce::String& spec) { exportAafFromCommandLineImpl (spec); }
     void showAafExportFromCommandLine() { showAafExport(); }
     void openSampleFromCommandLine (const juce::String& name) { openSampleProject (name); }
@@ -897,6 +901,7 @@ public:
         add ("help.tour", "Help", "Take the Tour", {}, 0, [this] { startTour(); });
         add ("help.tutorials", "Help", "Tutorials", {}, 0, [this] { showTutorials(); });
         add ("help.shortcuts", "Help", "Keyboard Shortcuts", juce::KeyPress ('/', M::commandModifier, 0), 0, [this] { showShortcuts(); });
+        add ("help.reportProblem", "Help", "Report a Problem (diagnostics file)", {}, 0, [this] { reportProblem(); });
         for (const auto& sample : persistence::SampleProjects::list())
             add (("file.sample." + juce::File::createLegalFileName (sample.name).replaceCharacter (' ', '-')).toRawUTF8(), "File", ("Open Sample Project: " + sample.name).toRawUTF8(), {}, 0, [this, name = sample.name] { openSampleProject (name); });
 
@@ -1776,6 +1781,11 @@ private:
         const bool playingNow = engine.getTransport().isPlaying();
         if (playingNow) playedOnce = true;
         transportBar.setCpuLoad (engine.getGraph().getPerformance().getLoad(), engine.getGraph().getPerformance().getOverruns());
+        if (auto* d = engine.getDeviceManager().getCurrentAudioDevice())
+        {
+            const auto info = d->getName() + " " + juce::String (d->getCurrentSampleRate()) + " Hz " + juce::String (d->getCurrentBufferSizeSamples());
+            if (info != lastDeviceInfo) { lastDeviceInfo = info; ui::CrashReporter::get().setAudioDevice (info); juce::Logger::writeToLog ("Audio device: " + info); }
+        }
         if (mixerVisible) mixedOnce = true;
         if (playingNow && ! wasPlayingLastTick) playStartSample = engine.getTransport().getPositionSamples();
         if (! playingNow && wasPlayingLastTick && ! prefs.getBool ("operation.timelineFollowsPlayback") && ! engine.getRecorder().isRecording())
@@ -1978,6 +1988,7 @@ private:
 
     void updateWindowTitle()
     {
+        ui::CrashReporter::get().setSessionPath (sessionFile.getFullPathName());
         if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
             window->setName ((sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled")) + " - Beat Maker");
     }
@@ -2030,6 +2041,7 @@ private:
 
     bool openSessionBundle (const juce::File& bundle)
     {
+        ui::CrashReporter::get().addBreadcrumb ("open " + bundle.getFileName());
         if (engine.getRecorder().isRecording()) finishRecording();
         engine.getTransport().stop();
         persistence::TransportState ts;
@@ -2179,6 +2191,7 @@ private:
             trackArea.setTrackHeight (heights[juce::jlimit (0, 3, prefs.getInt ("display.trackHeight"))]);
         }
         if (is ("processing.backgroundRenderSeconds")) ui::ElasticJob::asyncThresholdSeconds = prefs.getDouble ("processing.backgroundRenderSeconds");
+        if (is ("operation.crashReports")) ui::CrashReporter::get().setEnabled (prefs.getBool ("operation.crashReports"));
         if (is ("processing.audioCacheMb")) loader.setCacheBudgetBytes ((juce::int64) (prefs.getDouble ("processing.audioCacheMb") * 1024.0 * 1024.0));
         if (is ("midi.defaultVelocity") || is ("midi.softVelocity")) pianoRoll.setDefaultVelocities (prefs.getInt ("midi.defaultVelocity"), prefs.getInt ("midi.softVelocity"));
         if (is ("mixing.panDepth")) pushSnapshot();
@@ -2363,6 +2376,55 @@ private:
         options.useNativeTitleBar = true;
         options.resizable = true;
         tutorialsWindow = options.launchAsync();
+    }
+
+    // Diagnostics for bug reports: system, prefs of note, plugins, session summary, breadcrumbs, last crash, log tail.
+    void reportProblem (bool revealFolder = true)
+    {
+        juce::String extra;
+        extra << "Sample rate: " << engine.getSampleRate() << "\n";
+        if (auto* d = engine.getDeviceManager().getCurrentAudioDevice()) extra << "Device: " << d->getName() << " (" << d->getTypeName() << "), buffer " << d->getCurrentBufferSizeSamples() << "\n";
+        extra << "Tracks: " << session.getNumTracks() << ", length " << juce::String (session.getLengthSeconds(), 1) << " s, tempo " << engine.getTransport().getBpm() << "\n";
+        extra << "Theme: " << prefs.getInt ("display.theme") << ", scale " << prefs.getDouble ("display.uiScale") << ", cache " << prefs.getDouble ("processing.audioCacheMb") << " MB\n";
+        extra << "Plugins known: " << pluginManager.getKnownPlugins().getNumTypes() << "\n";
+        const auto file = ui::CrashReporter::get().writeDiagnostics (extra);
+        statusMessage = "Diagnostics written to " + file.getFullPathName() + " (attach it to an issue)";
+        updateStatus();
+        std::cout << "Diagnostics: " << file.getFullPathName() << std::endl;
+        if (revealFolder) file.getParentDirectory().revealToUser();
+    }
+
+    // The launch after a crash: show the report, offer the newest auto-backup.
+    void showPendingCrashReport()
+    {
+        auto& reporter = ui::CrashReporter::get();
+        const auto report = reporter.pendingReport();
+        if (report == juce::File()) return;
+        const auto original = juce::File (reporter.sessionPathIn (report));
+        juce::File autosave;
+        if (original.isDirectory())
+        {
+            auto backups = original.getChildFile ("Session File Backups").findChildFiles (juce::File::findDirectories, false, "autosave-*.bmkt");
+            backups.sort();
+            if (! backups.isEmpty() && backups[backups.size() - 1].getLastModificationTime() > original.getChildFile ("session.json").getLastModificationTime())
+                autosave = backups[backups.size() - 1];
+        }
+        auto* content = new ui::CrashReportWindow (report, autosave, original);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Beat Maker quit unexpectedly";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        auto* window = options.launchAsync();
+        reporter.acknowledge (report);
+        content->onClose = [window] { window->setVisible (false); };
+        content->onRecover = [this, window] (const juce::File& backup, const juce::File& orig)
+        {
+            window->setVisible (false);
+            if (openSessionBundle (backup)) { sessionFile = orig; updateWindowTitle(); statusMessage = "Recovered " + backup.getFileName() + "; Save writes to " + orig.getFileName(); updateStatus(); }
+        };
     }
 
     void showSystemUsage()
@@ -2974,6 +3036,7 @@ private:
 
     void sessionChanged (model::Session&) override
     {
+        if (session.getHistory().canUndo()) ui::CrashReporter::get().addBreadcrumb ("edit " + session.getHistory().getUndoName());
         pushSnapshot();
         updateLoopRange();
 
@@ -3025,6 +3088,7 @@ private:
     juce::File sessionFile;            // the open .bmk bundle (empty = Untitled)
     juce::String untitledName = "Untitled";
     int savedHistorySize = 0, autosaveCounter = 0;
+    juce::String lastDeviceInfo;
     juce::Component::SafePointer<juce::DialogWindow> memoryWindow, preferencesWindow, paletteWindow;
     juce::Component::SafePointer<ui::PreferencesWindow> preferencesContent;
     juce::Component::SafePointer<juce::DialogWindow> eventListWindow, syncWindow;
@@ -3086,6 +3150,11 @@ public:
                 return;
             }
 
+        {
+            auto& reporter = ui::CrashReporter::get();
+            reporter.install (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("Beat Maker"), getApplicationVersion());
+            reporter.addBreadcrumb ("launch " + getCommandLineParameterArray().joinIntoString (" ").substring (0, 120));
+        }
         std::signal (SIGTERM, onTerminationSignal);
         std::signal (SIGINT,  onTerminationSignal);
         quitPoller.startTimer (100);
@@ -3143,6 +3212,9 @@ public:
             else if (arg.startsWith ("--commit=")) main.commitFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--export-aaf=")) main.exportAafFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--aaf-dialog") main.showAafExportFromCommandLine();
+            else if (arg == "--crash") { ui::CrashReporter::get().addBreadcrumb ("deliberate crash (--crash)"); ui::CrashReporter::crashNow(); }
+            else if (arg == "--crash-dialog") main.showPendingCrashReportFromCommandLine();
+            else if (arg == "--diagnostics") main.reportProblemFromCommandLine();
             else if (arg.startsWith ("--stems=")) main.stemsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();
             else if (arg.startsWith ("--sync=")) main.setSyncFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
@@ -3189,6 +3261,9 @@ public:
         // First launch without arguments: the Welcome window.
         if (getCommandLineParameterArray().isEmpty() && main.wantsWelcomeAtStartup())
             juce::Timer::callAfterDelay (300, [&main] { main.showWelcomeFromCommandLine(); });
+        // A crash last time: the report and recovery offer (unless a flag already opened it).
+        if (! getCommandLineParameterArray().contains ("--crash-dialog") && ui::CrashReporter::get().isEnabled())
+            juce::Timer::callAfterDelay (400, [&main] { main.showPendingCrashReportFromCommandLine(); });
 
         // --quit: done with the command line (stems, saves, scripts) - exit.
         if (getCommandLineParameterArray().contains ("--quit")) { quit(); return; }

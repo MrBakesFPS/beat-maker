@@ -5,6 +5,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "CrashReporter.h"
 #include <functional>
 #include <vector>
 
@@ -31,6 +32,7 @@ public:
 
     bool run (const juce::String& id) const
     {
+        CrashReporter::get().addBreadcrumb ("command " + id);
         if (const auto* c = find (id); c != nullptr && c->isEnabled() && c->run) { c->run(); return true; }
         return false;
     }

@@ -393,6 +393,17 @@ Run the tests with `ctest --test-dir build`.
   stored format, with the standard dictionaries embedded), and its files
   are checked against two independent readers, pyaaf2 and LibAAF. OMF is not
   offered: Avid deprecated it and current DAWs import AAF.
+- Crash reporting and recovery: if Beat Maker crashes, a signal handler
+  writes a report (version, session path, audio device, the last 32 actions
+  and a symbolised backtrace) using only signal-safe calls, to
+  `~/.config/Beat Maker/Crash Reports`. The next launch shows the report,
+  can copy it or open the folder, and offers the session's newest auto-backup
+  when it is newer than the last save. Help > Report a Problem writes a
+  diagnostics file (system, audio device, session summary, recent actions,
+  the last crash report and the tail of the rolling log in
+  `~/.config/Beat Maker/Logs`) to attach to an issue. Nothing is sent
+  anywhere; the reports stay on your computer, and Preferences > Operation
+  can switch them off.
 - System Usage (Ctrl+Shift+U, or click the CPU readout in the transport bar):
   audio CPU load with a peak hold and a count of callbacks that overran their
   budget, the heaviest tracks (per-strip timing on the audio thread, so a

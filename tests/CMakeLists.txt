@@ -30,6 +30,8 @@ target_sources(beatmaker_tests PRIVATE
     performance_test.cpp
     aaf_export_test.cpp
     ../ui/shared/Preferences.cpp
+    ../ui/shared/CrashReporter.cpp
+    crash_reporter_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp
