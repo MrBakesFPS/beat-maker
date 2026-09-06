@@ -201,10 +201,27 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   one); drum tracks add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals,
   Perc and Sub. A knob drag is one undo step.
 - Instrument tracks (Add Track > Instrument Track, or Ctrl+I for the Synth):
-  six bundled instruments driven by MIDI clips edited in a piano roll (click to
-  add a note, drag to move, drag the right edge to resize, right-click or
-  Delete to remove, click a key to audition; the Sound menu lists the
-  instrument's presets). New instrument tracks start with a two-bar arpeggio.
+  six bundled instruments driven by MIDI clips edited in the note editor (the
+  Sound menu lists the instrument's presets). New instrument tracks start with
+  a two-bar arpeggio.
+- Note editor: the piano roll shares the edit window's settings. Grid mode
+  snaps to the toolbar's grid value (Relative snaps the movement), Slip is
+  free, Spot (or a double-click) types a note's bar|beat|tick and length. The
+  Zoomer zooms (click, Alt-click, drag a range), the Trimmer drags either edge,
+  the Selector rubber-bands, the Grabber moves, the Pencil adds notes and
+  paints velocities, and the Smart Tool does the right one by where you click
+  (edges trim, body grabs, empty space adds a note or, dragged, selects). Notes
+  can be multi-selected (Shift adds, Ctrl toggles, Ctrl+A all), moved or
+  resized together, and edited from the velocity lane at the bottom. The
+  keyboard vocabulary matches the tracks: Up/Down transpose (Shift an octave),
+  Ctrl+Up/Down velocity, Left/Right or , . nudge by the grid, Delete, Ctrl+C/X/V
+  copy, cut and paste at the insertion, Ctrl+D duplicate, Alt+Q quantize
+  (Alt+Shift+Q lengths too), Ctrl+L legato, Tab next note, Alt+Z fit, plus the
+  Commands Focus letters. Ctrl+Alt+N (or the Notes button in the toolbar)
+  switches keyboard focus between the note editor and the tracks; the focused
+  editor shows the accent outline and the toolbar hint changes with it, and
+  the Edit and View commands in the palette act on whichever has focus. Ctrl+
+  wheel zooms, Shift+wheel scrolls, clicking the ruler locates the playhead.
   - **Synth**: polyphonic subtractive (PolyBLEP saw/square/triangle/sine,
     detuned second oscillator, state-variable low-pass with envelope, ADSR).
   - **FM Synth**: two-operator FM with ratio, decaying index and feedback

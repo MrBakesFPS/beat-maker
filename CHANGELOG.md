@@ -5,6 +5,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 ## [Unreleased]
 
 ### Added
+- Note editor rebuilt around the shared edit settings: modes (Grid with Relative, Slip, Spot), tools (Zoomer, Trimmer, Selector, Grabber, Pencil, Smart), multi-selection with rubber band, a velocity lane, zoom and scroll, a selection readout, and the track editor's keyboard vocabulary (transpose, velocity, nudge, quantize, legato, duplicate, copy and paste, Tab through notes). Ctrl+Alt+N and a Notes toolbar button switch keyboard focus between the note editor and the tracks; the Edit and View commands follow the focus. `--notes-focus` flag.
 - Editable tempo and time signature: the tempo LCD accepts typing, dragging, the wheel and a right-click signature menu; Set Tempo... (Ctrl+Shift+T) and Tap Tempo (Ctrl+Alt+T). Tempo changes are undoable, keep clips, markers and automation on their bars, and re-conform library loops (both switchable in Preferences > Editing). `--tempo=<bpm>` flag; Lua `set_bpm` goes through the same command.
 
 ## [1.0.0-beta.1] - 2026-09-06

@@ -10,13 +10,17 @@
 namespace beatmaker::ui
 {
 
-class EditToolbar final : public juce::Component
+class EditToolbar final : public juce::Component,
+                          private juce::Timer
 {
 public:
     explicit EditToolbar (EditSettings& settings);
 
     void refresh();          // sync buttons from settings
     std::function<void()> onIOSetup;
+    // Which editor has the keyboard: the note editor or the tracks. The app answers and switches.
+    std::function<bool()> notesFocused;
+    std::function<void (bool notes)> onFocusNotes;
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -29,6 +33,9 @@ private:
     juce::TextButton relativeButton { "Rel" };
     juce::TextButton tceButton { "TCE" };
     juce::TextButton focusButton { "a-z" };
+    juce::TextButton notesButton { "Notes" };
+    bool lastNotes = false;
+    void timerCallback() override;
     juce::TextButton ioButton { "I/O..." };
     juce::Label hint;
 };

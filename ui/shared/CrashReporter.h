@@ -20,6 +20,7 @@ public:
     // `folder/Crash Reports`, the log to `folder/Logs/Beat Maker.log`.
     void install (const juce::File& folder, const juce::String& version, bool enabled = true);
     void setEnabled (bool) noexcept;
+    void shutdownLogging();   // releases the log file before JUCE's leak checks run
     bool isEnabled() const noexcept { return enabled.load(); }
 
     // Context copied into fixed buffers so the handler can dump it without allocating.

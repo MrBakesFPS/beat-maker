@@ -15,9 +15,18 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 - **Electric Piano**: a tine model with velocity-dependent brightness, an inharmonic bell partial, per-note decay and tremolo.
 - **Bass**: monophonic with last-note priority, legato filter retrigger, glide, a sub oscillator, a filter envelope and drive.
 
-### Piano roll
+### Note editor
 
-Click to add a note, drag to move, drag the right edge to resize, right-click or Delete to remove, click a key to audition. Velocities for new notes come from Preferences > MIDI.
+The piano roll in the editor panel shares the edit window's settings, so the toolbar means the same thing in both places:
+
+- **Modes**: Grid snaps note starts and lengths to the toolbar's grid value (Relative snaps the movement and keeps a note's offset from the grid); Slip is free; Spot, or a double-click on a note, opens a dialog to type its start as bar|beat|tick and its length.
+- **Tools**: the Zoomer zooms (click in, Alt-click out, drag a range), the Trimmer drags whichever edge is nearer, the Selector rubber-bands, the Grabber moves, the Pencil adds a note where you click (keep dragging to set its length) and paints velocities in the lane, and the Smart Tool does the right one by where you click: edges trim, the body grabs, empty space adds a note on release or selects when dragged.
+- **Selection**: click selects, Shift-click adds, Ctrl-click toggles, Ctrl+A selects all, Escape clears, Tab and Shift+Tab step through the notes. Everything selected moves, resizes, transposes and nudges together.
+- **Velocity lane** along the bottom: drag a note's bar (or the whole selection's), or paint across notes with the Pencil.
+- **Keys**, with the note editor focused: Up/Down transpose a semitone, Shift+Up/Down an octave, Ctrl+Up/Down velocity by 10 (Ctrl+Shift by 1), Left/Right or , . nudge by the grid (Shift a quarter grid), Delete, Ctrl+C/X/V copy, cut and paste at the insertion (the playhead when it is inside the clip, else the selection start), Ctrl+D duplicate after the selection, Alt+Q quantize starts (Alt+Shift+Q lengths too), Ctrl+L legato, Alt+Z zoom to fit. The Commands Focus letters R, T, E, H, X, C, V and Q work here too.
+- **View**: Ctrl+wheel zooms, Shift+wheel scrolls in time, the plain wheel scrolls pitches, and a click on the ruler locates the playhead inside the clip.
+
+**Keyboard focus** decides who gets the keys and what the Edit and View commands act on. Ctrl+Alt+N, or the Notes button in the toolbar, switches between the note editor and the tracks; clicking in either does the same. The focused editor shows the accent outline, the header of the note editor reads out the selection (count, pitch range, bar|beat|tick span) and the toolbar hint changes to the note vocabulary. Velocities for new notes come from Preferences > MIDI.
 
 ### MIDI Event List and real-time properties
 

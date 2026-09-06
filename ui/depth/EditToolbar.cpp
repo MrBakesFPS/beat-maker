@@ -64,6 +64,13 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
     focusButton.setTooltip ("Commands Keyboard Focus: A/S trim start/end, D/G fade in/out, F fades, B separate, H duplicate, X/C/V cut/copy/paste, R/T zoom, E zoom to fit (Ctrl+Alt+Z)");
     focusButton.onClick = [this] { settings.commandsFocus = focusButton.getToggleState(); settings.notify(); };
 
+    addAndMakeVisible (notesButton);
+    notesButton.setClickingTogglesState (true);
+    notesButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+    notesButton.setTooltip ("Keyboard focus: on = the note editor (piano roll) gets the keys and the edit commands, off = the tracks (Ctrl+Alt+N)");
+    notesButton.onClick = [this] { if (onFocusNotes) onFocusNotes (notesButton.getToggleState()); refresh(); };
+    startTimer (250);
+
     addAndMakeVisible (ioButton);
     ioButton.setTooltip ("I/O Setup: input/output/bus paths and delay compensation (Ctrl+Alt+I)");
     ioButton.onClick = [this] { if (onIOSetup) onIOSetup(); };
@@ -86,10 +93,19 @@ void EditToolbar::refresh()
     relativeButton.setEnabled (settings.mode == EditSettings::Mode::grid);
     tceButton.setToggleState (settings.tceTrim, juce::dontSendNotification);
     focusButton.setToggleState (settings.commandsFocus, juce::dontSendNotification);
+    const bool notes = notesFocused != nullptr && notesFocused();
+    lastNotes = notes;
+    notesButton.setToggleState (notes, juce::dontSendNotification);
 
     juce::String h = juce::String (EditSettings::modeName (settings.mode)) + "  |  " + EditSettings::toolName (settings.tool)
-                   + "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Tab: transient   Alt+Q: quantize   right-click: Elastic";
+                   + (notes ? "    NOTES: Up/Down transpose (Shift octave)   Ctrl+Up/Down velocity   Left/Right nudge   Alt+Q quantize   Ctrl+L legato   Ctrl+D duplicate   Tab next note   double-click: spot"
+                            : "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Tab: transient   Alt+Q: quantize   right-click: Elastic");
     hint.setText (h, juce::dontSendNotification);
+}
+
+void EditToolbar::timerCallback()
+{
+    if (notesFocused != nullptr && notesFocused() != lastNotes) refresh();
 }
 
 void EditToolbar::paint (juce::Graphics& g)
@@ -113,6 +129,8 @@ void EditToolbar::resized()
     tceButton.setBounds (area.removeFromLeft (40));
     area.removeFromLeft (4);
     focusButton.setBounds (area.removeFromLeft (36));
+    area.removeFromLeft (4);
+    notesButton.setBounds (area.removeFromLeft (48));
     area.removeFromLeft (12);
     ioButton.setBounds (area.removeFromRight (56));
     area.removeFromRight (8);

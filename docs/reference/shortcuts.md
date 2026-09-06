@@ -44,7 +44,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Undo | `ctrl + Z` |  |
 | Redo | `ctrl + shift + Z` |  |
 | Redo (Ctrl+Y) | `ctrl + Y` |  |
-| Select All Clips | `ctrl + A` |  |
+| Keyboard Focus: Notes / Tracks | `ctrl + alt + N` |  |
+| Select All (clips, or notes when the note editor has focus) | `ctrl + A` |  |
 | Cut | `ctrl + X` | `X` |
 | Copy | `ctrl + C` | `C` |
 | Paste at Insertion | `ctrl + V` | `V` |
@@ -62,6 +63,21 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Quantize Audio to Grid |  |  |
 | Add Memory Location at Insertion |  |  |
 | Add Section from Selection |  |  |
+
+## Notes
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Quantize Notes to Grid |  |  |
+| Quantize Notes and Lengths |  |  |
+| Legato (extend notes to the next) |  |  |
+| Transpose Up a Semitone |  |  |
+| Transpose Down a Semitone |  |  |
+| Transpose Up an Octave |  |  |
+| Transpose Down an Octave |  |  |
+| Velocity +10 |  |  |
+| Velocity -10 |  |  |
+| Announce Note Selection |  |  |
 
 ## Edit Mode
 

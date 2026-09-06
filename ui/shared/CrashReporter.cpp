@@ -38,6 +38,8 @@ void CrashReporter::install (const juce::File& folder, const juce::String& ver, 
 
 void CrashReporter::setEnabled (bool on) noexcept { enabled.store (on); }
 
+void CrashReporter::shutdownLogging() { juce::Logger::setCurrentLogger (nullptr); logger.reset(); }
+
 void CrashReporter::setSessionPath (const juce::String& s) { copyTo (sessionPath, sizeof (sessionPath), s); }
 void CrashReporter::setAudioDevice (const juce::String& s) { copyTo (device, sizeof (device), s); }
 
