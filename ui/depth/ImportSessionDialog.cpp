@@ -66,7 +66,7 @@ void ImportSessionDialog::paint (juce::Graphics& g)
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
     g.drawText (juce::String (source.getNumTracks()) + " tracks, " + juce::String (source.getMarkers().size()) + " memory locations. Audio stays referenced where it is.", 16, 28, getWidth() - 32, 16, juce::Justification::centredLeft, true);
-    g.drawText ("Include:", 16, getHeight() - 92, 60, 22, juce::Justification::centredLeft);
+    g.drawText ("Include:", 16, getHeight() - 16 - 28 - 8 - 22, 60, 22, juce::Justification::centredLeft);   // level with the include row
 }
 
 void ImportSessionDialog::resized()
