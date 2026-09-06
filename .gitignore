@@ -18,3 +18,7 @@ Thumbs.db
 *.bmkt/
 Session File Backups/
 build-release/
+
+# Docs site
+site/
+.venv/

@@ -1,6 +1,6 @@
 # Beat Maker
 
-A DAW with a GarageBand-style surface and Pro Tools-style depth. See [PLAN.md](PLAN.md) for the full plan.
+A DAW with a GarageBand-style surface and Pro Tools-style depth. See [PLAN.md](PLAN.md) for the full plan and the [user guide](docs/index.md) (`python3 tools/build_docs.py` builds it as a site; Help > User Guide opens it).
 
 Beat Maker is free software under the GNU General Public License v3.0 or later
 (see [LICENSE](LICENSE)). Time stretching and pitch shifting use the
@@ -59,7 +59,7 @@ Run the tests with `ctest --test-dir build`.
 
 ## Status
 
-**Phases 0, 1 and 2 complete. Phase 3 in progress.**
+**Phases 0 to 4 complete; Phase 5 (polish and release) nearly so.** The status below is the feature list; the [user guide](docs/index.md) explains how to use it all.
 
 - Built-in effects suite: 7-band EQ (HPF, low shelf, three parametric peaks,
   high shelf, LPF) with a live frequency-response display, Compressor with
@@ -422,9 +422,7 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Phase 3 is complete. Next is Phase 4 (record modes, MIDI event list and
-sync, memory locations, arrangement track, templates, deep preferences,
-command palette, scripting). See PLAN.md §5.
+Remaining before 1.0: the beta program (packaging, changelog, release checklist). See PLAN.md §5.
 
 ## Architecture in one paragraph
 

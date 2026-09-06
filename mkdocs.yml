@@ -1,0 +1,34 @@
+site_name: Beat Maker
+site_description: A DAW with a GarageBand-style surface and Pro Tools-style depth. User guide and developer documentation.
+docs_dir: docs
+site_dir: site
+theme:
+  name: readthedocs
+  highlightjs: true
+markdown_extensions:
+  - tables
+  - admonition
+  - toc:
+      permalink: true
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - User guide:
+      - Tracks and editing: guide/tracks-and-editing.md
+      - Recording: guide/recording.md
+      - Instruments, loops and MIDI: guide/instruments.md
+      - Elastic Audio and Beat Detective: guide/elastic-audio.md
+      - Mixing and effects: guide/mixing.md
+      - Plugins: guide/plugins.md
+      - Sessions, bounce and interchange: guide/sessions.md
+      - Scripting with Lua: guide/scripting.md
+      - Accessibility: guide/accessibility.md
+      - Troubleshooting: guide/troubleshooting.md
+  - Reference:
+      - Keyboard shortcuts: reference/shortcuts.md
+      - Preferences: reference/preferences.md
+      - Command line: reference/command-line.md
+  - Developers:
+      - Architecture: developer/architecture.md
+      - Building and testing: developer/building.md
+      - Contributing and releases: developer/contributing.md

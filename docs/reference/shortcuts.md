@@ -1,0 +1,163 @@
+# Keyboard shortcuts
+
+Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists the same names. Focus keys apply in Commands Keyboard Focus mode (the a-z button, Ctrl+Alt+K). Generated from the app by `--dump-docs`.
+
+## Transport
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Play / Stop | `spacebar` |  |
+| Return to Start | `return` |  |
+| Return to Start (Home) | `home` |  |
+| Record / Punch | `R` |  |
+| Record / Punch (Ctrl+Space, works in focus mode) | `ctrl + spacebar` |  |
+| Cycle on/off | `C` |  |
+| Cycle on/off (Ctrl+Shift+C) | `ctrl + shift + C` |  |
+| Stop loop preview | `escape` |  |
+| Move Playhead Right by the Grid |  |  |
+| Move Playhead Left by the Grid |  |  |
+
+## File
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| New Session... | `ctrl + N` |  |
+| Open Session or Audio... | `ctrl + O` |  |
+| Save | `ctrl + S` |  |
+| Save As... | `ctrl + shift + S` |  |
+| Save As Template... |  |  |
+| Import Audio Files... |  |  |
+| Bounce to Disk... | `ctrl + B` |  |
+| Export Stems... | `ctrl + alt + B` |  |
+| Export AAF... | `ctrl + alt + A` |  |
+| Import Session Data... | `shift + alt + I` |  |
+| Open Sample Project: Lo-fi Beat |  |  |
+| Open Sample Project: Synth Sketch |  |  |
+| Open Sample Project: Podcast Intro |  |  |
+
+## Edit
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Undo | `ctrl + Z` |  |
+| Redo | `ctrl + shift + Z` |  |
+| Redo (Ctrl+Y) | `ctrl + Y` |  |
+| Select All Clips | `ctrl + A` |  |
+| Cut | `ctrl + X` | `X` |
+| Copy | `ctrl + C` | `C` |
+| Paste at Insertion | `ctrl + V` | `V` |
+| Delete Selection |  |  |
+| Separate Clip at Insertion | `ctrl + E` | `B` |
+| Duplicate Clips | `ctrl + D` | `H` |
+| Trim Start to Insertion |  | `A` |
+| Trim End to Insertion |  | `S` |
+| Fade In to Insertion |  | `D` |
+| Fade Out from Insertion |  | `G` |
+| Apply Default Fades |  | `F` |
+| Fades... | `ctrl + F` |  |
+| Nudge Earlier |  |  |
+| Nudge Later |  |  |
+| Quantize Audio to Grid |  |  |
+| Add Memory Location at Insertion |  |  |
+| Add Section from Selection |  |  |
+
+## Edit Mode
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Shuffle | `F1` |  |
+| Slip | `F2` |  |
+| Spot | `F3` |  |
+| Grid | `F4` |  |
+
+## Tool
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Zoomer | `F5` |  |
+| Trimmer | `F6` |  |
+| Selector | `F7` |  |
+| Grabber | `F8` |  |
+| Scrubber | `F9` |  |
+| Pencil | `F10` |  |
+| Smart Tool | `F11` |  |
+| TCE Trimmer on/off |  |  |
+| Commands Keyboard Focus on/off | `ctrl + alt + K` |  |
+
+## View
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Zoom In | `ctrl + T` | `T` |
+| Zoom Out | `ctrl + R` | `R` |
+| Zoom to Fit / Selection | `alt + Z` | `E` |
+| Editor panel | `E` |  |
+| Loop Library | `L` |  |
+| Smart Controls | `B` |  |
+| Mix window | `X` |  |
+| Editor panel (Ctrl+Shift+E) | `ctrl + shift + E` |  |
+| Loop Library (Ctrl+Shift+L) | `ctrl + shift + L` |  |
+| Smart Controls (Ctrl+Shift+B) | `ctrl + shift + B` |  |
+| Mix window (Ctrl+Shift+X) | `ctrl + shift + X` |  |
+
+## Track
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| New Audio Track | `ctrl + shift + N` |  |
+| New Drum Machine Track | `ctrl + shift + D` |  |
+| New Synth Track | `ctrl + I` |  |
+| New Synth Track |  |  |
+| New FM Synth Track |  |  |
+| New Wavetable Track |  |  |
+| New Sampler Track |  |  |
+| New Electric Piano Track |  |  |
+| New Bass Track |  |  |
+| New Aux Input |  |  |
+| New VCA Master |  |  |
+| New Group... | `ctrl + G` |  |
+| Mute Selected Track | `shift + M` |  |
+| Solo Selected Track | `shift + S` |  |
+| Record-arm Selected Track | `shift + R` |  |
+| Rename Selected Track... |  |  |
+| Delete Selected Track |  |  |
+| Select Next Track |  |  |
+| Select Previous Track |  |  |
+| Freeze Selected Track |  |  |
+| Unfreeze Selected Track |  |  |
+| Commit Selected Track |  |  |
+
+## Window
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| System Usage (CPU, memory, cache) | `ctrl + shift + U` |  |
+| Preferences... | `ctrl + ,` |  |
+| Command Palette | `ctrl + shift + P` |  |
+| Command Palette (Ctrl+K) | `ctrl + K` |  |
+| Memory Locations | `ctrl + 5` |  |
+| Beat Detective | `ctrl + 8` |  |
+| I/O Setup | `ctrl + alt + I` |  |
+| Scan for Plugins |  |  |
+| MIDI Event List | `ctrl + alt + E` |  |
+| Script Console (Lua) | `ctrl + alt + L` |  |
+| Synchronization (Session Setup) | `ctrl + 2` |  |
+
+## Help
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Announce Selection | `ctrl + shift + /` |  |
+| Welcome Window |  |  |
+| Take the Tour |  |  |
+| Tutorials |  |  |
+| Keyboard Shortcuts | `ctrl + /` |  |
+| Report a Problem (diagnostics file) |  |  |
+| User Guide |  |  |
+
+## Script
+
+| Command | Shortcut | Focus key |
+|---|---|---|
+| Reload Scripts Folder |  |  |
+| Open Scripts Folder |  |  |

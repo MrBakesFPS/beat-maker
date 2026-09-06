@@ -357,6 +357,7 @@ public:
     void showShortcutsFromCommandLine() { showShortcuts(); }
     void showSystemUsageFromCommandLine() { showSystemUsage(); }
     void showPendingCrashReportFromCommandLine() { showPendingCrashReport(); }
+    void dumpDocsFromCommandLine (const juce::File& dir) { dumpDocs (dir); }
     void reportProblemFromCommandLine() { reportProblem (false); }
     void exportAafFromCommandLine (const juce::String& spec) { exportAafFromCommandLineImpl (spec); }
     void showAafExportFromCommandLine() { showAafExport(); }
@@ -902,6 +903,7 @@ public:
         add ("help.tutorials", "Help", "Tutorials", {}, 0, [this] { showTutorials(); });
         add ("help.shortcuts", "Help", "Keyboard Shortcuts", juce::KeyPress ('/', M::commandModifier, 0), 0, [this] { showShortcuts(); });
         add ("help.reportProblem", "Help", "Report a Problem (diagnostics file)", {}, 0, [this] { reportProblem(); });
+        add ("help.userGuide", "Help", "User Guide", {}, 0, [this] { openUserGuide(); });
         for (const auto& sample : persistence::SampleProjects::list())
             add (("file.sample." + juce::File::createLegalFileName (sample.name).replaceCharacter (' ', '-')).toRawUTF8(), "File", ("Open Sample Project: " + sample.name).toRawUTF8(), {}, 0, [this, name = sample.name] { openSampleProject (name); });
 
@@ -2427,6 +2429,61 @@ private:
         };
     }
 
+    // The built docs site next to the sources, or the markdown sources, or the project page.
+    void openUserGuide()
+    {
+        const juce::File source (BEATMAKER_SOURCE_DIR);
+        const auto site = source.getChildFile ("site").getChildFile ("index.html");
+        const auto md = source.getChildFile ("docs").getChildFile ("index.md");
+        if (site.existsAsFile()) { juce::URL (site).launchInDefaultBrowser(); statusMessage = "User Guide opened in the browser"; }
+        else if (md.existsAsFile()) { md.revealToUser(); statusMessage = "User Guide sources in " + md.getParentDirectory().getFullPathName() + " (run tools/build_docs.py for the site)"; }
+        else statusMessage = "User Guide not found: build the docs site with tools/build_docs.py";
+        updateStatus();
+    }
+
+    // --dump-docs=<dir>: the shortcut and preference tables for the user guide, from the live registries.
+    void dumpDocs (const juce::File& dir)
+    {
+        dir.createDirectory();
+        juce::String s = "# Keyboard shortcuts\n\nEvery shortcut is a registered command; the command palette (Ctrl+Shift+P) lists the same names. "
+                         "Focus keys apply in Commands Keyboard Focus mode (the a-z button, Ctrl+Alt+K). Generated from the app by `--dump-docs`.\n";
+        juce::StringArray categories;
+        for (const auto& c : commands.all()) categories.addIfNotAlreadyThere (c.category);
+        for (const auto& cat : categories)
+        {
+            s << "\n## " << cat << "\n\n| Command | Shortcut | Focus key |\n|---|---|---|\n";
+            for (const auto& c : commands.all())
+                if (c.category == cat)
+                    s << "| " << c.name.replace ("|", "\\|") << " | " << (c.shortcut.isValid() ? "`" + c.shortcut.getTextDescription() + "`" : juce::String()) << " | "
+                      << (c.focusKey != 0 ? "`" + juce::String::charToString (juce::CharacterFunctions::toUpperCase (c.focusKey)) + "`" : juce::String()) << " |\n";
+        }
+        dir.getChildFile ("shortcuts.md").replaceWithText (s);
+        juce::String p = "# Preferences\n\nPreferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Maker.preferences`. "
+                         "The search box finds a setting by any word in its name or description; changed settings show a mark and can be reset one at a time or per category. Generated from the app by `--dump-docs`.\n";
+        for (const auto& cat : prefs.categories())
+        {
+            p << "\n## " << cat << "\n\n| Setting | Default | What it does |\n|---|---|---|\n";
+            for (const auto& d : prefs.all())
+            {
+                if (d.category != cat) continue;
+                juce::String def;
+                switch (d.type)
+                {
+                    case ui::PrefDef::Type::toggle: def = (bool) d.defaultValue ? "on" : "off"; break;
+                    case ui::PrefDef::Type::choice: def = d.choices[(int) d.defaultValue]; break;
+                    case ui::PrefDef::Type::number: def = juce::String ((double) d.defaultValue) + (d.unit.isNotEmpty() ? " " + d.unit : juce::String()); break;
+                    default: def = d.defaultValue.toString().isEmpty() ? juce::String ("(empty)") : d.defaultValue.toString(); break;
+                }
+                juce::String desc = d.description;
+                if (d.type == ui::PrefDef::Type::choice) desc << " Choices: " << d.choices.joinIntoString (", ") << ".";
+                if (d.type == ui::PrefDef::Type::number) desc << " Range " << d.min << " to " << d.max << ".";
+                p << "| " << d.name << " | " << def << " | " << desc.replace ("|", "\\|") << " |\n";
+            }
+        }
+        dir.getChildFile ("preferences.md").replaceWithText (p);
+        std::cout << "Docs tables written to " << dir.getFullPathName() << std::endl;
+    }
+
     void showSystemUsage()
     {
         if (usageWindow != nullptr) { usageWindow->setVisible (true); usageWindow->toFront (true); return; }
@@ -3215,6 +3272,7 @@ public:
             else if (arg == "--crash") { ui::CrashReporter::get().addBreadcrumb ("deliberate crash (--crash)"); ui::CrashReporter::crashNow(); }
             else if (arg == "--crash-dialog") main.showPendingCrashReportFromCommandLine();
             else if (arg == "--diagnostics") main.reportProblemFromCommandLine();
+            else if (arg.startsWith ("--dump-docs=")) main.dumpDocsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--stems=")) main.stemsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();
             else if (arg.startsWith ("--sync=")) main.setSyncFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
