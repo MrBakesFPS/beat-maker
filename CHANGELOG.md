@@ -14,6 +14,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - The mixer's strips scroll sideways with the wheel and a thicker scrollbar.
 
 ### Fixed
+- Choosing an edit mode or tool lit two buttons (the old one stayed on): JUCE fires the click of the radio button it turns off, which re-selected it. `--click-button=<text>` presses a button by label for smoke tests.
 - The track list scrolls when there are more tracks than fit: wheel over the tracks, a scrollbar at the right, and the selected track kept in view; Shift+wheel scrolls time. The ruler stays fixed while headers slide under it. `--scroll-tracks=<px>` flag.
 - Interface lag: the note and drum editors repainted everything thirty times a second while linked (the drum grid alone took about 30 ms per paint), and the track area repainted everything every tick. All three now repaint only the playhead columns unless the view or the content changed, and the drum grid draws lines instead of an outline per empty cell.
 - A multi-second freeze when opening a session with Elastic Audio clips (every clip was re-rendered on the message thread). Renders are now deferred to a background job with a progress window, applied as one step; the same job serves loop imports, tempo conforming and Import Session Data, and the background decision uses the render speed measured on the machine.

@@ -16,7 +16,8 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
         b->setRadioGroupId (group);
         b->setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
         b->setTooltip (tooltip);
-        b->onClick = [this, onClick] { onClick(); settings.notify(); refresh(); };
+        // A radio group fires the click of the button it turns OFF as well; only the one turning on acts.
+        b->onClick = [this, b, onClick] { if (! b->getToggleState()) return; onClick(); settings.notify(); refresh(); };
         addAndMakeVisible (b);
     };
 
