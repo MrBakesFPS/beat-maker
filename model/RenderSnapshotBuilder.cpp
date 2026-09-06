@@ -98,7 +98,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
         strip.gain      = track.gain;
         strip.pan       = track.pan;
         strip.muted     = ! audible;
-        strip.inserts   = renderInserts (track);
+        strip.inserts   = track.isFrozen() ? std::vector<engine::RenderInsert>() : renderInserts (track);   // frozen: inserts are baked in
         for (int slot = 0; slot < (int) track.sends.size(); ++slot)
         {
             const auto& send = track.sends[(size_t) slot];
@@ -122,8 +122,15 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             snapshot->monitors.push_back ({ first, num, 1.0f, i });
         }
 
+        if (track.isFrozen())
+        {
+            engine::RenderClip rc;
+            rc.audio = track.freeze.audio; rc.timelineStart = 0; rc.sourceOffset = 0; rc.length = track.freeze.audio->getNumSamples(); rc.gain = 1.0f; rc.strip = i;
+            snapshot->clips.push_back (std::move (rc));
+        }
         for (const auto& clip : track.clips)
         {
+            if (track.isFrozen()) break;
             if (clip.audio == nullptr)
                 continue;
 
@@ -146,7 +153,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
         // kit stays alive for pad previews; a zero-length pattern never fires.
         for (const auto& clip : track.patternClips)
         {
-            if (clip.pattern == nullptr || track.drumKit == nullptr)
+            if (clip.pattern == nullptr || track.drumKit == nullptr || track.isFrozen())
                 continue;
 
             engine::RenderPattern rp;
@@ -160,7 +167,7 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             snapshot->patterns.push_back (std::move (rp));
         }
 
-        if (track.hasInstrument())
+        if (track.hasInstrument() && ! track.isFrozen())
         {
             snapshot->instruments.push_back ({ track.id, track.instrument, track.instrumentParams, i });
 

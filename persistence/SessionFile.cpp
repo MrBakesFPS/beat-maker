@@ -272,6 +272,14 @@ namespace
             set (rp, "delayMs", p.delayMs); set (rp, "durationScale", (double) p.durationScale);
             set (o, "midiProps", rp);
         }
+        if (t.isFrozen())
+        {
+            auto fz = obj();
+            juce::File file = t.freeze.file;
+            if (! file.existsAsFile()) file = writeWav (*t.freeze.audio, t.freeze.sampleRate, audioDir, t.name + " (frozen)", error);
+            set (fz, "path", pathFor (file, bundle));
+            set (o, "freeze", fz);
+        }
         if (t.instrumentParams != nullptr)
         {
             auto inst = obj();
@@ -363,6 +371,12 @@ namespace
         }
         const auto midi = get (v, "midiClips");
         for (int i = 0; i < count (midi); ++i) t.midiClips.push_back (midiClipFrom (midi[i]));
+        if (v.hasProperty ("freeze"))
+        {
+            const auto file = fileFor (get (get (v, "freeze"), "path", "").toString(), bundle);
+            if (auto audio = ctx.loadAudio ? ctx.loadAudio (file) : nullptr) { t.freeze.frozen = true; t.freeze.audio = audio; t.freeze.sampleRate = ctx.sampleRate; t.freeze.file = file; }
+            else warnings.add ("Missing freeze file: " + file.getFullPathName() + " (track " + t.name + " unfrozen)");
+        }
         if (v.hasProperty ("midiProps"))
         {
             const auto rp = get (v, "midiProps"); auto& p = t.midiProps;

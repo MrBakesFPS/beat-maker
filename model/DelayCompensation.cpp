@@ -6,6 +6,7 @@ namespace beatmaker::model
 int DelayCompensation::insertLatency (const Track& t)
 {
     int total = 0;
+    if (t.isFrozen()) return 0;   // the render already contains the inserts' output
     for (const auto& ins : t.inserts)
         if (! ins.isEmpty() && ins.params != nullptr)
             total += ins.instance->getLatencySamples (*ins.params);   // bypassed inserts still count: stable timing

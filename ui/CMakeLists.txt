@@ -29,6 +29,7 @@ target_sources(BeatMaker PRIVATE
     depth/MidiEventList.cpp
     depth/SyncDialog.cpp
     depth/ScriptConsole.cpp
+    depth/StemExportDialog.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE

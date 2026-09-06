@@ -23,6 +23,7 @@ target_sources(beatmaker_tests PRIVATE
     preferences_test.cpp
     midi_sync_test.cpp
     lua_test.cpp
+    freeze_stems_test.cpp
     ../ui/shared/Preferences.cpp
     pan_test.cpp
     clip_edit_test.cpp

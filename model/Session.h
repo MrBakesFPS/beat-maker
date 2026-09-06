@@ -239,6 +239,19 @@ struct Track
     std::shared_ptr<const engine::DrumKit> drumKit;
     std::vector<MidiClip> midiClips;              // synth (instrument) tracks
     engine::MidiRealtimeProps midiProps;          // real-time properties (quantize, transpose, velocity, delay, duration)
+
+    // Freeze: the track's post-insert (pre-fader) output rendered to audio.
+    // While frozen the strip plays this instead of its sources and inserts;
+    // fader, pan, sends and their automation stay live.
+    struct FreezeState
+    {
+        bool frozen = false;
+        std::shared_ptr<const juce::AudioBuffer<float>> audio;   // at the session sample rate, from timeline 0
+        double sampleRate = 48000.0;
+        juce::File file;                                         // where the render was written (for session files)
+    };
+    FreezeState freeze;
+    bool isFrozen() const noexcept { return freeze.frozen && freeze.audio != nullptr; }
     std::shared_ptr<engine::Instrument> instrument;                    // stateful voice pool, owned here like an Effect
     std::shared_ptr<const engine::InstrumentParams> instrumentParams;  // immutable, copy-on-write
 
@@ -384,6 +397,8 @@ private:
     friend class AddMarkerCommand;
     friend class SetTrackMidiPropsCommand;
     friend class RenameTrackCommand;
+    friend class FreezeTrackCommand;
+    friend class UnfreezeTrackCommand;
     friend class RemoveMarkerCommand;
     friend class ReplaceMarkerCommand;
     friend class LoadSessionCommand;
@@ -437,19 +452,19 @@ struct EditAccess
 class AddTrackCommand final : public Command
 {
 public:
-    explicit AddTrackCommand (Track t) : track (std::move (t)) {}
+    explicit AddTrackCommand (Track t, int insertAt = -1) : track (std::move (t)), insertIndex (insertAt) {}
     juce::String getName() const override { return "Add Track"; }
     void execute (Session& s) override
     {
         if (track.id == 0) track.id = s.nextTrackId++;
-        index = (int) s.tracks.size();
-        s.tracks.push_back (track);
+        index = juce::isPositiveAndBelow (insertIndex, (int) s.tracks.size() + 1) ? insertIndex : (int) s.tracks.size();
+        s.tracks.insert (s.tracks.begin() + index, track);
     }
     void undo (Session& s) override { s.tracks.erase (s.tracks.begin() + index); }
     int getTrackIndex() const noexcept { return index; }
 private:
     Track track;
-    int index = -1;
+    int index = -1, insertIndex = -1;
 };
 
 class RemoveTrackCommand final : public Command
@@ -987,6 +1002,30 @@ public:
 private:
     int index;
     juce::String name, old;
+};
+
+class FreezeTrackCommand final : public Command
+{
+public:
+    FreezeTrackCommand (int trackIndex, Track::FreezeState state) : index (trackIndex), freeze (std::move (state)) { freeze.frozen = true; }
+    juce::String getName() const override { return "Freeze Track"; }
+    void execute (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) { old = s.tracks[(size_t) index].freeze; s.tracks[(size_t) index].freeze = freeze; } }
+    void undo (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) s.tracks[(size_t) index].freeze = old; }
+private:
+    int index;
+    Track::FreezeState freeze, old;
+};
+
+class UnfreezeTrackCommand final : public Command
+{
+public:
+    explicit UnfreezeTrackCommand (int trackIndex) : index (trackIndex) {}
+    juce::String getName() const override { return "Unfreeze Track"; }
+    void execute (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) { old = s.tracks[(size_t) index].freeze; s.tracks[(size_t) index].freeze = {}; } }
+    void undo (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) s.tracks[(size_t) index].freeze = old; }
+private:
+    int index;
+    Track::FreezeState old;
 };
 
 class SetTrackMidiPropsCommand final : public Command

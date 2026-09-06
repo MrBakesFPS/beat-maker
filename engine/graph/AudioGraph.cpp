@@ -682,7 +682,8 @@ void AudioGraph::processStrip (const RenderStrip& strip, int stripIndex, juce::i
                     busBuffers[(size_t) send.bus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples, g);
 
     // Output: a bus, a direct device output pair (bypassing the master), or the main mix
-    if (juce::isPositiveAndBelow (strip.outputBus, numBuses))
+    if (strip.outputMuted) {}
+    else if (juce::isPositiveAndBelow (strip.outputBus, numBuses))
     {
         for (int ch = 0; ch < 2; ++ch)
             busBuffers[(size_t) strip.outputBus].addFrom (ch, 0, stripBuffer, ch, 0, numSamples);

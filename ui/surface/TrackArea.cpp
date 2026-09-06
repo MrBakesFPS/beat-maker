@@ -520,6 +520,12 @@ void TrackArea::paintHeader (juce::Graphics& g, const model::Track& track, int i
     g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
     g.drawText (track.name, content.removeFromTop (20), juce::Justification::centredLeft, true);
 
+    if (track.isFrozen())
+    {
+        g.setColour (juce::Colour (0xff7ec8e3));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.drawText ("FROZEN", r.getRight() - 58, r.getY() + 6, 50, 14, juce::Justification::centredRight);
+    }
     g.setColour (track.armed ? theme::record.brighter (0.2f) : theme::textDim);
     g.setFont (juce::FontOptions (12.0f));
     juce::String badges;
@@ -555,6 +561,15 @@ void TrackArea::paintLane (juce::Graphics& g, const model::Track& track, juce::R
     g.setColour (theme::grid);
     g.drawHorizontalLine (r.getBottom() - 1, (float) r.getX(), (float) r.getRight());
 
+    if (track.isFrozen())
+    {
+        // The rendered audio as one read-only clip
+        model::AudioClip shown; shown.name = track.name + " (frozen)"; shown.audio = track.freeze.audio; shown.sampleRate = track.freeze.sampleRate; shown.length = track.freeze.audio->getNumSamples();
+        paintAudioClip (g, track, shown, r);
+        g.setColour (juce::Colour (0xff7ec8e3).withAlpha (0.18f));
+        g.fillRect (r);
+        return;
+    }
     for (const auto& clip : track.clips)        paintAudioClip (g, track, clip, r);
     for (const auto& clip : track.patternClips) paintPatternClip (g, track, clip, r);
     for (const auto& clip : track.midiClips)    paintMidiClip (g, track, clip, r);
@@ -1210,6 +1225,7 @@ std::optional<model::ClipRef> TrackArea::clipAtPoint (juce::Point<int> p) const
 {
     const int track = trackIndexAtY (p.y);
     if (track < 0 || p.x < theme::trackHeaderWidth) return std::nullopt;
+    if (session.getTracks()[(size_t) track].isFrozen()) return std::nullopt;   // frozen: nothing to grab
     const auto sample = toSamples (xToSeconds ((float) p.x));
     return model::ClipEdits::clipAt (session, track, sample);
 }
@@ -1289,7 +1305,34 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
     const int track = trackIndexAtY (e.y);
     if (track >= 0) setSelectedTrack (track);
 
-    if (e.x < theme::trackHeaderWidth) return;
+    if (e.x < theme::trackHeaderWidth)
+    {
+        if (e.mods.isPopupMenu() && track >= 0)
+        {
+            const auto& t = session.getTracks()[(size_t) track];
+            juce::PopupMenu menu;
+            menu.addItem (1, "Rename Track...");
+            if (t.isAudio() || t.isInstrument())
+            {
+                menu.addSeparator();
+                menu.addItem (2, t.isFrozen() ? "Unfreeze Track" : "Freeze Track  (render inserts, keep the fader live)");
+                menu.addItem (3, "Commit Track...  (new audio track from the render)");
+            }
+            menu.addSeparator();
+            menu.addItem (4, "Delete Track");
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }), [this, track] (int r)
+            {
+                if (r == 0 || ! onTrackAction) return;
+                const auto* tt = session.getTrack (track);
+                if (tt == nullptr) return;
+                if (r == 1) onTrackAction (track, "rename");
+                else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
+                else if (r == 3) onTrackAction (track, "commit");
+                else if (r == 4) onTrackAction (track, "delete");
+            });
+        }
+        return;
+    }
 
     // Marker strip: click a marker to recall it, right-click for the menu; empty strip locates.
     if (e.y < theme::markerStripHeight)

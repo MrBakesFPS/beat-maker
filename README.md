@@ -49,6 +49,8 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --play --sync=clock-out               # MIDI clock on the "Beat Maker Sync" port
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --synth --event-list --sync-window            # open the Event List and Sync windows
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --script=build_song.lua --bounce=song.wav      # build a session from Lua and render it
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --elastic-demo --stems=stems --quit            # one WAV per track
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --synth --freeze=2 --bounce=frozen.wav # freeze track 2, then bounce
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -330,6 +332,23 @@ Run the tests with `ctest --test-dir build`.
   appear in the command palette as "Script: name"; scripts can register
   their own commands too. `--script=<file>` and `--lua=<code>` run at
   startup, which makes scripted smoke tests and batch bounces possible.
+- Track freeze and commit (right-click a track header, or the Track commands
+  in the palette): Freeze renders the track's clips, instrument and inserts
+  to audio and plays that instead, with the fader, pan, sends and their
+  automation still live; insert-parameter automation is baked in and the
+  inserts' latency is removed from the render so it sits on the grid. A frozen
+  track shows a FROZEN badge and its render as one read-only clip; Unfreeze
+  brings everything back. Commit writes the same render to a new audio track
+  after the source (named `<track>.cm`, with the source's fader, sends and
+  automation copied) and mutes the source. Renders are written to the
+  session's Audio Files folder, or `~/Music/Beat Maker/Freeze` for unsaved
+  sessions, and survive save and reopen.
+- Export Stems (Ctrl+Alt+B, or File... > Export Stems): each chosen track
+  bounced to its own file, post-fader with automation and sends, all the same
+  length so they line up. Other tracks keep feeding the buses, so an aux
+  return stem contains exactly the returns of the mix, and the stems sum back
+  to the mix. Options: include aux returns in each stem, render through the
+  master's inserts, cycle range only, file type, bit depth, tail.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

@@ -136,6 +136,7 @@ struct RenderStrip
     bool muted = false;    // after solo logic
     std::vector<RenderInsert> inserts;
     std::vector<RenderSend> sends;
+    bool outputMuted = false;   // stems: keep processing and sending, but add nothing to the output (main, bus or direct)
     std::vector<RenderAutomation> automation;   // read when automationRead is true
     bool automationRead = false;
     float trimGain = 1.0f;                       // live Trim-mode offset on top of the volume lane

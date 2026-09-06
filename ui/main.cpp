@@ -10,6 +10,8 @@
 #include "depth/CommandPalette.h"
 #include "depth/MidiEventList.h"
 #include "depth/ScriptConsole.h"
+#include "depth/StemExportDialog.h"
+#include <Freeze.h>
 #include <LuaEngine.h>
 #include "depth/SyncDialog.h"
 #include <sync/MidiSyncController.h>
@@ -130,6 +132,14 @@ public:
 
         transportBar.onOpenFile = [this] { showFileMenu(); };
         trackArea.onOpenMemoryLocations = [this] { showMemoryLocations(); };
+        trackArea.onTrackAction = [this] (int i, const juce::String& action)
+        {
+            if (action == "freeze") freezeTrack (i);
+            else if (action == "unfreeze") unfreezeTrack (i);
+            else if (action == "commit") commitTrack (i);
+            else if (action == "delete") { session.execute (std::make_unique<model::RemoveTrackCommand> (i)); trackArea.setSelectedTrack (-1); }
+            else if (action == "rename") promptRenameTrack (i);
+        };
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
@@ -320,6 +330,31 @@ public:
     void runScriptFromCommandLine (const juce::File& f) { runScriptFile (f); }
     void runLuaFromCommandLine (const juce::String& code) { const auto r = lua.run (code, "command-line"); statusMessage = r.ok ? (r.output.isNotEmpty() ? r.output.trimEnd() : "Lua ok") : "Lua error: " + r.error; updateStatus(); std::cout << (r.ok ? r.output : "error: " + r.error + "\n"); }
     void showScriptConsoleFromCommandLine() { showScriptConsole(); }
+    void freezeFromCommandLine (int oneBased) { freezeTrack (oneBased - 1); }
+    void unfreezeFromCommandLine (int oneBased) { unfreezeTrack (oneBased - 1); }
+    void commitFromCommandLine (int oneBased) { commitTrack (oneBased - 1); }
+    // --stems=<dir>: every renderable track, WAV 24-bit, whole arrangement; synchronous for smoke tests.
+    void stemsFromCommandLine (const juce::File& dir)
+    {
+        ui::StemExportDialog::Request r;
+        r.tracks = model::Freeze::renderableTracks (session);
+        r.settings.format = engine::BounceSettings::Format::wav; r.settings.bitDepth = 24; r.settings.tailSeconds = 1.0;
+        dir.createDirectory();
+        auto settings = defaultBounceSettings();
+        settings.startSample = 0; settings.endSample = juce::jmax<juce::int64> (1, (juce::int64) std::llround (session.getLengthSeconds() * settings.sampleRate));
+        settings.tailSeconds = 1.0; settings.trimTail = false;
+        int written = 0;
+        for (int i : r.tracks)
+        {
+            auto snap = model::Freeze::stemSnapshot (session, i, false, false);
+            snap->panDepthDb = panDepthDb();
+            const auto file = dir.getChildFile (juce::String (i + 1).paddedLeft ('0', 2) + " " + juce::File::createLegalFileName (session.getTracks()[(size_t) i].name) + ".wav");
+            const auto res = engine::Bouncer::renderToFile (std::move (snap), settings, file);
+            if (res.ok()) { ++written; std::cout << "Stem " << file.getFileName() << " " << res.numSamples << " samples" << std::endl; }
+            else std::cout << "Stem failed: " << res.error << std::endl;
+        }
+        statusMessage = "Exported " + juce::String (written) + " stems to " + dir.getFullPathName(); updateStatus();
+    }
     bool saveSessionFromCommandLine (const juce::File& f) { return writeSession (f, f.hasFileExtension ("bmkt")); }
     void templateFromCommandLine (const juce::String& name)
     {
@@ -796,6 +831,10 @@ public:
         add ("track.addAux", "Track", "New Aux Input", {}, 0, [this] { addAuxTrack(); });
         add ("track.addVca", "Track", "New VCA Master", {}, 0, [this] { addVcaTrack(); });
         add ("track.group", "Track", "New Group...", juce::KeyPress ('g', M::commandModifier, 0), 0, [this] { showGroupDialog (-1); });
+        add ("track.freeze", "Track", "Freeze Selected Track", {}, 0, [this] { freezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t) && ! t->isFrozen(); });
+        add ("track.unfreeze", "Track", "Unfreeze Selected Track", {}, 0, [this] { unfreezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isFrozen(); });
+        add ("track.commit", "Track", "Commit Selected Track", {}, 0, [this] { commitTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t); });
+        add ("file.stems", "File", "Export Stems...", juce::KeyPress ('b', M::commandModifier | M::altModifier, 0), 0, [this] { showStemExport(); });
 
         // Windows
         add ("window.preferences", "Window", "Preferences...", juce::KeyPress (',', M::commandModifier, 0), 0, [this] { showPreferences ({}); });
@@ -2125,6 +2164,176 @@ private:
     }
 
     //==========================================================================
+    // Freeze / commit / stems
+
+    static juce::File freezeFolder() { return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Freeze"); }
+
+    // Renders a track's post-insert output from timeline 0 to the end of the session (+2 s tail).
+    std::shared_ptr<const juce::AudioBuffer<float>> renderTrackOutput (int trackIndex, juce::File& writtenFile, juce::String& error)
+    {
+        int trim = 0;
+        auto snapshot = model::Freeze::renderSnapshotForTrack (session, trackIndex, trim);
+        snapshot->panDepthDb = panDepthDb();
+        auto settings = defaultBounceSettings();
+        settings.startSample = 0;
+        settings.endSample = juce::jmax<juce::int64> ((juce::int64) settings.sampleRate, (juce::int64) std::llround (session.getLengthSeconds() * settings.sampleRate));
+        settings.tailSeconds = 2.0; settings.trimTail = false; settings.normalize = false;   // keep the whole tail: the freeze must ring out like the live track
+        juce::AudioBuffer<float> out;
+        const auto result = engine::Bouncer::renderToBuffer (std::move (snapshot), settings, out);
+        if (! result.ok()) { error = result.error.isNotEmpty() ? result.error : "cancelled"; return nullptr; }
+        if (trim > 0 && trim < out.getNumSamples())
+        {
+            // The inserts delayed the audio by their latency: drop it so the render sits on the grid.
+            juce::AudioBuffer<float> aligned (out.getNumChannels(), out.getNumSamples() - trim);
+            for (int ch = 0; ch < out.getNumChannels(); ++ch) aligned.copyFrom (ch, 0, out, ch, trim, aligned.getNumSamples());
+            out = std::move (aligned);
+        }
+        const auto dir = sessionFile != juce::File() ? sessionFile.getChildFile ("Audio Files") : freezeFolder();
+        dir.createDirectory();
+        writtenFile = dir.getChildFile (juce::File::createLegalFileName (session.getTracks()[(size_t) trackIndex].name) + " (frozen).wav").getNonexistentSibling (false);
+        if (const auto err = engine::Bouncer::writeFile (out, writtenFile, settings); err.isNotEmpty()) error = err;
+        return std::make_shared<const juce::AudioBuffer<float>> (std::move (out));
+    }
+
+    void freezeTrack (int trackIndex)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr || ! model::Freeze::canFreeze (*t) || t->isFrozen()) return;
+        juce::File file; juce::String error;
+        auto audio = renderTrackOutput (trackIndex, file, error);
+        if (audio == nullptr) { statusMessage = "Freeze failed: " + error; updateStatus(); return; }
+        model::Track::FreezeState state;
+        state.audio = audio; state.sampleRate = engine.getSampleRate(); state.file = file;
+        session.execute (std::make_unique<model::FreezeTrackCommand> (trackIndex, state));
+        statusMessage = "Froze " + t->name + "  (" + juce::String (audio->getNumSamples() / engine.getSampleRate(), 1) + " s rendered; fader, pan and sends stay live)";
+        updateStatus();
+    }
+
+    void unfreezeTrack (int trackIndex)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr || ! t->isFrozen()) return;
+        session.execute (std::make_unique<model::UnfreezeTrackCommand> (trackIndex));
+        statusMessage = "Unfroze " + session.getTracks()[(size_t) trackIndex].name; updateStatus();
+    }
+
+    void commitTrack (int trackIndex)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr || ! model::Freeze::canFreeze (*t)) return;
+        juce::File file; juce::String error;
+        auto audio = renderTrackOutput (trackIndex, file, error);
+        if (audio == nullptr) { statusMessage = "Commit failed: " + error; updateStatus(); return; }
+        if (auto cmd = model::Freeze::commitCommand (session, trackIndex, audio, engine.getSampleRate(), file))
+        {
+            session.execute (std::move (cmd));
+            trackArea.setSelectedTrack (trackIndex + 1);
+            statusMessage = "Committed " + t->name + " to a new audio track (source muted)"; updateStatus();
+        }
+    }
+
+    void promptRenameTrack (int trackIndex)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr) return;
+        auto* window = new juce::AlertWindow ("Rename Track", "Name:", juce::MessageBoxIconType::NoIcon);
+        window->addTextEditor ("name", t->name);
+        window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, trackIndex] (int result)
+        {
+            const auto name = window->getTextEditorContents ("name").trim();
+            if (result == 1 && name.isNotEmpty()) session.execute (std::make_unique<model::RenameTrackCommand> (trackIndex, name));
+            grabKeyboardFocus();
+        }), true);
+    }
+
+    // Stems: one file per track, rendered sequentially behind a progress window.
+    class StemJob final : public juce::ThreadWithProgressWindow
+    {
+    public:
+        struct Item { juce::String name; std::unique_ptr<engine::RenderSnapshot> snapshot; };
+        StemJob (std::vector<Item> items, engine::BounceSettings s, juce::File dir, std::function<void (juce::String)> done)
+            : ThreadWithProgressWindow ("Exporting stems...", true, true), stems (std::move (items)), settings (s), folder (std::move (dir)), onDone (std::move (done)) {}
+        void run() override
+        {
+            const int n = (int) stems.size();
+            for (int i = 0; i < n && ! threadShouldExit(); ++i)
+            {
+                setStatusMessage ("Rendering " + stems[(size_t) i].name + " (" + juce::String (i + 1) + "/" + juce::String (n) + ")");
+                const auto file = folder.getChildFile (juce::File::createLegalFileName (stems[(size_t) i].name) + engine::BounceSettings::extensionFor (settings.format));
+                const auto r = engine::Bouncer::renderToFile (std::move (stems[(size_t) i].snapshot), settings, file,
+                                                              [this, i, n] (double p) { setProgress ((i + p) / n); return ! threadShouldExit(); });
+                if (! r.ok()) { summary = "Stem " + stems[(size_t) i].name + ": " + (r.cancelled ? "cancelled" : r.error); return; }
+                if (r.clipped) clipped.add (stems[(size_t) i].name);
+                ++written;
+            }
+            summary = "Exported " + juce::String (written) + " stems to " + folder.getFullPathName() + (clipped.isEmpty() ? juce::String() : "  (clipped: " + clipped.joinIntoString (", ") + ")");
+        }
+        void threadComplete (bool) override { if (onDone) onDone (summary); }
+    private:
+        std::vector<Item> stems;
+        engine::BounceSettings settings;
+        juce::File folder;
+        std::function<void (juce::String)> onDone;
+        juce::String summary;
+        juce::StringArray clipped;
+        int written = 0;
+    };
+
+    void exportStems (const ui::StemExportDialog::Request& request, const juce::File& folder)
+    {
+        folder.createDirectory();
+        auto settings = defaultBounceSettings();
+        settings.format = request.settings.format; settings.bitDepth = request.settings.bitDepth;
+        settings.tailSeconds = request.settings.tailSeconds; settings.trimTail = false; settings.normalize = false;
+        const auto& tr = engine.getTransport();
+        if (request.cycleRange && tr.hasValidLoop()) { settings.startSample = tr.getLoopStart(); settings.endSample = tr.getLoopEnd(); }
+        else { settings.startSample = 0; settings.endSample = juce::jmax<juce::int64> (1, (juce::int64) std::llround (session.getLengthSeconds() * settings.sampleRate)); }
+        std::vector<StemJob::Item> items;
+        for (int i : request.tracks)
+        {
+            if (session.getTrack (i) == nullptr) continue;
+            auto snap = model::Freeze::stemSnapshot (session, i, request.includeAuxReturns, request.throughMasterInserts);
+            snap->panDepthDb = panDepthDb();
+            items.push_back ({ juce::String (i + 1).paddedLeft ('0', 2) + " " + session.getTracks()[(size_t) i].name, std::move (snap) });
+        }
+        if (items.empty()) { statusMessage = "Export Stems: no tracks selected"; updateStatus(); return; }
+        stemJob = std::make_unique<StemJob> (std::move (items), settings, folder, [this] (juce::String summary)
+        {
+            statusMessage = summary; updateStatus();
+            juce::MessageManager::callAsync ([this] { stemJob.reset(); });
+        });
+        stemJob->launchThread();
+    }
+
+    void showStemExport()
+    {
+        if (session.getNumTracks() == 0) { statusMessage = "Export Stems: the session is empty"; updateStatus(); return; }
+        auto* dialog = new ui::StemExportDialog (session, engine.getTransport().hasValidLoop());
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Export Stems";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onExport = [this, window] (const ui::StemExportDialog::Request& request)
+        {
+            window->setVisible (false);
+            const auto base = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Bounces");
+            base.createDirectory();
+            fileChooser = std::make_unique<juce::FileChooser> ("Stems Folder", base);
+            fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this, request] (const juce::FileChooser& fc)
+            {
+                if (fc.getResult().isDirectory()) exportStems (request, fc.getResult().getChildFile ("Stems").getNonexistentSibling (false));
+            });
+        };
+    }
+
+    //==========================================================================
     // Lua scripting (ScriptHost)
 
     static juce::File scriptsFolder() { return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Scripts"); }
@@ -2451,6 +2660,7 @@ private:
     HostAdapter scriptHost { *this };
     scripting::LuaEngine lua { scriptHost };
     juce::Component::SafePointer<juce::DialogWindow> scriptWindow;
+    std::unique_ptr<StemJob> stemJob;
     juce::Component::SafePointer<ui::ScriptConsole> scriptConsoleContent;
     juce::StringArray scriptCommands;
     ui::Preferences prefs { preferencesFile() };
@@ -2540,6 +2750,10 @@ public:
             else if (arg.startsWith ("--script=")) main.runScriptFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--lua=")) main.runLuaFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--script-console") main.showScriptConsoleFromCommandLine();
+            else if (arg.startsWith ("--freeze=")) main.freezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
+            else if (arg.startsWith ("--unfreeze=")) main.unfreezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
+            else if (arg.startsWith ("--commit=")) main.commitFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
+            else if (arg.startsWith ("--stems=")) main.stemsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();
             else if (arg.startsWith ("--sync=")) main.setSyncFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--palette")) main.showPaletteFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
@@ -2581,6 +2795,9 @@ public:
             else if (const auto f = juce::File::getCurrentWorkingDirectory().getChildFile (arg); f.existsAsFile())
                 main.importAudioFile (f);
         }
+
+        // --quit: done with the command line (stems, saves, scripts) - exit.
+        if (getCommandLineParameterArray().contains ("--quit")) { quit(); return; }
 
         // --bounce=<file>: render the arrangement and quit (batch mode).
         if (bounceFile != juce::File())

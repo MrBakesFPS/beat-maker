@@ -8,6 +8,7 @@ target_sources(beatmaker_model INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/Elastic.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/BeatDetective.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Arrangement.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Freeze.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/MixerCommands.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/AutomationRecorder.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/DelayCompensation.cpp

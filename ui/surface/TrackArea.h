@@ -56,6 +56,8 @@ public:
     std::vector<model::ClipRef> clipsForRhythmEditing() const;
     std::function<void()> onOpenBeatDetective;
     std::function<void()> onOpenMemoryLocations;
+    // Track header menu: action is one of freeze / unfreeze / commit / rename / delete
+    std::function<void (int trackIndex, const juce::String& action)> onTrackAction;
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
 
