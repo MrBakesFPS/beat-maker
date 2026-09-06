@@ -228,6 +228,11 @@ private:
     // Elastic audio
     void showClipMenu (const model::ClipRef&, juce::Point<int> screenPos);
     void showLoopMenu (const model::ClipRef&, juce::Point<int> screenPos);
+public:
+    // A new (empty) pattern or MIDI clip covering the time selection on the selected instrument
+    // track(s), or one bar at `seconds` when there is no selection. Returns how many were made.
+    int addClipForSelection (double fallbackSeconds = -1.0);
+private:
     int warpMarkerAt (const model::ClipRef&, juce::Point<int>) const;   // -1 = none
     void applyElastic (const model::ClipRef&, engine::StretchSpec, const juce::String& name);
     void quantizeSelection();

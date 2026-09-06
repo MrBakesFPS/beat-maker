@@ -33,7 +33,10 @@ public:
     StepSequencer (model::Session& session, engine::Transport& transport, engine::AudioGraph& graph);
 
     void setEditSettings (EditSettings* s) { settings = s; }
-    void setTarget (int trackIndex, int patternClipIndex);   // -1 shows nothing
+    // Shows every pattern clip of the track; `patternClipIndex` picks the active one (-1 keeps the current). Track -1 shows nothing.
+    void setTarget (int trackIndex, int patternClipIndex = -1);
+    int getActiveClip() const noexcept { return clipIndex; }
+    std::function<int (int trackIndex, juce::int64 startSamples, juce::int64 lengthSamples)> onClipCreate;
     int getTrackIndex() const noexcept { return trackIndex; }
 
     std::function<void (int trackIndex, int clipIndex, std::shared_ptr<const engine::StepPattern>, juce::String)> onPatternChanged;
@@ -94,12 +97,17 @@ private:
     static constexpr std::uint8_t softVelocity = 55;
 
     enum class Drag { none, paint, band, move, velocity, zoomBand };
-    struct Cell { int pad = -1, step = -1, repeat = 0; };   // a drawn cell: pattern step and loop repeat
+    struct Cell { int pad = -1, step = -1, repeat = 0, clip = -1; };   // a drawn cell: clip, pattern step and loop repeat
 
     void timerCallback() override;
-    const model::PatternClip* getClip() const;
     const model::Track* getTrack() const;
-    const engine::StepPattern* getPattern() const;
+    const model::PatternClip* clipAt (int ci) const;
+    const model::PatternClip* getClip() const { return clipAt (clipIndex); }
+    const engine::StepPattern* patternOf (int ci) const;
+    const engine::StepPattern* getPattern() const { return patternOf (clipIndex); }
+    int numClips() const;
+    int clipIndexAtBeat (double timelineBeat) const;
+    void setActiveClip (int ci);
     EditSettings::Tool tool() const noexcept { return settings != nullptr ? settings->tool : EditSettings::Tool::smart; }
 
     // Timeline geometry
@@ -113,17 +121,27 @@ private:
     juce::Rectangle<int> gridBounds() const;
     juce::Rectangle<int> velocityBounds() const;
     juce::Rectangle<int> rulerBounds() const;
-    double clipStartBeats() const;
-    double clipLengthBeats() const;
-    double loopOffsetBeats() const;
-    double stepBeats() const;                                // beats per step
-    double repeatStartBeats (int repeat) const;
-    int firstRepeat() const;
+    double clipStartBeats (int ci) const;
+    double clipLengthBeats (int ci) const;
+    double loopOffsetBeats (int ci) const;
+    double stepBeats (int ci) const;
+    double patternBeats (int ci) const;
+    double repeatStartBeats (int ci, int repeat) const;
+    int firstRepeat (int ci) const;
+    bool clipLoopsAt (int ci) const { auto* c = clipAt (ci); return c != nullptr && c->loop; }
+    void repeatsInView (int ci, int& first, int& last) const;
+    double clipStartBeats() const { return clipStartBeats (clipIndex); }
+    double clipLengthBeats() const { return clipLengthBeats (clipIndex); }
+    double loopOffsetBeats() const { return loopOffsetBeats (clipIndex); }
+    double stepBeats() const { return stepBeats (clipIndex); }
+    double repeatStartBeats (int repeat) const { return repeatStartBeats (clipIndex, repeat); }
+    int firstRepeat() const { return firstRepeat (clipIndex); }
     bool isGhost (int repeat) const { return repeat != firstRepeat(); }
-    void repeatsInView (int& first, int& last) const;
+    void repeatsInView (int& first, int& last) const { repeatsInView (clipIndex, first, last); }
     int padAt (int y) const;
     Cell cellAt (juce::Point<int>) const;                    // step within the clip, even where no hit
-    juce::Rectangle<float> cellRect (int pad, int step, int repeat) const;
+    juce::Rectangle<float> cellRect (int ci, int pad, int step, int repeat) const;
+    juce::Rectangle<float> cellRect (int pad, int step, int repeat) const { return cellRect (clipIndex, pad, step, repeat); }
     int stepAtTimelineBeat (double beat, int& repeat) const;
     int insertionStep() const;
 

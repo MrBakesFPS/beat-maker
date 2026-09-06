@@ -44,6 +44,7 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Undo | `ctrl + Z` |  |
 | Redo | `ctrl + shift + Z` |  |
 | Redo (Ctrl+Y) | `ctrl + Y` |  |
+| Add Clip for Selection (instrument tracks) | `ctrl + alt + M` |  |
 | Keyboard Focus: Editor (notes or drums) / Tracks | `ctrl + alt + N` |  |
 | Select All (clips, or notes when the note editor has focus) | `ctrl + A` |  |
 | Cut | `ctrl + X` | `X` |

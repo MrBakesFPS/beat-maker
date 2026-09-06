@@ -216,6 +216,14 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   six bundled instruments driven by MIDI clips edited in the note editor (the
   Sound menu lists the instrument's presets). New instrument tracks start with
   a two-bar arpeggio clip.
+- Every clip of a track is in the editor: the note and drum editors draw all
+  of the track's clips on the timeline with their names on the ruler; the one
+  you last clicked is the active clip (brighter, named in the header) whose
+  notes or steps the selection and the keys apply to, and clicking another
+  clip's notes or its time switches. A note or step placed in empty time past
+  every clip makes a new one-bar clip there. In the tracks, right-click empty
+  space on an instrument track to Add Clip for the time selection (or one bar
+  at the click), also Ctrl+Alt+M with a selection.
 - Looping clips: a pattern or MIDI clip plays its content once unless Loop is
   on (the Loop button in the editor header, or right-click the clip). With
   Loop on, the clip repeats its notes or steps for its whole length, so how

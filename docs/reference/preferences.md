@@ -13,6 +13,8 @@ Preferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Ma
 | Announce status messages | on | Speak status bar messages through the screen reader. |
 | Show the Welcome window at startup | on | Templates, sample projects, the tour and tutorials when Beat Maker opens without a session. |
 | Show clip gain on clips | on | Append the clip gain in dB to clip names when it is not 0 dB. |
+| Editor panel height | 300 px | Height of the note and drum editor panel; drag the bar above the panel to change it. Range 120 to 1200. |
+| Note editor row height | 14 px | Vertical zoom of the piano roll: pixels per semitone (Alt+wheel over the notes, or the - and + buttons). Range 6 to 32. |
 | Zoom sensitivity | 1.5 x | How much Ctrl+wheel and the R/T focus keys zoom per step. Range 1.1 to 3. |
 
 ## Operation

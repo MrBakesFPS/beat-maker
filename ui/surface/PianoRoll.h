@@ -36,7 +36,11 @@ public:
     PianoRoll (model::Session& session, engine::Transport& transport, engine::AudioGraph& graph);
 
     void setEditSettings (EditSettings* s) { settings = s; }
-    void setTarget (int trackIndex, int midiClipIndex);
+    // Shows every MIDI clip of the track; `midiClipIndex` picks the active one (-1 keeps the current).
+    void setTarget (int trackIndex, int midiClipIndex = -1);
+    int getActiveClip() const noexcept { return clipIndex; }
+    // Click in empty time past every clip: the app creates a clip there and returns its index (-1 = none).
+    std::function<int (int trackIndex, juce::int64 startSamples, juce::int64 lengthSamples)> onClipCreate;
     void setDefaultVelocities (int normal, int soft) { defaultVelocity = juce::jlimit (1, 127, normal); softVelocity = juce::jlimit (1, 127, soft); }
     // Vertical zoom (pixels per semitone), independent of the tracks' zoom.
     void setRowHeight (int pixels);
@@ -103,12 +107,17 @@ private:
     static constexpr int edgeGrab      = 6;
 
     enum class Drag { none, pending, move, resizeEnd, resizeStart, band, velocity, zoomBand };
-    struct Instance { int note = -1; int repeat = 0; };   // a drawn note: sequence note index and loop repeat
+    struct Instance { int note = -1; int repeat = 0; int clip = -1; };   // a drawn note: clip, sequence note index and loop repeat
 
     void timerCallback() override;
     const model::Track* getTrack() const;
-    const model::MidiClip* getClip() const;
-    const engine::MidiSequence* getSequence() const;
+    const model::MidiClip* getClip() const { return clipAt (clipIndex); }
+    const model::MidiClip* clipAt (int ci) const;
+    const engine::MidiSequence* getSequence() const { return sequenceOf (clipIndex); }
+    const engine::MidiSequence* sequenceOf (int ci) const;
+    int numClips() const;
+    int clipIndexAtBeat (double timelineBeat) const;   // -1 when no clip covers it
+    void setActiveClip (int ci);
 
     // Settings
     double gridBeats() const noexcept;
@@ -123,16 +132,26 @@ private:
     int originX() const;
     double secondsAtX (int x) const;
     float xForSeconds (double s) const;
-    double clipStartBeats() const;
-    double clipLengthBeats() const;
-    double loopOffsetBeats() const;
-    int firstRepeat() const;                       // index of the repeat that starts the clip
-    double repeatStartBeats (int repeat) const;    // timeline beats
-    double sequenceBeatAt (double timelineBeat) const;   // wrapped into the sequence
+    // Per-clip timeline geometry (the no-argument forms use the active clip)
+    double clipStartBeats (int ci) const;
+    double clipLengthBeats (int ci) const;
+    double loopOffsetBeats (int ci) const;
+    double sequenceLength (int ci) const;
+    int firstRepeat (int ci) const;
+    double repeatStartBeats (int ci, int repeat) const;
+    bool clipLoops (int ci) const;
+    void repeatsInView (int ci, int& first, int& last) const;
+    double clipStartBeats() const { return clipStartBeats (clipIndex); }
+    double clipLengthBeats() const { return clipLengthBeats (clipIndex); }
+    double loopOffsetBeats() const { return loopOffsetBeats (clipIndex); }
+    int firstRepeat() const { return firstRepeat (clipIndex); }
+    double repeatStartBeats (int repeat) const { return repeatStartBeats (clipIndex, repeat); }
+    double sequenceBeatAt (double timelineBeat) const;   // wrapped into the active clip's sequence
     bool isGhost (int repeat) const { return repeat != firstRepeat(); }
-    juce::Rectangle<float> instanceRect (const engine::NoteEvent&, int repeat) const;
+    juce::Rectangle<float> instanceRect (int ci, const engine::NoteEvent&, int repeat) const;
+    juce::Rectangle<float> instanceRect (const engine::NoteEvent& n, int repeat) const { return instanceRect (clipIndex, n, repeat); }
     Instance instanceAt (juce::Point<int>) const;
-    void repeatsInView (int& first, int& last) const;
+    void repeatsInView (int& first, int& last) const { repeatsInView (clipIndex, first, last); }
     juce::Rectangle<int> gridBounds() const;
     juce::Rectangle<int> velocityBounds() const;
     juce::Rectangle<int> rulerBounds() const;
@@ -141,7 +160,7 @@ private:
     double beatAtX (int x) const;                  // timeline beats
     float xForBeat (double beat) const;
     int yForPitch (int pitch) const;
-    double sequenceLength() const;
+    double sequenceLength() const { return sequenceLength (clipIndex); }
     void applyView (double startSeconds, double pixelsPerSecond);
     int noteAt (juce::Point<int> p) const { return instanceAt (p).note; }
     int velocityBarAt (int x) const;

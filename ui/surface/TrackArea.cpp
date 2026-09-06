@@ -1582,6 +1582,21 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
         return;
     }
 
+    // Right-click on empty lane space: a clip for the selection (instrument tracks)
+    if (! hit && e.mods.isPopupMenu() && track >= 0)
+    {
+        const auto* t = session.getTrack (track);
+        if (t != nullptr && t->isInstrument())
+        {
+            const bool useSelection = timeSelection.isValid() && track >= timeSelection.firstTrack && track <= timeSelection.lastTrack;
+            const double at = snapSeconds (xToSeconds ((float) e.x));
+            juce::PopupMenu menu;
+            menu.addItem (1, useSelection ? "Add Clip for Selection  (" + juce::String (timeSelection.end - timeSelection.start, 2) + " s)" : "Add Clip Here  (one bar)");
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }), [this, at] (int r) { if (r == 1) addClipForSelection (at); });
+            return;
+        }
+    }
+
     if (tool == EditSettings::Tool::selector || ! hit)
     {
         drag = Drag::select;
@@ -2446,6 +2461,48 @@ int TrackArea::warpMarkerAt (const model::ClipRef& ref, juce::Point<int> p) cons
         if (std::abs (x - (float) p.x) <= 6.0f) return i;
     }
     return -1;
+}
+
+int TrackArea::addClipForSelection (double fallbackSeconds)
+{
+    const bool useSelection = timeSelection.isValid();
+    int first = timeSelection.firstTrack, last = timeSelection.lastTrack;
+    if (! useSelection) { first = last = selectedTrack; }
+    if (first < 0) { if (onStatus) onStatus ("Select an instrument track (or a time range on one) to add a clip"); return 0; }
+    const double bpb = (double) juce::jmax (1, transport.getBeatsPerBar());
+    double start = useSelection ? timeSelection.start : (fallbackSeconds >= 0.0 ? fallbackSeconds : transport.getPositionSeconds());
+    double end = useSelection ? timeSelection.end : transport.beatsToSeconds (std::floor (transport.secondsToBeats (start) / bpb) * bpb + bpb);
+    if (! useSelection) start = transport.beatsToSeconds (std::floor (transport.secondsToBeats (start) / bpb) * bpb);
+    if (end <= start) return 0;
+    auto compound = std::make_unique<model::CompoundCommand> ("Add Clip");
+    int made = 0;
+    for (int i = juce::jmax (0, first); i <= juce::jmin (session.getNumTracks() - 1, last); ++i)
+    {
+        const auto& t = session.getTracks()[(size_t) i];
+        if (! t.isInstrument()) continue;
+        const double sr = (double) toSamples (1.0);   // the engine rate
+        if (t.isDrumMachine())
+        {
+            model::PatternClip c; c.name = "Beat " + juce::String (t.patternClips.size() + 1); c.sampleRate = sr;
+            c.timelineStart = (juce::int64) std::llround (start * sr); c.length = juce::jmax<juce::int64> (1, (juce::int64) std::llround ((end - start) * sr));
+            auto p = std::make_shared<engine::StepPattern>(); p->numSteps = juce::jlimit (1, engine::StepPattern::maxSteps, (int) std::round (transport.secondsToBeats (end - start) * p->stepsPerBeat));
+            c.pattern = p; c.loop = false;
+            compound->add (std::make_unique<model::AddPatternClipCommand> (i, std::move (c)));
+        }
+        else
+        {
+            model::MidiClip c; c.name = "Clip " + juce::String (t.midiClips.size() + 1); c.sampleRate = sr;
+            c.timelineStart = (juce::int64) std::llround (start * sr); c.length = juce::jmax<juce::int64> (1, (juce::int64) std::llround ((end - start) * sr));
+            auto seq = std::make_shared<engine::MidiSequence>(); seq->lengthBeats = juce::jmax (0.25, transport.secondsToBeats (end - start));
+            c.sequence = seq; c.loop = false;
+            compound->add (std::make_unique<model::AddMidiClipCommand> (i, std::move (c)));
+        }
+        ++made;
+    }
+    if (made == 0) { if (onStatus) onStatus ("Add Clip: the selection covers no instrument track"); return 0; }
+    session.execute (std::move (compound));
+    if (onStatus) onStatus ("Added " + juce::String (made) + " clip(s) from " + juce::String (start, 2) + " s to " + juce::String (end, 2) + " s");
+    return made;
 }
 
 // Loop settings of a pattern or MIDI clip: on/off, and how far the loop goes (the clip's length).

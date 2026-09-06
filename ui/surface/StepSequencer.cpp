@@ -31,10 +31,26 @@ StepSequencer::StepSequencer (model::Session& s, engine::Transport& t, engine::A
 
 void StepSequencer::setTarget (int newTrackIndex, int newClipIndex)
 {
-    if (newTrackIndex != trackIndex || newClipIndex != clipIndex) { selection.clear(); ownPixelsPerSecond = 0.0; drag = Drag::none; }
+    const bool trackChanged = newTrackIndex != trackIndex;
     trackIndex = newTrackIndex;
-    clipIndex = newClipIndex;
+    if (trackChanged) { clipIndex = newClipIndex >= 0 ? newClipIndex : 0; selection.clear(); ownPixelsPerSecond = 0.0; drag = Drag::none; }
+    else if (newClipIndex >= 0 && newClipIndex != clipIndex) setActiveClip (newClipIndex);
+    if (clipIndex >= numClips()) { clipIndex = juce::jmax (0, numClips() - 1); selection.clear(); }
     repaint();
+}
+
+void StepSequencer::setActiveClip (int ci)
+{
+    if (ci == clipIndex || ! juce::isPositiveAndBelow (ci, numClips())) return;
+    clipIndex = ci; selection.clear(); drag = Drag::none; repaint();
+}
+
+int StepSequencer::numClips() const { auto* t = getTrack(); return t != nullptr ? (int) t->patternClips.size() : 0; }
+int StepSequencer::clipIndexAtBeat (double beat) const
+{
+    for (int ci = 0; ci < numClips(); ++ci)
+        if (beat >= clipStartBeats (ci) && beat < clipStartBeats (ci) + clipLengthBeats (ci)) return ci;
+    return -1;
 }
 
 void StepSequencer::setLinked (bool on)
@@ -51,14 +67,14 @@ void StepSequencer::setLinked (bool on)
 // Model access
 
 const model::Track* StepSequencer::getTrack() const { return session.getTrack (trackIndex); }
-const model::PatternClip* StepSequencer::getClip() const
+const model::PatternClip* StepSequencer::clipAt (int ci) const
 {
     if (auto* track = getTrack())
-        if (juce::isPositiveAndBelow (clipIndex, (int) track->patternClips.size()))
-            return &track->patternClips[(size_t) clipIndex];
+        if (juce::isPositiveAndBelow (ci, (int) track->patternClips.size()))
+            return &track->patternClips[(size_t) ci];
     return nullptr;
 }
-const engine::StepPattern* StepSequencer::getPattern() const { auto* c = getClip(); return c != nullptr ? c->pattern.get() : nullptr; }
+const engine::StepPattern* StepSequencer::patternOf (int ci) const { auto* c = clipAt (ci); return c != nullptr ? c->pattern.get() : nullptr; }
 
 //==============================================================================
 // Timeline geometry
@@ -95,22 +111,22 @@ juce::Rectangle<int> StepSequencer::gridBounds() const { const int x = originX()
 juce::Rectangle<int> StepSequencer::velocityBounds() const { const int x = originX(); return { x, getHeight() - velocityHeight, getWidth() - x, velocityHeight }; }
 juce::Rectangle<int> StepSequencer::rulerBounds() const { const int x = originX(); return { x, headerHeight, getWidth() - x, rulerHeight }; }
 
-double StepSequencer::clipStartBeats() const { auto* c = getClip(); return c != nullptr ? transport.secondsToBeats (c->getStartSeconds()) : 0.0; }
-double StepSequencer::clipLengthBeats() const { auto* c = getClip(); return c != nullptr ? transport.secondsToBeats (c->getLengthSeconds()) : 4.0; }
-double StepSequencer::loopOffsetBeats() const { auto* c = getClip(); return c != nullptr && c->sampleRate > 0.0 ? transport.secondsToBeats ((double) c->loopOffset / c->sampleRate) : 0.0; }
-double StepSequencer::stepBeats() const { auto* p = getPattern(); return p != nullptr && p->stepsPerBeat > 0 ? 1.0 / p->stepsPerBeat : 0.25; }
-double StepSequencer::repeatStartBeats (int repeat) const { auto* p = getPattern(); const double len = p != nullptr ? p->getLengthBeats() : 4.0; return clipStartBeats() - loopOffsetBeats() + repeat * len; }
-int StepSequencer::firstRepeat() const { auto* p = getPattern(); const double len = p != nullptr ? p->getLengthBeats() : 4.0; return (int) std::floor (loopOffsetBeats() / len + 1.0e-9); }
-void StepSequencer::repeatsInView (int& first, int& last) const
+double StepSequencer::clipStartBeats (int ci) const { auto* c = clipAt (ci); return c != nullptr ? transport.secondsToBeats (c->getStartSeconds()) : 0.0; }
+double StepSequencer::clipLengthBeats (int ci) const { auto* c = clipAt (ci); return c != nullptr ? transport.secondsToBeats (c->getLengthSeconds()) : 4.0; }
+double StepSequencer::loopOffsetBeats (int ci) const { auto* c = clipAt (ci); return c != nullptr && c->sampleRate > 0.0 ? transport.secondsToBeats ((double) c->loopOffset / c->sampleRate) : 0.0; }
+double StepSequencer::stepBeats (int ci) const { auto* p = patternOf (ci); return p != nullptr && p->stepsPerBeat > 0 ? 1.0 / p->stepsPerBeat : 0.25; }
+double StepSequencer::patternBeats (int ci) const { auto* p = patternOf (ci); return p != nullptr ? p->getLengthBeats() : 4.0; }
+double StepSequencer::repeatStartBeats (int ci, int repeat) const { return clipStartBeats (ci) - loopOffsetBeats (ci) + repeat * patternBeats (ci); }
+int StepSequencer::firstRepeat (int ci) const { return (int) std::floor (loopOffsetBeats (ci) / patternBeats (ci) + 1.0e-9); }
+void StepSequencer::repeatsInView (int ci, int& first, int& last) const
 {
-    auto* p = getPattern();
-    const double len = p != nullptr ? p->getLengthBeats() : 4.0;
-    const double clipEnd = clipStartBeats() + clipLengthBeats();
-    const double viewStart = juce::jmax (clipStartBeats(), beatAtX (gridBounds().getX()));
+    const double len = patternBeats (ci);
+    const double clipEnd = clipStartBeats (ci) + clipLengthBeats (ci);
+    const double viewStart = juce::jmax (clipStartBeats (ci), beatAtX (gridBounds().getX()));
     const double viewEnd = juce::jmin (clipEnd, beatAtX (gridBounds().getRight()));
-    first = juce::jmax (firstRepeat(), (int) std::floor ((viewStart - clipStartBeats() + loopOffsetBeats()) / len));
-    last = (int) std::floor ((viewEnd - clipStartBeats() + loopOffsetBeats() - 1.0e-9) / len);
-    if (! clipLoops()) last = juce::jmin (last, firstRepeat());   // plays once
+    first = juce::jmax (firstRepeat (ci), (int) std::floor ((viewStart - clipStartBeats (ci) + loopOffsetBeats (ci)) / len));
+    last = (int) std::floor ((viewEnd - clipStartBeats (ci) + loopOffsetBeats (ci) - 1.0e-9) / len);
+    if (! clipLoopsAt (ci)) last = juce::jmin (last, firstRepeat (ci));   // plays once
     if (last < first) last = first - 1;
 }
 int StepSequencer::padAt (int y) const
@@ -133,17 +149,23 @@ StepSequencer::Cell StepSequencer::cellAt (juce::Point<int> pt) const
     Cell c;
     if (! gridBounds().contains (pt)) return c;
     const double beat = beatAtX (pt.x);
-    if (beat < clipStartBeats() || beat >= clipStartBeats() + clipLengthBeats()) return c;
+    c.clip = clipIndexAtBeat (beat);
+    if (c.clip < 0) return c;
+    auto* p = patternOf (c.clip);
+    if (p == nullptr) return c;
     c.pad = padAt (pt.y);
-    c.step = stepAtTimelineBeat (beat, c.repeat);
+    const double rel = beat - clipStartBeats (c.clip) + loopOffsetBeats (c.clip);
+    const int absStep = (int) std::floor (rel / stepBeats (c.clip) + 1.0e-9);
+    c.repeat = (int) std::floor ((double) absStep / p->numSteps);
+    c.step = ((absStep % p->numSteps) + p->numSteps) % p->numSteps;
     return c;
 }
-juce::Rectangle<float> StepSequencer::cellRect (int pad, int step, int repeat) const
+juce::Rectangle<float> StepSequencer::cellRect (int ci, int pad, int step, int repeat) const
 {
     const auto g = gridBounds().toFloat();
     const float rh = g.getHeight() / (float) engine::DrumKit::numPads;
-    const double t0 = repeatStartBeats (repeat) + step * stepBeats();
-    return { xForBeat (t0), g.getY() + pad * rh, xForBeat (t0 + stepBeats()) - xForBeat (t0), rh };
+    const double t0 = repeatStartBeats (ci, repeat) + step * stepBeats (ci);
+    return { xForBeat (t0), g.getY() + pad * rh, xForBeat (t0 + stepBeats (ci)) - xForBeat (t0), rh };
 }
 int StepSequencer::insertionStep() const
 {
@@ -345,13 +367,15 @@ void StepSequencer::paint (juce::Graphics& g)
     const bool loops = longer && clipLoops();
     unrollButton.setEnabled (loops);
     loopButton.setToggleState (clipLoops(), juce::dontSendNotification);
+    const int clips = numClips();
 
     // Header
     g.setColour (theme::panel);
     g.fillRect (getLocalBounds().removeFromTop (headerHeight));
     g.setColour (theme::text);
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText (track->name + "  -  " + clip->name, getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (140).withWidth (260), juce::Justification::centredLeft, true);
+    g.drawText (track->name + "  -  " + clip->name + (clips > 1 ? "  (clip " + juce::String (clipIndex + 1) + " of " + juce::String (clips) + ")" : juce::String()),
+                getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (200).withWidth (300), juce::Justification::centredLeft, true);
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.5f));
     g.drawText (describeSelection() + "    " + EditSettings::toolName (tool()) + "  |  1/" + juce::String (pattern->stepsPerBeat * 4) + " steps"
@@ -376,54 +400,81 @@ void StepSequencer::paint (juce::Graphics& g)
     g.saveState();
     g.reduceClipRegion (grid.getUnion (rulerBounds()).getUnion (vel));
 
-    // Outside the clip: dimmed
+    // Outside every clip: dimmed; other clips a little dimmer; clip names on the ruler
     const float cx0 = xForBeat (clipStart), cx1 = xForBeat (clipEnd);
-    g.setColour (theme::panelDark.withAlpha (0.55f));
-    if (cx0 > (float) grid.getX()) g.fillRect (juce::Rectangle<float> ((float) grid.getX(), (float) grid.getY(), cx0 - (float) grid.getX(), (float) (vel.getBottom() - grid.getY())));
-    if (cx1 < (float) grid.getRight()) g.fillRect (juce::Rectangle<float> (cx1, (float) grid.getY(), (float) grid.getRight() - cx1, (float) (vel.getBottom() - grid.getY())));
+    {
+        g.setColour (theme::panelDark.withAlpha (0.55f));
+        std::vector<std::pair<float, float>> spans;
+        for (int ci = 0; ci < clips; ++ci) spans.emplace_back (xForBeat (clipStartBeats (ci)), xForBeat (clipStartBeats (ci) + clipLengthBeats (ci)));
+        std::sort (spans.begin(), spans.end());
+        float cursor = (float) grid.getX();
+        for (const auto& [a, b] : spans) { if (a > cursor) g.fillRect (juce::Rectangle<float> (cursor, (float) grid.getY(), a - cursor, (float) (vel.getBottom() - grid.getY()))); cursor = juce::jmax (cursor, b); }
+        if (cursor < (float) grid.getRight()) g.fillRect (juce::Rectangle<float> (cursor, (float) grid.getY(), (float) grid.getRight() - cursor, (float) (vel.getBottom() - grid.getY())));
+        g.setColour (theme::panelDark.withAlpha (0.25f));
+        for (int ci = 0; ci < clips; ++ci)
+            if (ci != clipIndex) g.fillRect (juce::Rectangle<float> (xForBeat (clipStartBeats (ci)), (float) grid.getY(), xForBeat (clipStartBeats (ci) + clipLengthBeats (ci)) - xForBeat (clipStartBeats (ci)), (float) (vel.getBottom() - grid.getY())));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        for (int ci = 0; ci < clips; ++ci)
+        {
+            const float x = xForBeat (clipStartBeats (ci)), w = xForBeat (clipStartBeats (ci) + clipLengthBeats (ci)) - x;
+            g.setColour (ci == clipIndex ? track->colour : track->colour.withAlpha (0.5f));
+            g.fillRect (juce::Rectangle<float> (x, (float) headerHeight, w, 3.0f));
+            g.setColour (ci == clipIndex ? theme::text : theme::textDim);
+            g.drawText (clipAt (ci)->name, juce::Rectangle<int> ((int) x + 26, headerHeight + 3, juce::jmax (10, (int) w - 30), 12), juce::Justification::centredLeft, true);   // after the bar number
+        }
+    }
 
-    // The empty grid: one line per step column and pad row (not an outline per cell)
     int firstK, lastK; repeatsInView (firstK, lastK);
     const float stepPx = xForBeat (stepBeats()) - xForBeat (0.0);
     const auto clipArea = g.getClipBounds();
-    if (stepPx > 5.0f)
+    for (int ci = 0; ci < clips; ++ci)
     {
-        g.setColour (theme::grid.withAlpha (0.7f));
-        for (int k = firstK; k <= lastK; ++k)
-            for (int s = 0; s <= pattern->numSteps; ++s)
+    auto* cpat = patternOf (ci);
+    if (cpat == nullptr) continue;
+    const bool active = ci == clipIndex;
+    const double cStart = clipStartBeats (ci), cEnd = cStart + clipLengthBeats (ci);
+    const float cStepPx = xForBeat (stepBeats (ci)) - xForBeat (0.0);
+    int cFirst, cLast; repeatsInView (ci, cFirst, cLast);
+    // The empty grid: one line per step column and pad row (not an outline per cell)
+    if (cStepPx > 5.0f)
+    {
+        g.setColour (theme::grid.withAlpha (active ? 0.7f : 0.4f));
+        for (int k = cFirst; k <= cLast; ++k)
+            for (int st = 0; st <= cpat->numSteps; ++st)
             {
-                const double t = repeatStartBeats (k) + s * stepBeats();
-                if (t < clipStart - 1.0e-9 || t > clipEnd + 1.0e-9) continue;
+                const double t = repeatStartBeats (ci, k) + st * stepBeats (ci);
+                if (t < cStart - 1.0e-9 || t > cEnd + 1.0e-9) continue;
                 const int x = (int) xForBeat (t);
                 if (x < clipArea.getX() - 1 || x > clipArea.getRight() + 1) continue;
                 g.drawVerticalLine (x, (float) grid.getY(), (float) grid.getBottom());
             }
         for (int pad = 1; pad < engine::DrumKit::numPads; ++pad)
-            g.drawHorizontalLine ((int) (grid.getY() + pad * rh), juce::jmax (cx0, (float) grid.getX()), juce::jmin (cx1, (float) grid.getRight()));
+            g.drawHorizontalLine ((int) (grid.getY() + pad * rh), juce::jmax (xForBeat (cStart), (float) grid.getX()), juce::jmin (xForBeat (cEnd), (float) grid.getRight()));
     }
     // Lit cells inside the clip, per repeat; only what intersects the area being repainted
-    for (int k = firstK; k <= lastK; ++k)
+    for (int k = cFirst; k <= cLast; ++k)
     {
-        const bool ghost = isGhost (k);
-        for (int s = 0; s < pattern->numSteps; ++s)
+        const bool ghost = k != firstRepeat (ci);
+        for (int st = 0; st < cpat->numSteps; ++st)
         {
-            const double t0 = repeatStartBeats (k) + s * stepBeats();
-            if (t0 < clipStart - 1.0e-9 || t0 >= clipEnd - 1.0e-9) continue;
+            const double t0 = repeatStartBeats (ci, k) + st * stepBeats (ci);
+            if (t0 < cStart - 1.0e-9 || t0 >= cEnd - 1.0e-9) continue;
             const float x0 = xForBeat (t0);
-            if (x0 + stepPx < (float) clipArea.getX() || x0 > (float) clipArea.getRight()) continue;
+            if (x0 + cStepPx < (float) clipArea.getX() || x0 > (float) clipArea.getRight()) continue;
             for (int pad = 0; pad < engine::DrumKit::numPads; ++pad)
             {
-                const auto v = pattern->get (pad, s);
+                const auto v = cpat->get (pad, st);
                 if (v == 0) continue;
-                const auto cell = cellRect (pad, s, k).reduced (stepPx > 8.0f ? 1.5f : 0.5f, 1.5f);
-                const bool sel = StepEdits::contains (selection, { pad, s });
-                const float alpha = (0.35f + 0.65f * (float) v / 127.0f) * (ghost ? 0.4f : 1.0f);
+                const auto cell = cellRect (ci, pad, st, k).reduced (cStepPx > 8.0f ? 1.5f : 0.5f, 1.5f);
+                const bool sel = active && StepEdits::contains (selection, { pad, st });
+                const float alpha = (0.35f + 0.65f * (float) v / 127.0f) * (ghost ? 0.4f : 1.0f) * (active ? 1.0f : 0.7f);
                 g.setColour (sel ? theme::accent.withAlpha (ghost ? 0.5f : 1.0f) : track->colour.withAlpha (alpha));
-                if (stepPx > 8.0f) g.fillRoundedRectangle (cell, 3.0f); else g.fillRect (cell);
+                if (cStepPx > 8.0f) g.fillRoundedRectangle (cell, 3.0f); else g.fillRect (cell);
                 if (sel) { g.setColour (theme::text.withAlpha (0.8f)); g.drawRoundedRectangle (cell, 3.0f, 1.0f); }
             }
         }
     }
+    }   // clips
 
     // Grid lines and ruler: beats and bars
     const double pxPerBeat = juce::jmax (1.0e-6, (double) view().pixelsPerSecond * transport.beatsToSeconds (1.0));
@@ -538,12 +589,31 @@ void StepSequencer::mouseDown (const juce::MouseEvent& e)
     const int pad = padAt (e.y);
     if (pad < 0) return;
     focusPad = pad;
-    if (beat >= clipStartBeats() + clipLengthBeats())
+    if (const int under = clipIndexAtBeat (beat); under >= 0 && under != clipIndex) setActiveClip (under);
+    if (clipIndexAtBeat (beat) < 0 && t != Tool::selector)
     {
-        if (t != Tool::selector && ! extendClipTo (beat)) return;
+        // No clip here: past the active clip's end it grows; anywhere else a new one-bar clip is made
+        const bool justPast = beat >= clipStartBeats() + clipLengthBeats() && (clipIndexAtBeat (beat) < 0) && beat < clipStartBeats() + clipLengthBeats() + juce::jmax (1.0, (double) transport.getBeatsPerBar());
+        bool nextClipInTheWay = false;
+        for (int ci = 0; ci < numClips(); ++ci) if (clipStartBeats (ci) > clipStartBeats() && clipStartBeats (ci) <= beat) nextClipInTheWay = true;
+        if (justPast && ! nextClipInTheWay) { if (! extendClipTo (beat)) return; }
+        else if (onClipCreate != nullptr && getClip() != nullptr)
+        {
+            const int bpb = juce::jmax (1, transport.getBeatsPerBar());
+            const double barStart = std::floor (beat / bpb) * bpb;
+            double barEnd = barStart + bpb;
+            for (int ci = 0; ci < numClips(); ++ci) if (clipStartBeats (ci) > beat) barEnd = juce::jmin (barEnd, clipStartBeats (ci));
+            const double sr = getClip()->sampleRate;
+            const int created = onClipCreate (trackIndex, (juce::int64) std::llround (transport.beatsToSeconds (barStart) * sr), (juce::int64) std::llround (transport.beatsToSeconds (barEnd - barStart) * sr));
+            if (created < 0) return;
+            clipIndex = created; selection.clear();
+        }
+        else return;
+        pattern = getPattern();
+        if (pattern == nullptr) return;
     }
     auto cell = cellAt (e.getPosition());
-    if (cell.step < 0) return;
+    if (cell.step < 0 || cell.clip != clipIndex) return;
     if (t == Tool::selector) { if (! e.mods.isShiftDown() && ! e.mods.isCtrlDown()) clearSelection(); drag = Drag::band; return; }
     if (unrollIfGhost (cell.repeat)) { cell = cellAt (e.getPosition()); pattern = getPattern(); if (cell.step < 0 || pattern == nullptr) return; }
     const bool lit = pattern->get (cell.pad, cell.step) > 0;
@@ -578,7 +648,7 @@ void StepSequencer::mouseDrag (const juce::MouseEvent& e)
     if (drag == Drag::paint)
     {
         auto cell = cellAt (e.getPosition());
-        if (cell.step < 0 || (cell.pad == lastPaintPad && cell.step == lastPaintStep)) return;
+        if (cell.step < 0 || cell.clip != clipIndex || (cell.pad == lastPaintPad && cell.step == lastPaintStep)) return;
         if (isGhost (cell.repeat)) return;   // a stroke stays within the first pass; click a repeat to unroll first
         lastPaintPad = cell.pad; lastPaintStep = cell.step;
         if (dragChanged) session.undo();   // the whole stroke is one undo step: rebuild it from the base
@@ -600,7 +670,7 @@ void StepSequencer::mouseDrag (const juce::MouseEvent& e)
     if (drag == Drag::move)
     {
         const auto cell = cellAt (e.getPosition());
-        if (cell.step < 0) return;
+        if (cell.step < 0 || cell.clip != clipIndex) return;
         const int stepDelta = (cell.step + cell.repeat * pattern->numSteps) - (dragAnchor.step + dragAnchor.repeat * pattern->numSteps);
         const int padDelta = cell.pad - dragAnchor.pad;
         if (stepDelta == 0 && padDelta == 0) { if (dragChanged) { session.undo(); dragChanged = false; selection = dragCells; repaint(); } return; }

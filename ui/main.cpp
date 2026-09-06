@@ -128,6 +128,26 @@ public:
             return v;
         };
         pianoRoll.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
+        pianoRoll.onClipCreate = [this] (int track, juce::int64 start, juce::int64 length) -> int
+        {
+            auto* t = session.getTrack (track);
+            if (t == nullptr) return -1;
+            model::MidiClip c; c.name = "Clip " + juce::String (t->midiClips.size() + 1); c.sampleRate = engine.getSampleRate(); c.timelineStart = start; c.length = length;
+            auto seq = std::make_shared<engine::MidiSequence>(); seq->lengthBeats = juce::jmax (0.25, engine.getTransport().secondsToBeats ((double) length / c.sampleRate));
+            c.sequence = seq; c.loop = false;
+            session.execute (std::make_unique<model::AddMidiClipCommand> (track, std::move (c)));
+            return (int) session.getTracks()[(size_t) track].midiClips.size() - 1;
+        };
+        sequencer.onClipCreate = [this] (int track, juce::int64 start, juce::int64 length) -> int
+        {
+            auto* t = session.getTrack (track);
+            if (t == nullptr) return -1;
+            model::PatternClip c; c.name = "Beat " + juce::String (t->patternClips.size() + 1); c.sampleRate = engine.getSampleRate(); c.timelineStart = start; c.length = length;
+            auto p = std::make_shared<engine::StepPattern>(); p->numSteps = juce::jlimit (1, engine::StepPattern::maxSteps, (int) std::round (engine.getTransport().secondsToBeats ((double) length / c.sampleRate) * p->stepsPerBeat));
+            c.pattern = p; c.loop = false;
+            session.execute (std::make_unique<model::AddPatternClipCommand> (track, std::move (c)));
+            return (int) session.getTracks()[(size_t) track].patternClips.size() - 1;
+        };
         pianoRoll.onClipLoopChanged = [this] (int track, int clip, bool on) { session.execute (std::make_unique<model::SetClipLoopCommand> (track, true, clip, on)); };
         sequencer.onClipLoopChanged = [this] (int track, int clip, bool on) { session.execute (std::make_unique<model::SetClipLoopCommand> (track, false, clip, on)); };
         pianoRoll.onClipExtend = [this] (int track, int clip, juce::int64 newLength)
@@ -894,6 +914,7 @@ public:
         add ("edit.undo", "Edit", "Undo", juce::KeyPress ('z', M::commandModifier, 0), 0, [this] { session.undo(); }, [this] { return session.getHistory().canUndo(); });
         add ("edit.redo", "Edit", "Redo", juce::KeyPress ('z', M::commandModifier | M::shiftModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
         add ("edit.redoY", "Edit", "Redo (Ctrl+Y)", juce::KeyPress ('y', M::commandModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
+        add ("edit.addClip", "Edit", "Add Clip for Selection (instrument tracks)", juce::KeyPress ('m', M::commandModifier | M::altModifier, 0), 0, [this] { trackArea.addClipForSelection(); });
         add ("edit.notesFocus", "Edit", "Keyboard Focus: Editor (notes or drums) / Tracks", juce::KeyPress ('n', M::commandModifier | M::altModifier, 0), 0, [this] { focusNotes (! notesFocused()); });
         add ("edit.selectAll", "Edit", "Select All (clips, or notes when the note editor has focus)", juce::KeyPress ('a', M::commandModifier, 0), 0, [this] { if (auto* ed = focusedEditor()) ed->selectAll(); else trackArea.selectAllClips(); });
         add ("edit.cut", "Edit", "Cut", juce::KeyPress ('x', M::commandModifier, 0), 'x', [this] { if (auto* ed = focusedEditor()) ed->cutSelection(); else trackArea.cutSelection(); }, [this] { return focusedEditor() != nullptr ? focusedEditor()->hasSelection() : trackArea.hasSelection(); });
@@ -2024,8 +2045,8 @@ private:
         const bool drums = track != nullptr && track->isDrumMachine() && ! track->patternClips.empty();
         const bool synth = track != nullptr && track->isSynth() && ! track->midiClips.empty();
 
-        sequencer.setTarget (drums ? sel : -1, drums ? 0 : -1);
-        pianoRoll.setTarget (synth ? sel : -1, synth ? 0 : -1);
+        sequencer.setTarget (drums ? sel : -1);
+        pianoRoll.setTarget (synth ? sel : -1);
         if (smartControls.getTrackIndex() != sel) smartControls.setTrack (sel);
         pianoRoll.setVisible (editorVisible && ! mixerVisible && synth);
         sequencer.setVisible (editorVisible && ! mixerVisible && ! synth);

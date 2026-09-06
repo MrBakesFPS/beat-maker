@@ -16,6 +16,12 @@ The step sequencer in the editor panel works like the [note editor](#note-editor
 
 Keyboard focus is shared with the note editor: Ctrl+Alt+N or the Editor button in the toolbar switches between the editor panel and the tracks, and the Edit and View commands act on whichever has focus.
 
+## Several clips on a track
+
+The editors show every pattern or MIDI clip of the selected track on the timeline, each named on the ruler. The clip you last clicked is the active one: it is drawn brighter and named in the header ("clip 2 of 3"), and the selection, the keys and the Loop and Unroll buttons apply to it. Click a note or step of another clip, or click inside its time, to make that one active. Placing a note or step in empty time past every clip creates a new one-bar clip there.
+
+To add a clip in the tracks, select a time range on an instrument track (or just put the playhead where you want it) and use **Add Clip for Selection** (**Ctrl+Alt+M**, or right-click the empty lane). The new clip is empty, as long as the selection (one bar when there is none), and plays once.
+
 ## Looping clips
 
 A pattern or MIDI clip plays its content once unless **Loop** is on: the Loop button in the editor header, or right-click the clip in the tracks. With Loop on the clip repeats its notes or steps for its whole length, so the loop goes as far as the clip does: drag the clip's right edge with the Trimmer or Smart Tool, or right-click it and pick a Loop Length of 1 to 32 bars (or type a number). **Play Once** in the same menu switches looping off and shrinks the clip back to its content. With Loop off, a clip longer than its content is silent after the content ends; adding notes or steps there extends the content instead of looping it. Sessions saved before this option keep looping as they did.
