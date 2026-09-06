@@ -749,6 +749,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
                 if (strip.isAux != (pass == 1)) continue;
                 if (strip.isVca) { stripMeters[(size_t) juce::jlimit (0, maxStrips - 1, i)].clear(); continue; }
 
+                performance.beginStrip();
                 if (strip.isAux)
                 {
                     stripBuffer.clear (0, numSamples);
@@ -760,6 +761,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
                     renderStripSources (i, inputs, numInputs, pos, playing, numSamples);
 
                 processStrip (strip, i, pos, numSamples, outputs, numOutputs);
+                performance.endStrip (i, numSamples, transport.getSampleRate());
             }
 
         // Master (fader with its own volume automation and trim)
@@ -876,7 +878,9 @@ void AudioGraph::audioDeviceIOCallbackWithContext (const float* const* inputChan
                                                    int numSamples,
                                                    const juce::AudioIODeviceCallbackContext&)
 {
+    performance.beginBlock();
     renderBlock (inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
+    performance.endBlock (numSamples, transport.getSampleRate());
 }
 
 void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)

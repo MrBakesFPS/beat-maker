@@ -17,3 +17,4 @@ Thumbs.db
 *.bmk/
 *.bmkt/
 Session File Backups/
+build-release/

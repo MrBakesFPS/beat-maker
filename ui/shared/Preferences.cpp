@@ -54,6 +54,7 @@ std::vector<PrefDef> Preferences::definitions()
         choice ("processing.loopConformMode", "Processing", "Loop conform mode", "Elastic mode used when a library loop is conformed to the session tempo.", 0, { "Auto (Rhythmic for drums)", "Polyphonic", "Rhythmic", "Monophonic", "Varispeed" }),
         number ("processing.backgroundRenderSeconds", "Processing", "Background render threshold", "Clips longer than this render Elastic changes on a background thread.", 8.0, 0.0, 600.0, 1.0, "s"),
         choice ("processing.defaultElasticMode", "Processing", "Default Elastic mode", "Mode used by TCE trims and warp markers on clips with Elastic off.", 0, { "Polyphonic", "Rhythmic", "Monophonic" }),
+        number ("processing.audioCacheMb", "Processing", "Audio cache size", "Decoded audio kept in memory for reuse (loops, samples, session files). Audio in use is never dropped.", 2048.0, 128.0, 16384.0, 128.0, "MB"),
         number ("processing.transientSensitivity", "Processing", "Transient sensitivity", "Default sensitivity for tab-to-transient and Separate at Transients.", 50.0, 0.0, 100.0, 5.0, "%"),
 
         // MIDI

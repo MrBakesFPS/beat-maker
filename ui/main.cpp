@@ -16,6 +16,7 @@
 #include "depth/TourOverlay.h"
 #include "depth/TutorialWindow.h"
 #include "depth/ShortcutsWindow.h"
+#include "depth/SystemUsageWindow.h"
 #include <SampleProjects.h>
 #include <SessionImport.h>
 #include <Freeze.h>
@@ -253,6 +254,7 @@ public:
         };
         transportBar.onRecordModeClicked = [this] (juce::TextButton& b) { showRecordModeMenu (b); };
         transportBar.onRollClicked = [this] (juce::TextButton& b) { showRollMenu (b); };
+        transportBar.onCpuClicked = [this] { showSystemUsage(); };
         refreshRecordSettingsDisplay();
         mixerView.onEditGroup = [this] (int groupId) { showGroupDialog (groupId); };
         trackArea.onMonitorChanged = [this] (int i, bool on)
@@ -349,6 +351,7 @@ public:
     void startTourFromCommandLine() { startTour(); }
     void showTutorialsFromCommandLine() { showTutorials(); }
     void showShortcutsFromCommandLine() { showShortcuts(); }
+    void showSystemUsageFromCommandLine() { showSystemUsage(); }
     void openSampleFromCommandLine (const juce::String& name) { openSampleProject (name); }
     bool wantsWelcomeAtStartup() const { return prefs.getBool ("display.showWelcome"); }
     // --import-session=<bundle>[,<seconds>]: every track, markers and tempo; placed at the offset (default absolute).
@@ -878,6 +881,7 @@ public:
         add ("track.previous", "Track", "Select Previous Track", {}, 0, [this] { trackArea.selectTrayByOffsetPublic (-1); });
         add ("transport.stepRight", "Transport", "Move Playhead Right by the Grid", {}, 0, [this] { trackArea.stepPlayhead (1, false); });
         add ("transport.stepLeft", "Transport", "Move Playhead Left by the Grid", {}, 0, [this] { trackArea.stepPlayhead (-1, false); });
+        add ("window.systemUsage", "Window", "System Usage (CPU, memory, cache)", juce::KeyPress ('u', M::commandModifier | M::shiftModifier, 0), 0, [this] { showSystemUsage(); });
         add ("help.whereAmI", "Help", "Announce Selection", juce::KeyPress ('/', M::commandModifier | M::shiftModifier, 0), 0, [this] { const auto text = trackArea.describeSelection(); statusMessage = text; updateStatus(); juce::AccessibilityHandler::postAnnouncement (text, juce::AccessibilityHandler::AnnouncementPriority::high); });
         add ("track.freeze", "Track", "Freeze Selected Track", {}, 0, [this] { freezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t) && ! t->isFrozen(); });
         add ("track.unfreeze", "Track", "Unfreeze Selected Track", {}, 0, [this] { unfreezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isFrozen(); });
@@ -1766,6 +1770,7 @@ private:
         // Timeline insertion follows playback: off = the playhead returns to where play started
         const bool playingNow = engine.getTransport().isPlaying();
         if (playingNow) playedOnce = true;
+        transportBar.setCpuLoad (engine.getGraph().getPerformance().getLoad(), engine.getGraph().getPerformance().getOverruns());
         if (mixerVisible) mixedOnce = true;
         if (playingNow && ! wasPlayingLastTick) playStartSample = engine.getTransport().getPositionSamples();
         if (! playingNow && wasPlayingLastTick && ! prefs.getBool ("operation.timelineFollowsPlayback") && ! engine.getRecorder().isRecording())
@@ -2169,6 +2174,7 @@ private:
             trackArea.setTrackHeight (heights[juce::jlimit (0, 3, prefs.getInt ("display.trackHeight"))]);
         }
         if (is ("processing.backgroundRenderSeconds")) ui::ElasticJob::asyncThresholdSeconds = prefs.getDouble ("processing.backgroundRenderSeconds");
+        if (is ("processing.audioCacheMb")) loader.setCacheBudgetBytes ((juce::int64) (prefs.getDouble ("processing.audioCacheMb") * 1024.0 * 1024.0));
         if (is ("midi.defaultVelocity") || is ("midi.softVelocity")) pianoRoll.setDefaultVelocities (prefs.getInt ("midi.defaultVelocity"), prefs.getInt ("midi.softVelocity"));
         if (is ("mixing.panDepth")) pushSnapshot();
     }
@@ -2352,6 +2358,20 @@ private:
         options.useNativeTitleBar = true;
         options.resizable = true;
         tutorialsWindow = options.launchAsync();
+    }
+
+    void showSystemUsage()
+    {
+        if (usageWindow != nullptr) { usageWindow->setVisible (true); usageWindow->toFront (true); return; }
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (new ui::SystemUsageWindow (engine.getGraph().getPerformance(), loader, session,
+                                                             [this] { auto* d = engine.getDeviceManager().getCurrentAudioDevice(); return d != nullptr ? d->getCurrentBufferSizeSamples() : 0; }));
+        options.dialogTitle = "System Usage";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        usageWindow = options.launchAsync();
     }
 
     void showShortcuts()
@@ -2958,7 +2978,7 @@ private:
     juce::LookAndFeel_V4 lookAndFeel;
     juce::String lastAnnounced;
     ui::TourOverlay tour;
-    juce::Component::SafePointer<juce::DialogWindow> welcomeWindow, tutorialsWindow, shortcutsWindow;
+    juce::Component::SafePointer<juce::DialogWindow> welcomeWindow, tutorialsWindow, shortcutsWindow, usageWindow;
     bool playedOnce = false, bouncedOnce = false, mixedOnce = false, paletteOpenedOnce = false;
     juce::Component::SafePointer<ui::ScriptConsole> scriptConsoleContent;
     juce::StringArray scriptCommands;
@@ -3055,6 +3075,7 @@ public:
             else if (arg == "--tour") main.startTourFromCommandLine();
             else if (arg == "--tutorials") main.showTutorialsFromCommandLine();
             else if (arg == "--shortcuts") main.showShortcutsFromCommandLine();
+            else if (arg == "--system-usage") main.showSystemUsageFromCommandLine();
             else if (arg.startsWith ("--sample-project=")) main.openSampleFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--import-dialog=")) main.showImportDialogFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--unfreeze=")) main.unfreezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());

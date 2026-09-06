@@ -29,6 +29,9 @@ public:
     void setRollText (const juce::String& t) { rollButton.setButtonText (t); }
     // QuickPunch/TrackPunch: rolling with inputs captured but not punched in (record button shows amber).
     void setWaitingForPunch (bool waiting) { waitingForPunch = waiting; }
+    // CPU readout (0..1) and overrun count, shown at the right of the LCDs
+    void setCpuLoad (float load, long long overruns) { cpuLoad = load; cpuOverruns = overruns; cpuLabel.repaint(); }
+    std::function<void()> onCpuClicked;
     void setControlsVisible (bool visible) { controlsButton.setToggleState (visible, juce::dontSendNotification); }
     void setMixerVisible (bool visible) { mixerButton.setToggleState (visible, juce::dontSendNotification); }
 
@@ -37,6 +40,7 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     void timerCallback() override;
@@ -52,6 +56,8 @@ private:
     juce::ShapeButton rtzButton    { "Return to Start", theme::stop, theme::stop.brighter(), theme::stop.darker() };
 
     juce::Label barsBeatsLcd, timeLcd, tempoLcd;
+    juce::Label cpuLabel;
+    float cpuLoad = 0.0f; long long cpuOverruns = 0;
     juce::TextButton libraryButton { "Library" };
     juce::TextButton controlsButton { "Controls" };
     juce::TextButton mixerButton { "Mix" };

@@ -16,6 +16,7 @@
 #pragma once
 
 #include "RenderSnapshot.h"
+#include "PerformanceMonitor.h"
 #include "../dsp/DrumMachine.h"
 #include "../io/Recorder.h"
 #include "../metering/Loudness.h"
@@ -57,6 +58,8 @@ public:
     bool isScrubbing() const noexcept { return scrubbing.load (std::memory_order_relaxed); }
 
     int getNumSynthVoices() const noexcept;
+    const PerformanceMonitor& getPerformance() const noexcept { return performance; }
+    PerformanceMonitor& getPerformance() noexcept { return performance; }
 
     // Optional recorder that receives every input block (message thread, before start).
     void setRecorder (Recorder* r) noexcept { recorder = r; }
@@ -118,6 +121,7 @@ private:
     void swapInPendingSnapshot() noexcept;
 
     Transport& transport;
+    PerformanceMonitor performance;
     DrumMachine drums;
     Recorder* recorder = nullptr;
 

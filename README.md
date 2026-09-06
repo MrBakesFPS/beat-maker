@@ -378,6 +378,16 @@ Run the tests with `ctest --test-dir build`.
   track's clips, Shift+M/S/R mute, solo or arm the selected track, and every
   command is reachable from the palette. The focused edit window shows an
   accent outline.
+- System Usage (Ctrl+Shift+U, or click the CPU readout in the transport bar):
+  audio CPU load with a peak hold and a count of callbacks that overran their
+  budget, the heaviest tracks (per-strip timing on the audio thread, so a
+  reverb aux or a plugin shows up by name), session audio in RAM, and the
+  audio cache. The cache decodes each audio file once per sample rate and
+  shares the buffer between every clip, pad and sample that uses it; loops you
+  drop twice cost one decode, reopening a session reuses what is resident, and
+  the least recently used files that nothing references go first when the
+  budget (Preferences > Processing > Audio cache size, 2 GB by default) is
+  exceeded. Audio in use is never dropped.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

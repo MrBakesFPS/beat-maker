@@ -78,6 +78,14 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     cycleButton.setTooltip ("Cycle: loop the whole arrangement (C)");
     cycleButton.onClick = [this] { transport.setLoopEnabled (cycleButton.getToggleState()); };
 
+    addAndMakeVisible (cpuLabel);
+    cpuLabel.setJustificationType (juce::Justification::centred);
+    cpuLabel.setFont (juce::FontOptions (11.0f));
+    cpuLabel.setColour (juce::Label::backgroundColourId, theme::lcdBackground);
+    cpuLabel.setTooltip ("Audio CPU load (click for System Usage)");
+    cpuLabel.setTitle ("CPU load");
+    cpuLabel.setInterceptsMouseClicks (true, false);
+    cpuLabel.addMouseListener (this, false);
     addAndMakeVisible (recordModeButton);
     recordModeButton.setTooltip ("Record mode: Normal (punch at the selection), QuickPunch, TrackPunch, Loop");
     recordModeButton.onClick = [this] { if (onRecordModeClicked) onRecordModeClicked (recordModeButton); };
@@ -150,17 +158,27 @@ void TransportBar::resized()
     area.removeFromRight (16);
 
     // LCDs share whatever is left, shrinking proportionally on narrow windows.
+    // The CPU readout is small and always shown, sitting after the tempo LCD.
+    const int cpuWidth = 60;
     const int ideal = 200 + 4 + 130 + 4 + 170;
-    const double scale = juce::jmin (1.0, (double) area.getWidth() / ideal);
+    const double scale = juce::jmin (1.0, (double) (area.getWidth() - cpuWidth - 4) / ideal);
     barsBeatsLcd.setBounds (area.removeFromLeft (juce::roundToInt (200 * scale))); area.removeFromLeft (4);
     timeLcd.setBounds      (area.removeFromLeft (juce::roundToInt (130 * scale))); area.removeFromLeft (4);
-    tempoLcd.setBounds     (area.removeFromLeft (juce::roundToInt (170 * scale)));
+    tempoLcd.setBounds     (area.removeFromLeft (juce::roundToInt (170 * scale))); area.removeFromLeft (4);
+    cpuLabel.setBounds     (area.removeFromLeft (cpuWidth).reduced (0, 6));
     tempoLcd.setVisible (scale > 0.55);
+}
+
+void TransportBar::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.eventComponent == &cpuLabel && onCpuClicked) onCpuClicked();
 }
 
 void TransportBar::timerCallback()
 {
     updateDisplay();
+    cpuLabel.setText ("CPU " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 9.99f, cpuLoad) * 100.0f)) + "%" + (cpuOverruns > 0 ? "!" : ""), juce::dontSendNotification);
+    cpuLabel.setColour (juce::Label::textColourId, cpuLoad > 0.9f || cpuOverruns > 0 ? theme::record.brighter (0.3f) : cpuLoad > 0.7f ? juce::Colour (0xfff1c40f) : theme::accent);
     cycleButton.setToggleState (transport.isLoopEnabled(), juce::dontSendNotification);
     playButton.setColours (transport.isPlaying() ? theme::play.brighter (0.6f) : theme::play,
                            theme::play.brighter(), theme::play.darker());

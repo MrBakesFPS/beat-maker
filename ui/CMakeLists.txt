@@ -35,6 +35,7 @@ target_sources(BeatMaker PRIVATE
     depth/TourOverlay.cpp
     depth/TutorialWindow.cpp
     depth/ShortcutsWindow.cpp
+    depth/SystemUsageWindow.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
