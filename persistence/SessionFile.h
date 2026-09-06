@@ -31,6 +31,10 @@ struct LoadContext
     std::function<std::shared_ptr<engine::Effect> (const juce::String& identifier, juce::String& error)> instantiatePlugin;
     // The synthesised default drum kit.
     std::function<std::shared_ptr<const engine::DrumKit>()> defaultKit;
+    // Leave Elastic clips of the main playlists unrendered (audio == sourceAudio,
+    // offsets in the rendered domain as saved) so the app can render them on a
+    // background thread; see model::Elastic::pendingRenders.
+    bool deferElasticRenders = false;
 };
 
 class SessionFile

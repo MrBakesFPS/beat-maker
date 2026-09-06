@@ -1,4 +1,5 @@
 #include "TrackArea.h"
+#include "../shared/UiProfiler.h"
 #include <GroupLogic.h>
 #include <Playlists.h>
 #include <dsp/Fades.h>
@@ -410,6 +411,7 @@ juce::AudioThumbnail& TrackArea::thumbnailFor (const model::AudioClip& clip)
 
 void TrackArea::paint (juce::Graphics& g)
 {
+    ui::UiProfiler::Scope profile ("paint TrackArea");
     paintBody (g);
     if (hasKeyboardFocus (false))
     {
@@ -2270,9 +2272,19 @@ void TrackArea::paintEditOverlays (juce::Graphics& g)
 
 void TrackArea::timerCallback()
 {
-    if (transport.isPlaying())
-        ensurePlayheadVisible();
-    repaint();
+    // Repaint only what changed: the playhead's columns, or everything when the
+    // view scrolled or a recording is drawing new audio.
+    const double before = viewStartSeconds;
+    if (transport.isPlaying()) ensurePlayheadVisible();
+    const bool recording = getRecordStartSeconds != nullptr && ! liveThumbnails.empty();
+    if (std::abs (viewStartSeconds - before) > 1.0e-12 || recording) { repaint(); lastPlayheadPaintX = -1; return; }
+    const int x = (int) secondsToX (transport.getPositionSeconds());
+    if (x != lastPlayheadPaintX)
+    {
+        if (lastPlayheadPaintX >= 0) repaint (lastPlayheadPaintX - 8, 0, 17, getHeight());
+        repaint (x - 8, 0, 17, getHeight());
+        lastPlayheadPaintX = x;
+    }
 }
 
 bool TrackArea::isInterestedInFileDrag (const juce::StringArray& files)

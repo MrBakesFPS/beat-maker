@@ -58,6 +58,9 @@ public:
 
     // Conform: stretch so audio recorded at clip.sourceBpm plays at `sessionBpm`.
     static engine::StretchSpec forTempo (const AudioClip&, double sessionBpm, engine::StretchMode fallbackMode = engine::StretchMode::polyphonic);
+    // Clips loaded with their Elastic render deferred (audio still the source): main playlists only.
+    static bool isPendingRender (const AudioClip& c) noexcept { return c.isElastic() && c.sourceAudio != nullptr && c.audio == c.sourceAudio; }
+    static std::vector<ClipRef> pendingRenders (const Session&);
 
     // Warp markers, positions given in rendered samples (relative to the audio, not the clip).
     static engine::StretchSpec withMarkerAt (const AudioClip&, juce::int64 renderedSample);

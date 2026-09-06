@@ -1,4 +1,5 @@
 #include "MixerView.h"
+#include "../shared/UiProfiler.h"
 #include <dsp/PitchCorrection.h>
 
 namespace beatmaker::ui
@@ -975,6 +976,7 @@ void MixerView::timerCallback()
 
 void MixerView::paint (juce::Graphics& g)
 {
+    ui::UiProfiler::Scope profile ("paint MixerView");
     g.fillAll (theme::background);
     if (strips.isEmpty())
     {

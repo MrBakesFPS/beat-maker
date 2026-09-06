@@ -18,7 +18,7 @@ public:
     SystemUsageWindow (engine::PerformanceMonitor&, persistence::AudioFileLoader&, const model::Session&, std::function<int()> deviceBlockSize);
     void paint (juce::Graphics&) override;
     void resized() override;
-    static constexpr int preferredWidth = 520, preferredHeight = 420;
+    static constexpr int preferredWidth = 560, preferredHeight = 560;
 
 private:
     void timerCallback() override { repaint(); }

@@ -1,4 +1,5 @@
 #include "PianoRoll.h"
+#include "../shared/UiProfiler.h"
 
 namespace beatmaker::ui
 {
@@ -376,6 +377,7 @@ void PianoRoll::resized()
 
 void PianoRoll::paint (juce::Graphics& g)
 {
+    ui::UiProfiler::Scope profile ("paint PianoRoll");
     g.fillAll (theme::panelDark);
     auto* track = getTrack();
     auto* clip = getClip();
@@ -479,7 +481,8 @@ void PianoRoll::paint (juce::Graphics& g)
         }
     }
 
-    // Notes: every repeat inside the clip; repeats after the first are ghosts
+    // Notes: every repeat inside the clip; repeats after the first are ghosts. Only what intersects the repaint area.
+    const auto clipArea = g.getClipBounds().toFloat();
     for (int k = firstK; k <= lastK; ++k)
     {
         const bool ghost = isGhost (k);
@@ -490,6 +493,7 @@ void PianoRoll::paint (juce::Graphics& g)
             const double t0 = repeatStartBeats (k) + n.startBeat;
             if (t0 >= clipEnd || repeatStartBeats (k) + n.getEndBeat() <= clipStart) continue;
             auto r = instanceRect (n, k);
+            if (! r.intersects (clipArea)) continue;
             const float alpha = (0.45f + 0.55f * (float) n.velocity / 127.0f) * (ghost ? 0.45f : 1.0f);
             const bool sel = selectedHas (i);
             g.setColour (sel ? theme::accent.withAlpha (ghost ? 0.5f : 1.0f) : track->colour.withAlpha (alpha));
@@ -1132,13 +1136,22 @@ bool PianoRoll::keyPressed (const juce::KeyPress& key)
 
 void PianoRoll::timerCallback()
 {
-    auto* clip = getClip();
-    auto* seq = getSequence();
-    if (clip == nullptr || seq == nullptr) return;
-    juce::ignoreUnused (clip, seq);
+    if (getSequence() == nullptr) return;
+    // Repaint only what changed: the playhead's two columns, or everything when the linked view moved.
+    const auto v = view();
+    if (linked && (std::abs (v.startSeconds - lastViewStart) > 1.0e-9 || std::abs (v.pixelsPerSecond - lastViewPps) > 1.0e-9 || std::abs (v.originX - lastViewOrigin) > 0.5))
+    {
+        lastViewStart = v.startSeconds; lastViewPps = v.pixelsPerSecond; lastViewOrigin = v.originX;
+        repaint();
+        return;
+    }
     const int x = (int) xForSeconds (transport.getPositionSeconds());
-    if (x != lastPlayheadX) { lastPlayheadX = x; repaint(); }
-    if (linked) repaint();   // the tracks may have scrolled
+    if (x != lastPlayheadX)
+    {
+        if (lastPlayheadX >= 0) repaint (lastPlayheadX - 2, headerHeight, 5, getHeight() - headerHeight);
+        repaint (x - 2, headerHeight, 5, getHeight() - headerHeight);
+        lastPlayheadX = x;
+    }
 }
 
 } // namespace beatmaker::ui

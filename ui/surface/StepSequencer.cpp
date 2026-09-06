@@ -1,4 +1,5 @@
 #include "StepSequencer.h"
+#include "../shared/UiProfiler.h"
 
 namespace beatmaker::ui
 {
@@ -308,6 +309,7 @@ void StepSequencer::resized()
 
 void StepSequencer::paint (juce::Graphics& g)
 {
+    ui::UiProfiler::Scope profile ("paint StepSequencer");
     g.fillAll (theme::panelDark);
     auto* track = getTrack();
     auto* clip = getClip();
@@ -365,9 +367,26 @@ void StepSequencer::paint (juce::Graphics& g)
     if (cx0 > (float) grid.getX()) g.fillRect (juce::Rectangle<float> ((float) grid.getX(), (float) grid.getY(), cx0 - (float) grid.getX(), (float) (vel.getBottom() - grid.getY())));
     if (cx1 < (float) grid.getRight()) g.fillRect (juce::Rectangle<float> (cx1, (float) grid.getY(), (float) grid.getRight() - cx1, (float) (vel.getBottom() - grid.getY())));
 
-    // Step cells inside the clip, per repeat
+    // The empty grid: one line per step column and pad row (not an outline per cell)
     int firstK, lastK; repeatsInView (firstK, lastK);
     const float stepPx = xForBeat (stepBeats()) - xForBeat (0.0);
+    const auto clipArea = g.getClipBounds();
+    if (stepPx > 5.0f)
+    {
+        g.setColour (theme::grid.withAlpha (0.7f));
+        for (int k = firstK; k <= lastK; ++k)
+            for (int s = 0; s <= pattern->numSteps; ++s)
+            {
+                const double t = repeatStartBeats (k) + s * stepBeats();
+                if (t < clipStart - 1.0e-9 || t > clipEnd + 1.0e-9) continue;
+                const int x = (int) xForBeat (t);
+                if (x < clipArea.getX() - 1 || x > clipArea.getRight() + 1) continue;
+                g.drawVerticalLine (x, (float) grid.getY(), (float) grid.getBottom());
+            }
+        for (int pad = 1; pad < engine::DrumKit::numPads; ++pad)
+            g.drawHorizontalLine ((int) (grid.getY() + pad * rh), juce::jmax (cx0, (float) grid.getX()), juce::jmin (cx1, (float) grid.getRight()));
+    }
+    // Lit cells inside the clip, per repeat; only what intersects the area being repainted
     for (int k = firstK; k <= lastK; ++k)
     {
         const bool ghost = isGhost (k);
@@ -375,23 +394,18 @@ void StepSequencer::paint (juce::Graphics& g)
         {
             const double t0 = repeatStartBeats (k) + s * stepBeats();
             if (t0 < clipStart - 1.0e-9 || t0 >= clipEnd - 1.0e-9) continue;
+            const float x0 = xForBeat (t0);
+            if (x0 + stepPx < (float) clipArea.getX() || x0 > (float) clipArea.getRight()) continue;
             for (int pad = 0; pad < engine::DrumKit::numPads; ++pad)
             {
-                const auto cell = cellRect (pad, s, k).reduced (stepPx > 8.0f ? 1.5f : 0.5f, 1.5f);
                 const auto v = pattern->get (pad, s);
+                if (v == 0) continue;
+                const auto cell = cellRect (pad, s, k).reduced (stepPx > 8.0f ? 1.5f : 0.5f, 1.5f);
                 const bool sel = StepEdits::contains (selection, { pad, s });
-                if (v > 0)
-                {
-                    const float alpha = (0.35f + 0.65f * (float) v / 127.0f) * (ghost ? 0.4f : 1.0f);
-                    g.setColour (sel ? theme::accent.withAlpha (ghost ? 0.5f : 1.0f) : track->colour.withAlpha (alpha));
-                    g.fillRoundedRectangle (cell, 3.0f);
-                    if (sel) { g.setColour (theme::text.withAlpha (0.8f)); g.drawRoundedRectangle (cell, 3.0f, 1.0f); }
-                }
-                else if (stepPx > 5.0f)
-                {
-                    g.setColour (theme::grid.withAlpha (ghost ? 0.4f : 1.0f));
-                    g.drawRoundedRectangle (cell, 3.0f, 1.0f);
-                }
+                const float alpha = (0.35f + 0.65f * (float) v / 127.0f) * (ghost ? 0.4f : 1.0f);
+                g.setColour (sel ? theme::accent.withAlpha (ghost ? 0.5f : 1.0f) : track->colour.withAlpha (alpha));
+                if (stepPx > 8.0f) g.fillRoundedRectangle (cell, 3.0f); else g.fillRect (cell);
+                if (sel) { g.setColour (theme::text.withAlpha (0.8f)); g.drawRoundedRectangle (cell, 3.0f, 1.0f); }
             }
         }
     }
@@ -664,9 +678,21 @@ bool StepSequencer::keyPressed (const juce::KeyPress& key)
 
 void StepSequencer::timerCallback()
 {
+    // Repaint only what changed: the playhead's two columns, or everything when the linked view moved.
+    const auto v = view();
+    if (linked && (std::abs (v.startSeconds - lastViewStart) > 1.0e-9 || std::abs (v.pixelsPerSecond - lastViewPps) > 1.0e-9 || std::abs (v.originX - lastViewOrigin) > 0.5))
+    {
+        lastViewStart = v.startSeconds; lastViewPps = v.pixelsPerSecond; lastViewOrigin = v.originX;
+        repaint();
+        return;
+    }
     const int x = (int) xForSeconds (transport.getPositionSeconds());
-    if (x != lastPlayheadX) { lastPlayheadX = x; repaint(); }
-    else if (linked) repaint();
+    if (x != lastPlayheadX)
+    {
+        if (lastPlayheadX >= 0) repaint (lastPlayheadX - 2, headerHeight, 5, getHeight() - headerHeight);
+        repaint (x - 2, headerHeight, 5, getHeight() - headerHeight);
+        lastPlayheadX = x;
+    }
 }
 
 bool StepSequencer::isInterestedInFileDrag (const juce::StringArray& files)

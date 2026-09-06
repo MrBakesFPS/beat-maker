@@ -110,7 +110,7 @@ namespace
         return o;
     }
 
-    bool audioClipFrom (const juce::var& v, const juce::File& bundle, const LoadContext& ctx, AudioClip& c, juce::StringArray& warnings)
+    bool audioClipFrom (const juce::var& v, const juce::File& bundle, const LoadContext& ctx, AudioClip& c, juce::StringArray& warnings, bool mayDefer = false)
     {
         c.name = get (v, "name", "Clip").toString();
         c.sourceFile = fileFor (get (v, "path").toString(), bundle);
@@ -137,6 +137,11 @@ namespace
             if (c.elastic.isActive())
             {
                 c.sourceAudio = audio;
+                if (mayDefer && ctx.deferElasticRenders)
+                {
+                    c.clampFades();
+                    return true;   // pending: audio == sourceAudio, region as saved; the graph skips reads past the buffer
+                }
                 c.audio = std::make_shared<const juce::AudioBuffer<float>> (engine::TimeStretch::render (*audio, c.sampleRate, c.elastic));
             }
         }
@@ -337,7 +342,7 @@ namespace
         t.inputPath = (int) get (v, "inputPath", -1); t.outputPath = (int) get (v, "outputPath", 0); t.delayOffset = (int) get (v, "delayOffset", 0);
 
         const auto clips = get (v, "clips");
-        for (int i = 0; i < count (clips); ++i) { AudioClip c; if (audioClipFrom (clips[i], bundle, ctx, c, warnings)) t.clips.push_back (std::move (c)); }
+        for (int i = 0; i < count (clips); ++i) { AudioClip c; if (audioClipFrom (clips[i], bundle, ctx, c, warnings, true)) t.clips.push_back (std::move (c)); }
         const auto alternates = get (v, "alternates");
         for (int a = 0; a < count (alternates); ++a)
         {

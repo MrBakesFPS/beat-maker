@@ -1,4 +1,5 @@
 #include "SystemUsageWindow.h"
+#include "../shared/UiProfiler.h"
 #include <set>
 
 namespace beatmaker::ui
@@ -100,6 +101,25 @@ void SystemUsageWindow::paint (juce::Graphics& g)
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.5f));
     g.drawText ("Session audio in RAM: " + mb (sessionAudioBytes (session)), area.removeFromTop (18), juce::Justification::centredLeft);
+    // Message thread
+    area.removeFromTop (28);
+    auto& prof = ui::UiProfiler::get();
+    g.setColour (theme::text);
+    g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+    g.drawText ("Interface (message thread)", area.removeFromTop (18), juce::Justification::centredLeft);
+    g.setColour (prof.getStalls() > 0 ? theme::record : theme::textDim);
+    g.setFont (juce::FontOptions (11.0f));
+    g.drawText ("Stalls over " + juce::String (ui::UiProfiler::stallThresholdMs, 0) + " ms: " + juce::String (prof.getStalls()) + "   longest " + juce::String (prof.getMaxStallMs(), 0) + " ms", area.removeFromTop (16), juce::Justification::centredLeft);
+    auto statsMap = prof.getStats();
+    std::vector<std::pair<juce::String, ui::UiProfiler::Stat>> rows (statsMap.begin(), statsMap.end());
+    std::sort (rows.begin(), rows.end(), [] (const auto& a, const auto& b) { return a.second.totalMs > b.second.totalMs; });
+    int shownRows = 0;
+    for (const auto& [name, st] : rows)
+    {
+        if (shownRows++ >= 5) break;
+        g.setColour (theme::textDim);
+        g.drawText (name + ": " + juce::String (st.count) + " x, avg " + juce::String (st.totalMs / (double) juce::jmax (1LL, st.count), 1) + " ms, max " + juce::String (st.maxMs, 0) + " ms", area.removeFromTop (15), juce::Justification::centredLeft);
+    }
     g.drawText ("Audio cache: " + mb (stats.bytes) + " of " + mb (stats.budget) + " in " + juce::String (stats.entries) + " files   hits " + juce::String (stats.hits) + "  misses " + juce::String (stats.misses)
                     + (stats.hits + stats.misses > 0 ? "  (" + juce::String (juce::roundToInt (100.0 * stats.hits / (double) (stats.hits + stats.misses))) + " % hit rate)" : juce::String()),
                 area.removeFromTop (18), juce::Justification::centredLeft, true);

@@ -20,6 +20,7 @@
 #include "depth/AafExportDialog.h"
 #include "depth/CrashReportWindow.h"
 #include "shared/CrashReporter.h"
+#include "shared/UiProfiler.h"
 #include <cstdlib>
 #include <AafExport.h>
 #include <SampleProjects.h>
@@ -403,6 +404,7 @@ public:
     void showTutorialsFromCommandLine() { showTutorials(); }
     void showShortcutsFromCommandLine() { showShortcuts(); }
     void showSystemUsageFromCommandLine() { showSystemUsage(); }
+    void printUiProfile() { std::cout << ui::UiProfiler::get().summary() << std::endl; }
     // After the window regains activation: focus goes back to the component that had it (note or drum editor, tracks).
     void restoreFocus()
     {
@@ -842,6 +844,7 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
+        ui::UiProfiler::Scope scope ("keyPressed");
         if (commands.handleKey (key, editSettings.commandsFocus)) return true;
         // Clip edits reach the track area even when it doesn't have focus
         if (trackArea.keyPressed (key)) return true;
@@ -1141,12 +1144,12 @@ private:
             const auto mode = conformPref == 0 ? (info.category == persistence::LoopInfo::Category::drums ? engine::StretchMode::rhythmic : engine::StretchMode::polyphonic)
                                                : modes[juce::jlimit (0, 4, conformPref)];
             const auto& placed = session.getTracks()[(size_t) trackIndex].clips[(size_t) ref.index];
-            auto stretch = std::make_unique<model::SetClipElasticCommand> (session, ref, model::Elastic::forTempo (placed, sessionBpm, mode), "Conform to Tempo");
+            auto stretch = std::make_unique<model::SetClipElasticCommand> (session, ref, model::Elastic::forTempo (placed, sessionBpm, mode), "Conform to Tempo", true);
             if (! stretch->wasCancelled())
             {
-                session.execute (std::move (stretch));
                 conformNote = "  (" + juce::String (juce::roundToInt (info.bpm)) + " -> " + juce::String (juce::roundToInt (sessionBpm))
                             + " BPM, " + engine::TimeStretch::modeName (mode) + ")";
+                ui::ElasticJob::run (session, std::move (stretch));   // background with a progress window when it would take a moment
             }
         }
 
@@ -2074,6 +2077,7 @@ private:
     {
         persistence::LoadContext ctx;
         ctx.sampleRate = engine.getSampleRate();
+        ctx.deferElasticRenders = true;   // rendered by renderPendingElastic() after the load
         ctx.loadAudio = [this] (const juce::File& f) -> std::shared_ptr<const juce::AudioBuffer<float>>
         {
             juce::String error;
@@ -2104,6 +2108,7 @@ private:
     // Writes the session to `bundle` (a .bmk or .bmkt directory).
     bool writeSession (const juce::File& bundle, bool asTemplate)
     {
+        ui::UiProfiler::Scope scope ("saveSession");
         if (const auto error = persistence::SessionFile::save (session, transportState(), bundle); error.isNotEmpty())
         {
             statusMessage = "Save failed: " + error; updateStatus(); return false;
@@ -2171,7 +2176,29 @@ private:
         statusMessage = "Opened " + bundle.getFileNameWithoutExtension() + "  (" + juce::String (session.getNumTracks()) + " tracks)"
                       + (warnings.isEmpty() ? juce::String() : "  WARNING: " + juce::String (warnings.size()) + " item(s) missing: " + warnings[0]);
         updateStatus();
+        renderPendingElastic (true);
         return true;
+    }
+
+    // Elastic clips whose render was deferred at load: render them on a background
+    // thread behind a progress window (inline when quick) and apply as one step.
+    void renderPendingElastic (bool clearHistoryAfter)
+    {
+        const auto pending = model::Elastic::pendingRenders (session);
+        if (pending.empty()) return;
+        std::vector<std::unique_ptr<model::SetClipElasticCommand>> cmds;
+        for (const auto& ref : pending)
+        {
+            const auto& clip = session.getTracks()[(size_t) ref.track].clips[(size_t) ref.index];
+            auto cmd = std::make_unique<model::SetClipElasticCommand> (session, ref, clip.elastic, "Restore Elastic Audio", true);
+            if (! cmd->wasCancelled()) cmds.push_back (std::move (cmd));
+        }
+        const int count = (int) cmds.size();
+        ui::ElasticJob::runMany (session, std::move (cmds), "Restoring Elastic Audio (" + juce::String (count) + " clips)...", "Restore Elastic Audio", [this, clearHistoryAfter] (int applied)
+        {
+            if (clearHistoryAfter) session.clearHistory();
+            if (applied > 0) { statusMessage = "Elastic Audio restored on " + juce::String (applied) + " clip(s)"; updateStatus(); }
+        });
     }
 
     void openSessionChooser()
@@ -2669,6 +2696,7 @@ private:
         auto cmd = persistence::SessionImport::build (session, *importSource, engine.getSampleRate(), o, summary);
         if (cmd == nullptr) { statusMessage = "Import Session Data: nothing selected"; updateStatus(); return; }
         session.execute (std::move (cmd));
+        renderPendingElastic (false);
         if (o.importTempo) setTempo (ts.bpm, ts.beatsPerBar, false);
         trackArea.setSelectedTrack (session.getNumTracks() - 1);
         statusMessage = "Imported " + juce::String (summary.tracksAdded) + " new track(s)" + (summary.tracksMerged > 0 ? ", merged " + juce::String (summary.tracksMerged) : juce::String())
@@ -3156,6 +3184,7 @@ private:
     // Autosave every few minutes into the bundle's backups folder.
     void autosaveTick()
     {
+        ui::UiProfiler::Scope scope ("autosave");
         if (sessionFile == juce::File() || ! session.getHistory().canUndo()) return;
         const auto backups = sessionFile.getChildFile ("Session File Backups");
         backups.createDirectory();
@@ -3259,38 +3288,11 @@ private:
             }
         }
         if (cmds.empty()) return;
-        auto apply = [this] (std::vector<std::unique_ptr<model::SetClipElasticCommand>> done)
+        juce::ignoreUnused (totalSeconds);
+        ui::ElasticJob::runMany (session, std::move (cmds), "Conforming loops to the new tempo...", "Conform Loops to Tempo", [this] (int n)
         {
-            auto compound = std::make_unique<model::CompoundCommand> ("Conform Loops to Tempo");
-            int n = 0;
-            for (auto& c : done) if (c->isRendered()) { compound->add (std::move (c)); ++n; }
-            if (n > 0) session.execute (std::move (compound));
             statusMessage = "Conformed " + juce::String (n) + " loop(s) to " + juce::String (session.getBpm(), 1) + " BPM"; updateStatus();
-        };
-        if (totalSeconds <= ui::ElasticJob::asyncThresholdSeconds)
-        {
-            for (auto& c : cmds) c->render();
-            apply (std::move (cmds));
-            return;
-        }
-        struct Job final : juce::ThreadWithProgressWindow
-        {
-            Job (std::vector<std::unique_ptr<model::SetClipElasticCommand>> c, std::function<void (std::vector<std::unique_ptr<model::SetClipElasticCommand>>)> a)
-                : ThreadWithProgressWindow ("Conforming loops to the new tempo...", true, true), cmds (std::move (c)), apply (std::move (a)) {}
-            void run() override
-            {
-                for (size_t i = 0; i < cmds.size() && ! threadShouldExit(); ++i)
-                    cmds[i]->render ([this, i] (double p) { setProgress (((double) i + p) / (double) cmds.size()); return ! threadShouldExit(); });
-            }
-            void threadComplete (bool cancelled) override
-            {
-                if (! cancelled) apply (std::move (cmds));
-                juce::MessageManager::callAsync ([this] { delete this; });
-            }
-            std::vector<std::unique_ptr<model::SetClipElasticCommand>> cmds;
-            std::function<void (std::vector<std::unique_ptr<model::SetClipElasticCommand>>)> apply;
-        };
-        (new Job (std::move (cmds), std::move (apply)))->launchThread();
+        });
     }
 
     void showTempoDialog()
@@ -3332,13 +3334,13 @@ private:
 
     void sessionChanged (model::Session&) override
     {
+        ui::UiProfiler::Scope scope ("sessionChanged");
         mirrorTempo();
         if (session.getHistory().canUndo()) ui::CrashReporter::get().addBreadcrumb ("edit " + session.getHistory().getUndoName());
-        pushSnapshot();
+        { ui::UiProfiler::Scope s ("pushSnapshot"); pushSnapshot(); }
         updateLoopRange();
-
-        updateSequencerTarget();
-        updateStatus();
+        { ui::UiProfiler::Scope s ("updateSequencerTarget"); updateSequencerTarget(); }
+        { ui::UiProfiler::Scope s ("updateStatus"); updateStatus(); }
     }
 
     void updateStatus()
@@ -3406,6 +3408,7 @@ private:
     juce::String lastDeviceInfo;
     double mirroredBpm = 0.0;
     juce::Component::SafePointer<juce::Component> lastFocused;
+    ui::UiProfiler::StallDetector stallDetector;
     juce::String debugFocusName;
     std::vector<double> tapTimes; int tapGeneration = 0;
     juce::Component::SafePointer<juce::DialogWindow> memoryWindow, preferencesWindow, paletteWindow;
@@ -3593,6 +3596,13 @@ public:
         if (! getCommandLineParameterArray().contains ("--crash-dialog") && ui::CrashReporter::get().isEnabled())
             juce::Timer::callAfterDelay (400, [&main] { main.showPendingCrashReportFromCommandLine(); });
 
+        // --profile-ui[=seconds]: print where the message thread's time went, then quit.
+        for (const auto& arg : getCommandLineParameterArray())
+            if (arg.startsWith ("--profile-ui"))
+            {
+                const double seconds = arg.contains ("=") ? arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue() : 5.0;
+                juce::Timer::callAfterDelay (juce::roundToInt (seconds * 1000.0), [&main, this] { main.printUiProfile(); quit(); });
+            }
         // --quit: done with the command line (stems, saves, scripts) - exit.
         if (getCommandLineParameterArray().contains ("--quit")) { quit(); return; }
 

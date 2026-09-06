@@ -210,6 +210,15 @@ std::vector<juce::int64> Elastic::transients (const AudioClip& c, float sensitiv
     return out;
 }
 
+std::vector<ClipRef> Elastic::pendingRenders (const Session& s)
+{
+    std::vector<ClipRef> out;
+    for (int t = 0; t < s.getNumTracks(); ++t)
+        for (int c = 0; c < (int) s.getTracks()[(size_t) t].clips.size(); ++c)
+            if (isPendingRender (s.getTracks()[(size_t) t].clips[(size_t) c])) out.push_back ({ t, ClipRef::Kind::audio, c });
+    return out;
+}
+
 std::optional<engine::StretchSpec> Elastic::quantizeToGrid (const AudioClip& c, double bpm, double gridBeats, float strength, float sensitivity)
 {
     if (bpm <= 0.0 || gridBeats <= 0.0) return std::nullopt;

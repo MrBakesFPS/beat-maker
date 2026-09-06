@@ -178,6 +178,7 @@ private:
     int hoverNote = -1;
     double lastNoteLength = 0.5;
     int lastPlayheadX = -1;
+    double lastViewStart = -1.0, lastViewPps = -1.0, lastViewOrigin = -1.0;
 
     Drag drag = Drag::none;
     juce::Point<int> dragStart, dragCurrent;

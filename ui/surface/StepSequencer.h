@@ -142,6 +142,7 @@ private:
     bool linked = true;
     double ownStartSeconds = 0.0, ownPixelsPerSecond = 0.0;
     int lastPlayheadX = -1;
+    double lastViewStart = -1.0, lastViewPps = -1.0, lastViewOrigin = -1.0;
     int dragPad = -1;
     int focusPad = 0;                                        // whose hits the velocity lane shows
     model::StepEdits::Cells selection;

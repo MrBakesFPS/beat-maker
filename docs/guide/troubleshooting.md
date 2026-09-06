@@ -8,6 +8,12 @@ Beat Maker opens the default audio device. On Linux that is usually PipeWire or 
 
 Open **System Usage** (**Ctrl+Shift+U**). A red CPU readout or a growing overrun count means the audio thread is missing its deadline. Freeze the heaviest tracks (the window lists them), raise the device buffer size, or use a Release build: a Debug build is many times slower on the audio thread.
 
+## The interface lags
+
+Open **System Usage** (**Ctrl+Shift+U**) and look at the Interface section: it counts message-thread stalls and lists the operations that took the most time, such as paints of a particular view, session edits, snapshot builds or saves. `beat-maker --profile-ui=10` prints the same profile after ten seconds and quits, which is the quickest way to attach numbers to a report.
+
+Long renders do not block the interface: opening a session restores its Elastic Audio clips on a background thread behind a progress window, and dropping a loop, changing the tempo or trimming with TCE do the same whenever the render would take more than a moment (the app learns how fast this machine renders). A Debug build is many times slower at painting and rendering than a Release build; use Release for real work.
+
 ## A plugin misbehaves
 
 Scanning runs each plugin in its own process, so a plugin that crashes during the scan is blacklisted and the app is unaffected. Once loaded, plugins run in-process. If the app goes down after inserting a plugin, the crash report's recent actions will show the insert; remove `~/.config/Beat Maker/plugins.xml` to rescan, or leave that plugin out.

@@ -448,7 +448,10 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   audio CPU load with a peak hold and a count of callbacks that overran their
   budget, the heaviest tracks (per-strip timing on the audio thread, so a
   reverb aux or a plugin shows up by name), session audio in RAM, and the
-  audio cache. The cache decodes each audio file once per sample rate and
+  audio cache, plus an Interface section: message-thread stalls and the
+  operations that took the most time (paints, edits, snapshots, saves), so a
+  laggy interface can be traced to its cause. `--profile-ui[=seconds]` prints
+  the same profile and quits. The cache decodes each audio file once per sample rate and
   shares the buffer between every clip, pad and sample that uses it; loops you
   drop twice cost one decode, reopening a session reuses what is resident, and
   the least recently used files that nothing references go first when the

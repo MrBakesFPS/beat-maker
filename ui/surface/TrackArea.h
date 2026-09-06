@@ -284,6 +284,7 @@ private:
 
     double pixelsPerSecond = 60.0;
     double viewStartSeconds = 0.0;
+    int lastPlayheadPaintX = -1;
     bool dragHover = false;
 };
 
