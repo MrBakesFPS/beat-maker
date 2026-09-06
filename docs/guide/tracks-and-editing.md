@@ -10,6 +10,8 @@
 
 The + Track menu creates any of them. Right-click a track header to rename, freeze, commit or delete it. Tracks have mute, solo, record arm, input monitoring, an automation mode and a view selector (Clips, Clip Gain, or an automation lane).
 
+When there are more tracks than fit, the list scrolls: the mouse wheel over the tracks scrolls the list, Shift+wheel (or a sideways wheel) scrolls time, Ctrl+wheel zooms, and the scrollbar at the right edge does the same. Selecting a track with the keyboard scrolls it into view; the ruler and marker strip stay put.
+
 ## Edit modes and tools
 
 The toolbar follows the Pro Tools layout. Modes: **Shuffle**, **Slip**, **Spot** and **Grid** (F1 to F4; Grid has a value selector and an Absolute/Relative toggle). Tools: **Zoomer**, **Trimmer**, **Selector**, **Grabber**, **Scrubber**, **Pencil** and the **Smart Tool** (F5 to F11).

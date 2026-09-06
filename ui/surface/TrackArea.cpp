@@ -49,7 +49,48 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
                             });
     };
     rebuildTrackControls();
+    addAndMakeVisible (vScroll);
+    vScroll.setAutoHide (true);
+    vScroll.addListener (this);
+    vScroll.setTitle ("Track list scroll");
+    addAndMakeVisible (rulerOverlay);
+    rulerOverlay.toFront (false);
     startTimerHz (30);
+}
+
+int TrackArea::contentHeight() const
+{
+    int h = 0;
+    for (int k = 0; k < session.getNumTracks(); ++k) h += trackHeightFor (k);
+    return h + 52;   // room for the + Track button
+}
+
+void TrackArea::updateScrollRange()
+{
+    const int visible = juce::jmax (1, getHeight() - theme::rulerHeight);
+    scrollY = juce::jlimit (0, juce::jmax (0, contentHeight() - visible), scrollY);
+    vScroll.setRangeLimits (0.0, (double) juce::jmax (contentHeight(), visible), juce::dontSendNotification);
+    vScroll.setCurrentRange ((double) scrollY, (double) visible, juce::dontSendNotification);
+}
+
+void TrackArea::setScrollY (int pixels)
+{
+    const int visible = juce::jmax (1, getHeight() - theme::rulerHeight);
+    const int clamped = juce::jlimit (0, juce::jmax (0, contentHeight() - visible), pixels);
+    if (clamped == scrollY) return;
+    scrollY = clamped;
+    resized();
+    repaint();
+}
+
+void TrackArea::scrollBarMoved (juce::ScrollBar*, double newRangeStart) { setScrollY (juce::roundToInt (newRangeStart)); }
+
+void TrackArea::ensureTrackVisible (int i)
+{
+    if (! juce::isPositiveAndBelow (i, session.getNumTracks())) return;
+    const int top = trackTop (i), bottom = top + trackHeightFor (i);
+    if (top < theme::rulerHeight) setScrollY (scrollY - (theme::rulerHeight - top));
+    else if (bottom > getHeight()) setScrollY (scrollY + (bottom - getHeight()));
 }
 
 TrackArea::~TrackArea()
@@ -64,7 +105,7 @@ TrackArea::~TrackArea()
 
 juce::Rectangle<int> TrackArea::getRulerBounds() const
 {
-    return { theme::trackHeaderWidth, 0, getWidth() - theme::trackHeaderWidth, theme::rulerHeight };
+    return { theme::trackHeaderWidth, 0, getWidth() - theme::trackHeaderWidth - scrollBarWidth, theme::rulerHeight };
 }
 
 bool TrackArea::arePlaylistsShown (const model::Track& t) const { return playlistsShown.count (t.id) > 0; }
@@ -78,7 +119,7 @@ int TrackArea::trackHeightFor (int i) const
 
 int TrackArea::trackTop (int i) const
 {
-    int y = theme::rulerHeight;
+    int y = theme::rulerHeight - scrollY;
     for (int k = 0; k < i; ++k) y += trackHeightFor (k);
     return y;
 }
@@ -90,17 +131,17 @@ juce::Rectangle<int> TrackArea::getHeaderBounds (int i) const
 
 juce::Rectangle<int> TrackArea::getLaneBounds (int i) const
 {
-    return { theme::trackHeaderWidth, trackTop (i), getWidth() - theme::trackHeaderWidth, trackHeight };
+    return { theme::trackHeaderWidth, trackTop (i), getLaneWidth(), trackHeight };
 }
 
 juce::Rectangle<int> TrackArea::getAlternateLaneBounds (int i, int alternate) const
 {
-    return { 0, trackTop (i) + trackHeight + alternate * alternateLaneHeight, getWidth(), alternateLaneHeight };
+    return { 0, trackTop (i) + trackHeight + alternate * alternateLaneHeight, getWidth() - scrollBarWidth, alternateLaneHeight };
 }
 
 int TrackArea::trackIndexAtY (int y) const
 {
-    if (y < theme::rulerHeight) return -1;
+    if (y < theme::rulerHeight || y >= getHeight()) return -1;
     for (int i = 0; i < session.getNumTracks(); ++i)
         if (y >= trackTop (i) && y < trackTop (i) + trackHeightFor (i)) return i;
     return -1;
@@ -165,6 +206,20 @@ void TrackArea::resized()
 
     const int y = trackTop (session.getNumTracks()) + 12;
     addTrackButton.setBounds (12, y, theme::trackHeaderWidth - 24, 28);
+    vScroll.setBounds (getWidth() - scrollBarWidth, theme::rulerHeight, scrollBarWidth, juce::jmax (0, getHeight() - theme::rulerHeight));
+    rulerOverlay.setBounds (0, 0, getWidth(), theme::rulerHeight);
+    rulerOverlay.toFront (false);
+    updateScrollRange();
+    // Controls that slid under the ruler must not take clicks through it
+    for (int i = 0; i < (int) trackControls.size(); ++i)
+    {
+        const bool shown = trackTop (i) + trackHeightFor (i) > theme::rulerHeight && trackTop (i) < getHeight();
+        auto& c = trackControls[(size_t) i];
+        for (juce::Component* comp : { (juce::Component*) c.mute.get(), (juce::Component*) c.solo.get(), (juce::Component*) c.arm.get(), (juce::Component*) c.monitor.get(),
+                                       (juce::Component*) c.playlists.get(), (juce::Component*) c.autoMode.get(), (juce::Component*) c.autoView.get(), (juce::Component*) c.input.get() })
+            if (comp != nullptr) comp->setVisible (shown);
+    }
+    addTrackButton.setVisible (addTrackButton.getBottom() > theme::rulerHeight);
 
     // Alternate lane buttons
     for (int i = 0; i < (int) trackControls.size(); ++i)
@@ -374,6 +429,7 @@ void TrackArea::clearLiveThumbnails()
 void TrackArea::sessionChanged (model::Session&)
 {
     rebuildTrackControls();
+    updateScrollRange();
     if (selectedTrack >= session.getNumTracks())
         setSelectedTrack (session.getNumTracks() - 1);
 
@@ -386,6 +442,7 @@ void TrackArea::setSelectedTrack (int index)
     index = juce::isPositiveAndBelow (index, session.getNumTracks()) ? index : -1;
     if (index == selectedTrack) return;
     selectedTrack = index;
+    ensureTrackVisible (index);
     repaint();
     if (onSelectionChanged) onSelectionChanged (selectedTrack);
 }
@@ -1936,10 +1993,16 @@ void TrackArea::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
         pixelsPerSecond = juce::jlimit (5.0, 400000.0, pixelsPerSecond * (1.0 + wheel.deltaY));
         viewStartSeconds = juce::jmax (0.0, anchorSeconds - (e.x - theme::trackHeaderWidth) / pixelsPerSecond);
     }
+    else if (e.mods.isShiftDown() || std::abs (wheel.deltaX) > std::abs (wheel.deltaY) || contentHeight() <= getHeight() - theme::rulerHeight)
+    {
+        // Shift+wheel (or a sideways wheel, or nothing to scroll vertically): time
+        const double delta = (std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY) * -200.0 / pixelsPerSecond;
+        viewStartSeconds = juce::jmax (0.0, viewStartSeconds + delta);
+    }
     else
     {
-        const double delta = (std::abs (wheel.deltaX) > 0.0f ? wheel.deltaX : wheel.deltaY) * -200.0 / pixelsPerSecond;
-        viewStartSeconds = juce::jmax (0.0, viewStartSeconds + delta);
+        setScrollY (scrollY - juce::roundToInt (wheel.deltaY * 120.0));   // the track list
+        return;
     }
     repaint();
 }

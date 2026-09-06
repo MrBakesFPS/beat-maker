@@ -24,6 +24,7 @@ class TrackArea final : public juce::Component,
                         public juce::DragAndDropTarget,
                         private juce::Timer,
                         private juce::ChangeListener,
+                        private juce::ScrollBar::Listener,
                         private model::Session::Listener
 {
 public:
@@ -86,6 +87,12 @@ public:
     // Display preferences
     void setTrackHeight (int pixels);
     int getTrackHeight() const noexcept { return trackHeight; }
+    // Vertical scrolling of the track list (the ruler stays put).
+    static constexpr int scrollBarWidth = 12;
+    int getLaneWidth() const noexcept { return getWidth() - theme::trackHeaderWidth - scrollBarWidth; }
+    int getScrollY() const noexcept { return scrollY; }
+    void setScrollY (int pixels);
+    void ensureTrackVisible (int trackIndex);
 
     // Playlists: copy the time selection made on an alternate lane into the main playlist.
     void compSelectionToMain();
@@ -285,6 +292,25 @@ private:
     double pixelsPerSecond = 60.0;
     double viewStartSeconds = 0.0;
     int lastPlayheadPaintX = -1;
+    int scrollY = 0;
+    juce::ScrollBar vScroll { true };
+    int contentHeight() const;
+    void updateScrollRange();
+    void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
+    // Painted over the scrolled tracks so their controls slide under the ruler; forwards its mouse events.
+    struct RulerOverlay final : juce::Component
+    {
+        explicit RulerOverlay (TrackArea& o) : owner (o) { setTitle ("Ruler"); }
+        void paint (juce::Graphics& g) override { owner.paintRuler (g, getLocalBounds()); }
+        void mouseDown (const juce::MouseEvent& e) override { owner.mouseDown (e.getEventRelativeTo (&owner)); }
+        void mouseDrag (const juce::MouseEvent& e) override { owner.mouseDrag (e.getEventRelativeTo (&owner)); }
+        void mouseUp (const juce::MouseEvent& e) override { owner.mouseUp (e.getEventRelativeTo (&owner)); }
+        void mouseMove (const juce::MouseEvent& e) override { owner.mouseMove (e.getEventRelativeTo (&owner)); }
+        void mouseDoubleClick (const juce::MouseEvent& e) override { owner.mouseDoubleClick (e.getEventRelativeTo (&owner)); }
+        void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override { owner.mouseWheelMove (e.getEventRelativeTo (&owner), w); }
+        TrackArea& owner;
+    };
+    RulerOverlay rulerOverlay { *this };
     bool dragHover = false;
 };
 

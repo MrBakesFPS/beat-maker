@@ -124,7 +124,7 @@ public:
             ui::TimelineView v;
             trackArea.getView (v.startSeconds, v.pixelsPerSecond);
             v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - pianoRoll.getX();
-            v.laneWidth = juce::jmax (50, trackArea.getWidth() - ui::theme::trackHeaderWidth);
+            v.laneWidth = juce::jmax (50, trackArea.getLaneWidth());
             return v;
         };
         pianoRoll.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
@@ -245,7 +245,7 @@ public:
             ui::TimelineView v;
             trackArea.getView (v.startSeconds, v.pixelsPerSecond);
             v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - sequencer.getX();
-            v.laneWidth = juce::jmax (50, trackArea.getWidth() - ui::theme::trackHeaderWidth);
+            v.laneWidth = juce::jmax (50, trackArea.getLaneWidth());
             return v;
         };
         sequencer.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
@@ -415,6 +415,7 @@ public:
     void dumpDocsFromCommandLine (const juce::File& dir) { dumpDocs (dir); }
     void setTempoFromCommandLine (double bpm) { setTempo (bpm, session.getBeatsPerBar()); }
     void focusNotesFromCommandLine() { focusNotes (true); }
+    void scrollTracksFromCommandLine (int pixels) { trackArea.setScrollY (pixels); }
     void reportProblemFromCommandLine() { reportProblem (false); }
     void exportAafFromCommandLine (const juce::String& spec) { exportAafFromCommandLineImpl (spec); }
     void showAafExportFromCommandLine() { showAafExport(); }
@@ -3543,6 +3544,7 @@ public:
             else if (arg == "--crash") { ui::CrashReporter::get().addBreadcrumb ("deliberate crash (--crash)"); ui::CrashReporter::crashNow(); }
             else if (arg == "--crash-dialog") main.showPendingCrashReportFromCommandLine();
             else if (arg == "--diagnostics") main.reportProblemFromCommandLine();
+            else if (arg.startsWith ("--scroll-tracks=")) main.scrollTracksFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg == "--notes-focus") juce::Timer::callAfterDelay (400, [&main] { main.focusNotesFromCommandLine(); });   // after the window takes focus
             else if (arg.startsWith ("--tempo=")) main.setTempoFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue());
             else if (arg.startsWith ("--dump-docs=")) main.dumpDocsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));

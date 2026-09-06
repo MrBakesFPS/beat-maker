@@ -473,7 +473,7 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
 
 Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Smart Controls, E editor panel,
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
-Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
+Ctrl+wheel zoom, wheel scrolls the track list (Shift+wheel or a sideways wheel scrolls time; the scrollbar at the right does the same, and the selected track is always scrolled into view), click the ruler to locate.
 
 This is the 1.0.0-beta.1 feature set. `tools/package.sh` builds the beta tarball, [CHANGELOG.md](CHANGELOG.md) lists what is in it and [RELEASING.md](RELEASING.md) describes the beta program and the release checklist. 1.0 follows the beta feedback.
 
