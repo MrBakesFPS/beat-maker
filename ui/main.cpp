@@ -110,6 +110,13 @@ public:
         editSettings.onChanged = [this] { editToolbar.refresh(); trackArea.repaint(); pianoRoll.repaint(); sequencer.repaint(); };
         editToolbar.editorHint = [this] { auto* ed = activeEditor(); return ed != nullptr ? ed->keyHint() : juce::String(); };
         pianoRoll.setEditSettings (&editSettings);
+        pianoRoll.onRowHeightChanged = [this] (int h) { if (prefs.getInt ("display.pianoRollRowHeight") != h) prefs.set ("display.pianoRollRowHeight", h); };
+        addChildComponent (editorResizer);
+        editorResizer.onDrag = [this] (int deltaFromStart, int startHeight)
+        {
+            prefs.set ("display.editorHeight", (double) juce::jlimit (120, 1200, startHeight - deltaFromStart));
+        };
+        editorResizer.currentHeight = [this] { return pianoRoll.isVisible() ? pianoRoll.getHeight() : sequencer.getHeight(); };
         pianoRoll.onStatus = [this] (const juce::String& s) { statusMessage = s; updateStatus(); };
         pianoRoll.viewSource = [this]
         {
@@ -818,11 +825,14 @@ public:
         }
         else if (editorVisible)
         {
-            auto editor = area.removeFromBottom (juce::jmin (300, area.getHeight() / 2));
+            const int wanted = juce::roundToInt (prefs.getDouble ("display.editorHeight"));
+            auto editor = area.removeFromBottom (juce::jlimit (120, juce::jmax (120, area.getHeight() - 160), wanted));
             sequencer.setBounds (editor);
             pianoRoll.setBounds (editor);
-            area.removeFromBottom (2);
+            editorResizer.setBounds (area.removeFromBottom (6));
+            editorResizer.setVisible (true);
         }
+        else editorResizer.setVisible (false);
         if (controlsVisible)
             smartControls.setBounds (area.removeFromBottom (ui::SmartControls::preferredHeight));
         if (libraryVisible)
@@ -2278,6 +2288,8 @@ private:
                 if (auto* c = juce::Desktop::getInstance().getComponent (i)) { c->sendLookAndFeelChange(); c->repaint(); }
             repaint();
         }
+        if (is ("display.editorHeight")) resized();
+        if (is ("display.pianoRollRowHeight")) pianoRoll.setRowHeight (prefs.getInt ("display.pianoRollRowHeight"));
         if (is ("display.uiScale"))
         {
             const float scales[] = { 1.0f, 1.25f, 1.5f, 1.75f };
@@ -3355,6 +3367,24 @@ private:
     ui::TrackArea trackArea { session, engine.getTransport(), engine.getGraph(), loader.getFormatManager(), editSettings };
     ui::StepSequencer sequencer { session, engine.getTransport(), engine.getGraph() };
     ui::PianoRoll pianoRoll { session, engine.getTransport(), engine.getGraph() };
+    // The bar between the tracks and the editor panel: drag it to change the panel's height.
+    struct EditorResizer final : juce::Component
+    {
+        std::function<void (int deltaY, int startHeight)> onDrag;
+        std::function<int()> currentHeight;
+        int startHeight = 0;
+        EditorResizer() { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); setTitle ("Editor panel height"); }
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (ui::theme::panelDark);
+            g.setColour (isMouseOverOrDragging() ? ui::theme::accent : ui::theme::gridStrong);
+            g.fillRoundedRectangle (getLocalBounds().withSizeKeepingCentre (48, 3).toFloat(), 1.5f);
+        }
+        void mouseDown (const juce::MouseEvent&) override { startHeight = currentHeight ? currentHeight() : 300; }
+        void mouseDrag (const juce::MouseEvent& e) override { if (onDrag) onDrag (e.getDistanceFromDragStartY(), startHeight); }
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { repaint(); }
+    } editorResizer;
     ui::SmartControls smartControls { session };
     ui::MixerView mixerView { session, engine.getGraph(), [this] { return engine.getSampleRate(); } };
     model::AutomationRecorder automation { session, engine.getTransport() };

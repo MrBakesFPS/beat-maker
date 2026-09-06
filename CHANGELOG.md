@@ -5,6 +5,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 ## [Unreleased]
 
 ### Added
+- The editor panel's height is draggable (a bar above it, remembered in Preferences > Display) and the note editor has its own vertical zoom (Alt+wheel, - and + buttons, a pitch scrollbar and keyboard-drag scrolling), independent of the tracks' zoom.
 - Drum editor (step sequencer) drawn on the session timeline with the same link, ghost repeats, Unroll and clip extension as the note editor; multi-selection with rubber band, Grabber moves, a velocity lane, paint strokes as one undo step, and the shared keyboard vocabulary. The Editor button and Ctrl+Alt+N cover both editors; keyboard focus in an editor survives window activation.
 - Note editor drawn on the session timeline, linked to the tracks' view (Link toggle), with looping clips showing every repeat (ghosts), Unroll to write a loop out, and clips that grow when a note is added past their end.
 - Note editor rebuilt around the shared edit settings: modes (Grid with Relative, Slip, Spot), tools (Zoomer, Trimmer, Selector, Grabber, Pencil, Smart), multi-selection with rubber band, a velocity lane, zoom and scroll, a selection readout, and the track editor's keyboard vocabulary (transpose, velocity, nudge, quantize, legato, duplicate, copy and paste, Tab through notes). Ctrl+Alt+N and a Notes toolbar button switch keyboard focus between the note editor and the tracks; the Edit and View commands follow the focus. `--notes-focus` flag.

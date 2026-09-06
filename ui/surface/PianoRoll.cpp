@@ -31,9 +31,51 @@ PianoRoll::PianoRoll (model::Session& s, engine::Transport& t, engine::AudioGrap
     unrollButton.setTooltip ("Write the loop out so every bar of the clip can be edited on its own (happens by itself when you edit a repeat)");
     unrollButton.onClick = [this] { unrollLoop(); };
 
+    addAndMakeVisible (rowsSmaller); addAndMakeVisible (rowsBigger);
+    rowsSmaller.setTooltip ("Smaller rows: zoom out vertically (Alt+wheel)");
+    rowsBigger.setTooltip ("Bigger rows: zoom in vertically (Alt+wheel)");
+    rowsSmaller.onClick = [this] { setRowHeight (rowHeight - 2); };
+    rowsBigger.onClick = [this] { setRowHeight (rowHeight + 2); };
+    addAndMakeVisible (pitchScroll);
+    pitchScroll.setAutoHide (false);
+    pitchScroll.addListener (this);
+    pitchScroll.setTitle ("Pitch range");
+
     setWantsKeyboardFocus (true);
     setTitle ("Note editor");
     startTimerHz (30);
+}
+
+void PianoRoll::setRowHeight (int pixels)
+{
+    pixels = juce::jlimit (6, 32, pixels);
+    if (pixels == rowHeight) return;
+    // Keep the middle of the visible range where it is
+    const int middle = lowestPitch + visibleRows() / 2;
+    rowHeight = pixels;
+    scrollToPitch (middle - visibleRows() / 2);
+    if (onRowHeightChanged) onRowHeightChanged (rowHeight);
+    repaint();
+}
+
+void PianoRoll::scrollToPitch (int lowest)
+{
+    lowestPitch = juce::jlimit (0, juce::jmax (0, 128 - visibleRows()), lowest);
+    syncScrollBar();
+    repaint();
+}
+
+void PianoRoll::syncScrollBar()
+{
+    // The bar runs top (high pitches) to bottom (low pitches)
+    pitchScroll.setRangeLimits (0.0, 128.0, juce::dontSendNotification);
+    pitchScroll.setCurrentRange (128.0 - lowestPitch - visibleRows(), visibleRows(), juce::dontSendNotification);
+}
+
+void PianoRoll::scrollBarMoved (juce::ScrollBar*, double newRangeStart)
+{
+    lowestPitch = juce::jlimit (0, juce::jmax (0, 128 - visibleRows()), 128 - visibleRows() - juce::roundToInt (newRangeStart));
+    repaint();
 }
 
 void PianoRoll::setLinked (bool on)
@@ -147,7 +189,7 @@ void PianoRoll::applyView (double startSeconds, double pps)
 juce::Rectangle<int> PianoRoll::gridBounds() const
 {
     const int x = originX();
-    return { x, headerHeight + rulerHeight, getWidth() - x, getHeight() - headerHeight - rulerHeight - velocityHeight };
+    return { x, headerHeight + rulerHeight, getWidth() - x - 12, getHeight() - headerHeight - rulerHeight - velocityHeight };   // 12: the pitch scrollbar
 }
 juce::Rectangle<int> PianoRoll::velocityBounds() const { const int x = originX(); return { x, getHeight() - velocityHeight, getWidth() - x, velocityHeight }; }
 juce::Rectangle<int> PianoRoll::rulerBounds() const { const int x = originX(); return { x, headerHeight, getWidth() - x, rulerHeight }; }
@@ -323,6 +365,13 @@ void PianoRoll::resized()
     linkButton.setBounds (header.removeFromLeft (46));
     header.removeFromLeft (4);
     unrollButton.setBounds (header.removeFromLeft (56));
+    header.removeFromLeft (8);
+    rowsSmaller.setBounds (header.removeFromLeft (22));
+    header.removeFromLeft (2);
+    rowsBigger.setBounds (header.removeFromLeft (22));
+    const auto g = gridBounds();
+    pitchScroll.setBounds (getWidth() - 12, g.getY(), 12, g.getHeight());
+    scrollToPitch (lowestPitch);
 }
 
 void PianoRoll::paint (juce::Graphics& g)
@@ -354,12 +403,12 @@ void PianoRoll::paint (juce::Graphics& g)
     g.fillRect (getLocalBounds().removeFromTop (headerHeight));
     g.setColour (theme::text);
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.drawText (track->name + "  -  " + clip->name, getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (340).withWidth (260), juce::Justification::centredLeft, true);
+    g.drawText (track->name + "  -  " + clip->name, getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (400).withWidth (260), juce::Justification::centredLeft, true);
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.5f));
     g.drawText (describeSelection() + "    " + juce::String (EditSettings::modeName (mode())) + " | " + EditSettings::toolName (tool()) + " | grid " + juce::String (gridBeats(), 2)
                 + (loops ? "  |  loop of " + juce::String (sequenceLength() / beatsPerBar, 1) + " bars" : juce::String()),
-                getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (600).withTrimmedRight (8), juce::Justification::centredRight, true);
+                getLocalBounds().removeFromTop (headerHeight).withTrimmedLeft (660).withTrimmedRight (8), juce::Justification::centredRight, true);
 
     // Left panel (under the track headers when linked)
     g.setColour (theme::panelDark);
@@ -718,7 +767,7 @@ void PianoRoll::transposeSelection (int semis)
     for (int i : idx) keep.push_back ({ juce::jlimit (0, 127, seq->notes[(size_t) i].pitch + semis), seq->notes[(size_t) i].startBeat });
     apply (NoteEdits::transpose (*seq, idx, semis), "Transpose Notes", &keep);
     if (idx.size() == 1) audition (keep[0].pitch, (float) seq->notes[(size_t) idx[0]].velocity / 127.0f);
-    if (keep[0].pitch < lowestPitch || keep[0].pitch >= lowestPitch + visibleRows()) { lowestPitch = juce::jlimit (0, 127 - visibleRows() + 1, keep[0].pitch - visibleRows() / 2); }
+    if (keep[0].pitch < lowestPitch || keep[0].pitch >= lowestPitch + visibleRows()) scrollToPitch (keep[0].pitch - visibleRows() / 2);
 }
 void PianoRoll::nudgeBeats (double beats)
 {
@@ -762,7 +811,7 @@ void PianoRoll::selectNextNote (bool forward)
     const double t = transport.beatsToSeconds (repeatStartBeats (firstRepeat()) + n.startBeat);
     const auto v = view();
     if (t < v.startSeconds || t > v.startSeconds + v.laneWidth / v.pixelsPerSecond) applyView (t, v.pixelsPerSecond);
-    if (n.pitch < lowestPitch || n.pitch >= lowestPitch + visibleRows()) lowestPitch = juce::jlimit (0, 127 - visibleRows() + 1, n.pitch - visibleRows() / 2);
+    if (n.pitch < lowestPitch || n.pitch >= lowestPitch + visibleRows()) scrollToPitch (n.pitch - visibleRows() / 2);
     repaint();
 }
 void PianoRoll::zoomBy (double factor)
@@ -798,7 +847,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     }
     if (e.x < originX())
     {
-        if (const int pitch = pitchAtY (e.y); pitch >= 0) audition (pitch);
+        if (const int pitch = pitchAtY (e.y); pitch >= 0) { audition (pitch); draggingKeyboard = true; keyboardDragStartPitch = lowestPitch; }
         return;
     }
     if (velocityBounds().contains (e.getPosition()))
@@ -868,6 +917,7 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
 void PianoRoll::mouseDrag (const juce::MouseEvent& e)
 {
     dragCurrent = e.getPosition();
+    if (draggingKeyboard) { scrollToPitch (keyboardDragStartPitch + e.getDistanceFromDragStartY() / juce::jmax (1, rowHeight)); return; }   // drag the keyboard to scroll
     if (drag == Drag::none) return;
     if (drag == Drag::pending)
     {
@@ -929,6 +979,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
 
 void PianoRoll::mouseUp (const juce::MouseEvent& e)
 {
+    draggingKeyboard = false;
     auto* seq = getSequence();
     const auto d = drag;
     drag = Drag::none;
@@ -1000,6 +1051,16 @@ void PianoRoll::mouseMove (const juce::MouseEvent& e)
 
 void PianoRoll::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
 {
+    if (e.mods.isAltDown())
+    {
+        // Vertical zoom around the pitch under the mouse
+        const int pitchUnderMouse = juce::jmax (0, pitchAtY (e.y));
+        const int rowsAbove = pitchAtY (e.y) >= 0 ? pitchUnderMouse - lowestPitch : visibleRows() / 2;
+        rowHeight = juce::jlimit (6, 32, rowHeight + (w.deltaY > 0 ? 2 : -2));
+        scrollToPitch (pitchUnderMouse - rowsAbove);
+        if (onRowHeightChanged) onRowHeightChanged (rowHeight);
+        return;
+    }
     if (e.mods.isCtrlDown())
     {
         const auto v = view();
@@ -1015,8 +1076,7 @@ void PianoRoll::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
         return;
     }
     const int step = w.deltaY > 0 ? 2 : w.deltaY < 0 ? -2 : 0;
-    lowestPitch = juce::jlimit (0, 127 - visibleRows() + 1, lowestPitch + step);
-    repaint();
+    scrollToPitch (lowestPitch + step);
 }
 
 //==============================================================================

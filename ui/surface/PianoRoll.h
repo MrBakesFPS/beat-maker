@@ -29,7 +29,8 @@ namespace beatmaker::ui
 
 class PianoRoll final : public juce::Component,
                         public EditorPanel,
-                        private juce::Timer
+                        private juce::Timer,
+                        private juce::ScrollBar::Listener
 {
 public:
     PianoRoll (model::Session& session, engine::Transport& transport, engine::AudioGraph& graph);
@@ -37,6 +38,10 @@ public:
     void setEditSettings (EditSettings* s) { settings = s; }
     void setTarget (int trackIndex, int midiClipIndex);
     void setDefaultVelocities (int normal, int soft) { defaultVelocity = juce::jlimit (1, 127, normal); softVelocity = juce::jlimit (1, 127, soft); }
+    // Vertical zoom (pixels per semitone), independent of the tracks' zoom.
+    void setRowHeight (int pixels);
+    int getRowHeight() const noexcept { return rowHeight; }
+    std::function<void (int rowHeight)> onRowHeightChanged;
     int getTrackIndex() const noexcept { return trackIndex; }
     bool hasTarget() const override { return getSequence() != nullptr; }
 
@@ -91,7 +96,7 @@ private:
     static constexpr int keyboardWidth = 56;
     static constexpr int headerHeight  = 26;   // preset bar + readout
     static constexpr int rulerHeight   = 18;
-    static constexpr int rowHeight     = 14;
+    int rowHeight = 14;                             // pixels per semitone (vertical zoom)
     static constexpr int velocityHeight = 56;
     static constexpr int edgeGrab      = 6;
 
@@ -186,7 +191,12 @@ private:
     int defaultVelocity = 100, softVelocity = 70;
     juce::ComboBox presetBox;
     juce::Label presetLabel { {}, "Sound" };
-    juce::TextButton linkButton { "Link" }, unrollButton { "Unroll" };
+    juce::TextButton linkButton { "Link" }, unrollButton { "Unroll" }, rowsSmaller { "-" }, rowsBigger { "+" };
+    juce::ScrollBar pitchScroll { true };
+    bool draggingKeyboard = false; int keyboardDragStartPitch = 0;
+    void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
+    void syncScrollBar();
+    void scrollToPitch (int lowest);
     engine::InstrumentType presetType = engine::InstrumentType::none;
     static inline std::vector<engine::NoteEvent> clipboard;
 };

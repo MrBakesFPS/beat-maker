@@ -238,7 +238,12 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   switches keyboard focus between the editor panel (notes or drums) and the
   tracks; the focused editor shows the accent outline, the toolbar hint
   changes with it, the Edit and View commands in the palette act on whichever
-  has focus, and focus survives switching away from and back to the window. Ctrl+
+  has focus, and focus survives switching away from and back to the window.
+  The editor panel's height is yours: drag the bar above it (Preferences >
+  Display remembers it), and the note editor zooms vertically on its own,
+  independent of the tracks: Alt+wheel over the notes or the - and + buttons
+  set the pixels per semitone, the scrollbar at the right or a drag on the
+  keyboard scrolls the pitch range. Ctrl+
   wheel zooms, Shift+wheel scrolls, clicking the ruler locates the playhead.
   - **Synth**: polyphonic subtractive (PolyBLEP saw/square/triangle/sine,
     detuned second oscillator, state-variable low-pass with envelope, ADSR).

@@ -25,6 +25,8 @@ std::vector<PrefDef> Preferences::definitions()
         toggle ("display.announceStatus", "Display", "Announce status messages", "Speak status bar messages through the screen reader.", true),
         toggle ("display.showWelcome", "Display", "Show the Welcome window at startup", "Templates, sample projects, the tour and tutorials when Beat Maker opens without a session.", true),
         toggle ("display.clipGainReadout", "Display", "Show clip gain on clips", "Append the clip gain in dB to clip names when it is not 0 dB.", true),
+        number ("display.editorHeight", "Display", "Editor panel height", "Height of the note and drum editor panel; drag the bar above the panel to change it.", 300.0, 120.0, 1200.0, 10.0, "px"),
+        number ("display.pianoRollRowHeight", "Display", "Note editor row height", "Vertical zoom of the piano roll: pixels per semitone (Alt+wheel over the notes, or the - and + buttons).", 14.0, 6.0, 32.0, 1.0, "px"),
         number ("display.zoomSensitivity", "Display", "Zoom sensitivity", "How much Ctrl+wheel and the R/T focus keys zoom per step.", 1.5, 1.1, 3.0, 0.1, "x"),
 
         // Operation
