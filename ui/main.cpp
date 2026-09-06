@@ -20,6 +20,7 @@
 #include "depth/AafExportDialog.h"
 #include "depth/CrashReportWindow.h"
 #include "shared/CrashReporter.h"
+#include <cstdlib>
 #include <AafExport.h>
 #include <SampleProjects.h>
 #include <SessionImport.h>
@@ -106,12 +107,13 @@ public:
         addAndMakeVisible (transportBar);
         addAndMakeVisible (editToolbar);
         addAndMakeVisible (trackArea);
-        editSettings.onChanged = [this] { editToolbar.refresh(); trackArea.repaint(); pianoRoll.repaint(); };
+        editSettings.onChanged = [this] { editToolbar.refresh(); trackArea.repaint(); pianoRoll.repaint(); sequencer.repaint(); };
+        editToolbar.editorHint = [this] { auto* ed = activeEditor(); return ed != nullptr ? ed->keyHint() : juce::String(); };
         pianoRoll.setEditSettings (&editSettings);
         pianoRoll.onStatus = [this] (const juce::String& s) { statusMessage = s; updateStatus(); };
         pianoRoll.viewSource = [this]
         {
-            ui::PianoRoll::View v;
+            ui::TimelineView v;
             trackArea.getView (v.startSeconds, v.pixelsPerSecond);
             v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - pianoRoll.getX();
             v.laneWidth = juce::jmax (50, trackArea.getWidth() - ui::theme::trackHeaderWidth);
@@ -224,9 +226,26 @@ public:
         trackArea.onSelectionChanged = [this] (int i) { updateSequencerTarget(); if (eventListContent != nullptr) eventListContent->setTrack (i); };
         midiSync.onTransportChanged = [this] { updateStatus(); };
 
-        sequencer.onStepChanged = [this] (int track, int clip, int pad, int step, std::uint8_t velocity)
+        sequencer.onPatternChanged = [this] (int track, int clip, std::shared_ptr<const engine::StepPattern> pattern, juce::String name)
         {
-            session.execute (std::make_unique<model::SetStepCommand> (track, clip, pad, step, velocity));
+            session.execute (std::make_unique<model::ReplacePatternCommand> (track, clip, std::move (pattern), std::move (name)));
+        };
+        sequencer.setEditSettings (&editSettings);
+        sequencer.onStatus = [this] (const juce::String& s) { statusMessage = s; updateStatus(); };
+        sequencer.viewSource = [this]
+        {
+            ui::TimelineView v;
+            trackArea.getView (v.startSeconds, v.pixelsPerSecond);
+            v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - sequencer.getX();
+            v.laneWidth = juce::jmax (50, trackArea.getWidth() - ui::theme::trackHeaderWidth);
+            return v;
+        };
+        sequencer.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
+        sequencer.onClipExtend = [this] (int track, int clip, juce::int64 newLength)
+        {
+            auto* t = session.getTrack (track);
+            if (t == nullptr || ! juce::isPositiveAndBelow (clip, (int) t->patternClips.size())) return;
+            session.execute (std::make_unique<model::TrimClipCommand> (model::ClipRef { track, model::ClipRef::Kind::pattern, clip }, t->patternClips[(size_t) clip].timelineStart, newLength));
         };
         sequencer.onPadSampleDropped = [this] (int track, int pad, const juce::File& file) { loadPadSample (track, pad, file); };
 
@@ -377,6 +396,12 @@ public:
     void showTutorialsFromCommandLine() { showTutorials(); }
     void showShortcutsFromCommandLine() { showShortcuts(); }
     void showSystemUsageFromCommandLine() { showSystemUsage(); }
+    // After the window regains activation: focus goes back to the component that had it (note or drum editor, tracks).
+    void restoreFocus()
+    {
+        if (lastFocused != nullptr && lastFocused->isShowing()) lastFocused->grabKeyboardFocus();
+        else grabKeyboardFocus();
+    }
     void showPendingCrashReportFromCommandLine() { showPendingCrashReport(); }
     void dumpDocsFromCommandLine (const juce::File& dir) { dumpDocs (dir); }
     void setTempoFromCommandLine (double bpm) { setTempo (bpm, session.getBeatsPerBar()); }
@@ -850,34 +875,34 @@ public:
         add ("edit.undo", "Edit", "Undo", juce::KeyPress ('z', M::commandModifier, 0), 0, [this] { session.undo(); }, [this] { return session.getHistory().canUndo(); });
         add ("edit.redo", "Edit", "Redo", juce::KeyPress ('z', M::commandModifier | M::shiftModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
         add ("edit.redoY", "Edit", "Redo (Ctrl+Y)", juce::KeyPress ('y', M::commandModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
-        add ("edit.notesFocus", "Edit", "Keyboard Focus: Notes / Tracks", juce::KeyPress ('n', M::commandModifier | M::altModifier, 0), 0, [this] { focusNotes (! notesFocused()); });
-        add ("edit.selectAll", "Edit", "Select All (clips, or notes when the note editor has focus)", juce::KeyPress ('a', M::commandModifier, 0), 0, [this] { if (notesFocused()) pianoRoll.selectAll(); else trackArea.selectAllClips(); });
-        add ("edit.cut", "Edit", "Cut", juce::KeyPress ('x', M::commandModifier, 0), 'x', [this] { if (notesFocused()) pianoRoll.cutSelection(); else trackArea.cutSelection(); }, [this] { return notesFocused() ? pianoRoll.hasSelection() : trackArea.hasSelection(); });
-        add ("edit.copy", "Edit", "Copy", juce::KeyPress ('c', M::commandModifier, 0), 'c', [this] { if (notesFocused()) pianoRoll.copySelection(); else trackArea.copySelection(); }, [this] { return notesFocused() ? pianoRoll.hasSelection() : trackArea.hasSelection(); });
-        add ("edit.paste", "Edit", "Paste at Insertion", juce::KeyPress ('v', M::commandModifier, 0), 'v', [this] { if (notesFocused()) pianoRoll.pasteAtInsertion(); else trackArea.pasteAtPlayhead (prefs.getBool ("editing.autoSelectAfterPaste")); }, [this] { return notesFocused() ? pianoRoll.canPaste() : trackArea.canPaste(); });
-        add ("edit.delete", "Edit", "Delete Selection", {}, 0, [this] { if (notesFocused()) pianoRoll.deleteSelection(); else trackArea.deleteSelection(); });
+        add ("edit.notesFocus", "Edit", "Keyboard Focus: Editor (notes or drums) / Tracks", juce::KeyPress ('n', M::commandModifier | M::altModifier, 0), 0, [this] { focusNotes (! notesFocused()); });
+        add ("edit.selectAll", "Edit", "Select All (clips, or notes when the note editor has focus)", juce::KeyPress ('a', M::commandModifier, 0), 0, [this] { if (auto* ed = focusedEditor()) ed->selectAll(); else trackArea.selectAllClips(); });
+        add ("edit.cut", "Edit", "Cut", juce::KeyPress ('x', M::commandModifier, 0), 'x', [this] { if (auto* ed = focusedEditor()) ed->cutSelection(); else trackArea.cutSelection(); }, [this] { return focusedEditor() != nullptr ? focusedEditor()->hasSelection() : trackArea.hasSelection(); });
+        add ("edit.copy", "Edit", "Copy", juce::KeyPress ('c', M::commandModifier, 0), 'c', [this] { if (auto* ed = focusedEditor()) ed->copySelection(); else trackArea.copySelection(); }, [this] { return focusedEditor() != nullptr ? focusedEditor()->hasSelection() : trackArea.hasSelection(); });
+        add ("edit.paste", "Edit", "Paste at Insertion", juce::KeyPress ('v', M::commandModifier, 0), 'v', [this] { if (auto* ed = focusedEditor()) ed->pasteAtInsertion(); else trackArea.pasteAtPlayhead (prefs.getBool ("editing.autoSelectAfterPaste")); }, [this] { return focusedEditor() != nullptr ? focusedEditor()->canPaste() : trackArea.canPaste(); });
+        add ("edit.delete", "Edit", "Delete Selection", {}, 0, [this] { if (auto* ed = focusedEditor()) ed->deleteSelection(); else trackArea.deleteSelection(); });
         add ("edit.separate", "Edit", "Separate Clip at Insertion", juce::KeyPress ('e', M::commandModifier, 0), 'b', [this] { trackArea.separateAtPlayhead(); });
-        add ("edit.duplicate", "Edit", "Duplicate Clips", juce::KeyPress ('d', M::commandModifier, 0), 'h', [this] { if (notesFocused()) pianoRoll.duplicateSelection(); else trackArea.duplicateSelectedClips(); }, [this] { return notesFocused() ? pianoRoll.hasSelection() : trackArea.hasSelection(); });
+        add ("edit.duplicate", "Edit", "Duplicate Clips", juce::KeyPress ('d', M::commandModifier, 0), 'h', [this] { if (auto* ed = focusedEditor()) ed->duplicateSelection(); else trackArea.duplicateSelectedClips(); }, [this] { return focusedEditor() != nullptr ? focusedEditor()->hasSelection() : trackArea.hasSelection(); });
         add ("edit.trimStart", "Edit", "Trim Start to Insertion", {}, 'a', [this] { trackArea.trimSelectionToPlayhead (true); }, [this] { return trackArea.hasSelection(); });
         add ("edit.trimEnd", "Edit", "Trim End to Insertion", {}, 's', [this] { trackArea.trimSelectionToPlayhead (false); }, [this] { return trackArea.hasSelection(); });
         add ("edit.fadeIn", "Edit", "Fade In to Insertion", {}, 'd', [this] { trackArea.fadeSelectionToPlayhead (true, defaultFadeShape()); }, [this] { return trackArea.hasSelection(); });
         add ("edit.fadeOut", "Edit", "Fade Out from Insertion", {}, 'g', [this] { trackArea.fadeSelectionToPlayhead (false, defaultFadeShape()); }, [this] { return trackArea.hasSelection(); });
         add ("edit.fades", "Edit", "Apply Default Fades", {}, 'f', [this] { trackArea.applyDefaultFadesToSelection (prefs.getDouble ("editing.defaultFadeMs"), defaultFadeShape()); }, [this] { return trackArea.hasSelection(); });
         add ("edit.fadesDialog", "Edit", "Fades...", juce::KeyPress ('f', M::commandModifier, 0), 0, [this] { showFadesDialog(); });
-        add ("edit.nudgeLeft", "Edit", "Nudge Earlier", {}, 0, [this] { if (notesFocused()) pianoRoll.nudgeSelection (-editSettings.gridBeats); else trackArea.nudgeSelectedClips (-1); });
-        add ("edit.nudgeRight", "Edit", "Nudge Later", {}, 0, [this] { if (notesFocused()) pianoRoll.nudgeSelection (editSettings.gridBeats); else trackArea.nudgeSelectedClips (1); });
-        add ("notes.quantize", "Notes", "Quantize Notes to Grid", {}, 0, [this] { focusNotes (true); pianoRoll.quantizeSelection (false); }, [this] { return pianoRoll.hasTarget(); });
-        add ("notes.quantizeLengths", "Notes", "Quantize Notes and Lengths", {}, 0, [this] { focusNotes (true); pianoRoll.quantizeSelection (true); }, [this] { return pianoRoll.hasTarget(); });
-        add ("notes.legato", "Notes", "Legato (extend notes to the next)", {}, 0, [this] { focusNotes (true); pianoRoll.legatoSelection(); }, [this] { return pianoRoll.hasTarget(); });
-        add ("notes.transposeUp", "Notes", "Transpose Up a Semitone", {}, 0, [this] { pianoRoll.transposeSelection (1); }, [this] { return pianoRoll.hasSelection(); });
-        add ("notes.transposeDown", "Notes", "Transpose Down a Semitone", {}, 0, [this] { pianoRoll.transposeSelection (-1); }, [this] { return pianoRoll.hasSelection(); });
-        add ("notes.octaveUp", "Notes", "Transpose Up an Octave", {}, 0, [this] { pianoRoll.transposeSelection (12); }, [this] { return pianoRoll.hasSelection(); });
-        add ("notes.octaveDown", "Notes", "Transpose Down an Octave", {}, 0, [this] { pianoRoll.transposeSelection (-12); }, [this] { return pianoRoll.hasSelection(); });
-        add ("notes.louder", "Notes", "Velocity +10", {}, 0, [this] { pianoRoll.changeVelocity (10); }, [this] { return pianoRoll.hasSelection(); });
-        add ("notes.softer", "Notes", "Velocity -10", {}, 0, [this] { pianoRoll.changeVelocity (-10); }, [this] { return pianoRoll.hasSelection(); });
-        add ("notes.unroll", "Notes", "Unroll Loop (write every repeat out)", {}, 0, [this] { focusNotes (true); pianoRoll.unrollLoop(); }, [this] { return pianoRoll.hasTarget(); });
-        add ("notes.linkView", "Notes", "Note Editor Follows the Tracks' View on/off", {}, 0, [this] { pianoRoll.setLinked (! pianoRoll.isLinked()); }, [this] { return pianoRoll.hasTarget(); });
-        add ("notes.describe", "Notes", "Announce Note Selection", {}, 0, [this] { statusMessage = pianoRoll.describeSelection(); updateStatus(); juce::AccessibilityHandler::postAnnouncement (statusMessage, juce::AccessibilityHandler::AnnouncementPriority::high); });
+        add ("edit.nudgeLeft", "Edit", "Nudge Earlier", {}, 0, [this] { if (auto* ed = focusedEditor()) ed->nudgeSelection (-1); else trackArea.nudgeSelectedClips (-1); });
+        add ("edit.nudgeRight", "Edit", "Nudge Later", {}, 0, [this] { if (auto* ed = focusedEditor()) ed->nudgeSelection (1); else trackArea.nudgeSelectedClips (1); });
+        add ("notes.quantize", "Notes", "Quantize Notes to Grid", {}, 0, [this] { focusNotes (true); if (auto* ed = activeEditor()) ed->quantizeSelection (false); }, [this] { return pianoRoll.isVisible() && pianoRoll.hasTarget(); });
+        add ("notes.quantizeLengths", "Notes", "Quantize Notes and Lengths", {}, 0, [this] { focusNotes (true); if (auto* ed = activeEditor()) ed->quantizeSelection (true); }, [this] { return pianoRoll.isVisible() && pianoRoll.hasTarget(); });
+        add ("notes.legato", "Notes", "Legato (extend notes to the next)", {}, 0, [this] { focusNotes (true); if (auto* ed = activeEditor()) ed->legatoSelection(); }, [this] { return pianoRoll.isVisible() && pianoRoll.hasTarget(); });
+        add ("notes.transposeUp", "Notes", "Transpose Up a Semitone", {}, 0, [this] { if (auto* ed = activeEditor()) ed->transposeSelection (1); }, [this] { return activeEditor() != nullptr && activeEditor()->hasSelection(); });
+        add ("notes.transposeDown", "Notes", "Transpose Down a Semitone", {}, 0, [this] { if (auto* ed = activeEditor()) ed->transposeSelection (-1); }, [this] { return activeEditor() != nullptr && activeEditor()->hasSelection(); });
+        add ("notes.octaveUp", "Notes", "Transpose Up an Octave", {}, 0, [this] { if (auto* ed = activeEditor()) ed->transposeSelection (12); }, [this] { return pianoRoll.isVisible() && pianoRoll.hasSelection(); });
+        add ("notes.octaveDown", "Notes", "Transpose Down an Octave", {}, 0, [this] { if (auto* ed = activeEditor()) ed->transposeSelection (-12); }, [this] { return pianoRoll.isVisible() && pianoRoll.hasSelection(); });
+        add ("notes.louder", "Notes", "Velocity +10", {}, 0, [this] { if (auto* ed = activeEditor()) ed->changeVelocity (10); }, [this] { return activeEditor() != nullptr && activeEditor()->hasSelection(); });
+        add ("notes.softer", "Notes", "Velocity -10", {}, 0, [this] { if (auto* ed = activeEditor()) ed->changeVelocity (-10); }, [this] { return activeEditor() != nullptr && activeEditor()->hasSelection(); });
+        add ("notes.unroll", "Notes", "Unroll Loop (write every repeat out; notes or drum steps)", {}, 0, [this] { focusNotes (true); if (auto* ed = activeEditor()) ed->unrollLoop(); }, [this] { return activeEditor() != nullptr && activeEditor()->hasTarget(); });
+        add ("notes.linkView", "Notes", "Editor Follows the Tracks' View on/off", {}, 0, [this] { if (auto* ed = activeEditor()) ed->setLinked (! ed->isLinked()); }, [this] { return activeEditor() != nullptr && activeEditor()->hasTarget(); });
+        add ("notes.describe", "Notes", "Announce Note Selection", {}, 0, [this] { statusMessage = activeEditor() != nullptr ? activeEditor()->describeSelection() : juce::String ("No editor"); updateStatus(); juce::AccessibilityHandler::postAnnouncement (statusMessage, juce::AccessibilityHandler::AnnouncementPriority::high); });
         add ("edit.quantize", "Edit", "Quantize Audio to Grid", {}, 0, [this] { trackArea.quantizeSelectionPublic(); });
         add ("edit.addMarker", "Edit", "Add Memory Location at Insertion", {}, 0, [this] { trackArea.addMarkerAtPlayhead (false); });
         add ("edit.addSection", "Edit", "Add Section from Selection", {}, 0, [this] { trackArea.addMarkerAtPlayhead (true); });
@@ -898,9 +923,9 @@ public:
         add ("tool.focus", "Tool", "Commands Keyboard Focus on/off", juce::KeyPress ('k', M::commandModifier | M::altModifier, 0), 0, [this, notifyEdit] { editSettings.commandsFocus = ! editSettings.commandsFocus; notifyEdit(); statusMessage = editSettings.commandsFocus ? "Commands Keyboard Focus ON: A/S trim, D/G fades, F fades, B separate, H duplicate, X/C/V clipboard, R/T zoom, E zoom to fit" : "Commands Keyboard Focus off"; updateStatus(); });
 
         // View
-        add ("view.zoomIn", "View", "Zoom In", juce::KeyPress ('t', M::commandModifier, 0), 't', [this] { if (notesFocused()) pianoRoll.zoomBy (prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (prefs.getDouble ("display.zoomSensitivity")); });
-        add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { if (notesFocused()) pianoRoll.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
-        add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { if (notesFocused()) pianoRoll.zoomToFit(); else trackArea.zoomToSelection(); });
+        add ("view.zoomIn", "View", "Zoom In", juce::KeyPress ('t', M::commandModifier, 0), 't', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (prefs.getDouble ("display.zoomSensitivity")); });
+        add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
+        add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { if (auto* ed = focusedEditor()) ed->zoomToFit(); else trackArea.zoomToSelection(); });
         add ("view.editor", "View", "Editor panel", juce::KeyPress ('e'), 0, [this] { setEditorVisible (! editorVisible); });
         add ("view.library", "View", "Loop Library", juce::KeyPress ('l'), 0, [this] { setLibraryVisible (! libraryVisible); });
         add ("view.controls", "View", "Smart Controls", juce::KeyPress ('b'), 0, [this] { setControlsVisible (! controlsVisible); });
@@ -1821,6 +1846,10 @@ private:
         const bool playingNow = engine.getTransport().isPlaying();
         if (playingNow) playedOnce = true;
         transportBar.setCpuLoad (engine.getGraph().getPerformance().getLoad(), engine.getGraph().getPerformance().getOverruns());
+        if (auto* f = getCurrentlyFocusedComponent(); f != nullptr && f != this && (f == &pianoRoll || f == &sequencer || f == &trackArea)) lastFocused = f;
+        // Window activation hands focus to the window itself; give it back to the editor that had it.
+        if (auto* f = getCurrentlyFocusedComponent(); f != nullptr && f == getTopLevelComponent() && lastFocused != nullptr && lastFocused->isShowing()) lastFocused->grabKeyboardFocus();
+        if (std::getenv ("BEATMAKER_DEBUG_FOCUS")) { auto* f = getCurrentlyFocusedComponent(); const juce::String n = f == nullptr ? "none" : f == this ? "main" : f == &sequencer ? "sequencer" : f == &pianoRoll ? "pianoRoll" : f == &trackArea ? "trackArea" : f->getTitle(); if (n != debugFocusName) { debugFocusName = n; std::cout << "focus -> " << n << std::endl; } }
         if (auto* d = engine.getDeviceManager().getCurrentAudioDevice())
         {
             const auto info = d->getName() + " " + juce::String (d->getCurrentSampleRate()) + " Hz " + juce::String (d->getCurrentBufferSizeSamples());
@@ -1979,17 +2008,25 @@ private:
         sequencer.setVisible (editorVisible && ! mixerVisible && ! synth);
     }
 
-    bool notesFocused() const { return pianoRoll.isVisible() && pianoRoll.hasKeyboardFocus (true); }
+    // The editor panel's editor for the selected track: the note editor or the drum editor.
+    ui::EditorPanel* activeEditor() { return pianoRoll.isVisible() ? (ui::EditorPanel*) &pianoRoll : sequencer.isVisible() ? (ui::EditorPanel*) &sequencer : nullptr; }
+    juce::Component* activeEditorComponent() { return pianoRoll.isVisible() ? (juce::Component*) &pianoRoll : sequencer.isVisible() ? (juce::Component*) &sequencer : nullptr; }
+    bool notesFocused() const
+    {
+        return (pianoRoll.isVisible() && pianoRoll.hasKeyboardFocus (true)) || (sequencer.isVisible() && sequencer.hasKeyboardFocus (true));
+    }
+    ui::EditorPanel* focusedEditor() { return notesFocused() ? activeEditor() : nullptr; }
 
-    // Keyboard focus between the note editor and the tracks (Ctrl+Alt+N, the Notes button).
+    // Keyboard focus between the editor panel (notes or drums) and the tracks (Ctrl+Alt+N, the Editor button).
     void focusNotes (bool notes)
     {
         if (notes)
         {
             if (! editorVisible) setEditorVisible (true);
-            if (! pianoRoll.isVisible() || ! pianoRoll.hasTarget()) { statusMessage = "Note editor: select an instrument track with a MIDI clip first"; updateStatus(); return; }
-            pianoRoll.grabKeyboardFocus();
-            statusMessage = "Keyboard focus: notes (" + pianoRoll.describeSelection() + ")";
+            auto* ed = activeEditor(); auto* comp = activeEditorComponent();
+            if (ed == nullptr || comp == nullptr || ! ed->hasTarget()) { statusMessage = "Editor: select an instrument or drum track with a clip first"; updateStatus(); return; }
+            comp->grabKeyboardFocus();
+            statusMessage = "Keyboard focus: editor (" + ed->describeSelection() + ")";
         }
         else
         {
@@ -3338,6 +3375,8 @@ private:
     int savedHistorySize = 0, autosaveCounter = 0;
     juce::String lastDeviceInfo;
     double mirroredBpm = 0.0;
+    juce::Component::SafePointer<juce::Component> lastFocused;
+    juce::String debugFocusName;
     std::vector<double> tapTimes; int tapGeneration = 0;
     juce::Component::SafePointer<juce::DialogWindow> memoryWindow, preferencesWindow, paletteWindow;
     juce::Component::SafePointer<ui::PreferencesWindow> preferencesContent;
@@ -3574,8 +3613,8 @@ private:
         void activeWindowStatusChanged() override
         {
             DocumentWindow::activeWindowStatusChanged();
-            if (isActiveWindow() && getCurrentlyFocusedComponent() == nullptr)
-                getMainComponent().grabKeyboardFocus();
+            if (isActiveWindow() && (getCurrentlyFocusedComponent() == nullptr || getCurrentlyFocusedComponent() == this))
+                getMainComponent().restoreFocus();   // back to the editor that had it, not the window
         }
 
         void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }

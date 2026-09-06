@@ -34,6 +34,7 @@ target_sources(beatmaker_tests PRIVATE
     crash_reporter_test.cpp
     tempo_test.cpp
     note_edits_test.cpp
+    step_edits_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp

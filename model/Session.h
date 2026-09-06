@@ -379,6 +379,7 @@ private:
     friend class SetTrackInputCommand;
     friend class AddPatternClipCommand;
     friend class SetStepCommand;
+    friend class ReplacePatternCommand;
     friend class SetPadSampleCommand;
     friend class AddMidiClipCommand;
     friend class ReplaceMidiSequenceCommand;
@@ -605,6 +606,26 @@ private:
     int index, clipIndex, pad, step;
     std::uint8_t velocity;
     std::shared_ptr<const engine::StepPattern> oldPattern;
+};
+
+// Whole-pattern replacement (paint drags, selection edits, unrolling).
+class ReplacePatternCommand final : public Command
+{
+public:
+    ReplacePatternCommand (int trackIndex, int patternClipIndex, std::shared_ptr<const engine::StepPattern> pattern, juce::String actionName)
+        : index (trackIndex), clipIndex (patternClipIndex), newPattern (std::move (pattern)), name (std::move (actionName)) {}
+    juce::String getName() const override { return name; }
+    void execute (Session& s) override
+    {
+        auto& clip = s.tracks[(size_t) index].patternClips[(size_t) clipIndex];
+        oldPattern = clip.pattern;
+        clip.pattern = newPattern;
+    }
+    void undo (Session& s) override { s.tracks[(size_t) index].patternClips[(size_t) clipIndex].pattern = oldPattern; }
+private:
+    int index, clipIndex;
+    std::shared_ptr<const engine::StepPattern> newPattern, oldPattern;
+    juce::String name;
 };
 
 // Copy-on-write replacement of one pad's sample.

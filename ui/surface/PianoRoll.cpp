@@ -720,7 +720,7 @@ void PianoRoll::transposeSelection (int semis)
     if (idx.size() == 1) audition (keep[0].pitch, (float) seq->notes[(size_t) idx[0]].velocity / 127.0f);
     if (keep[0].pitch < lowestPitch || keep[0].pitch >= lowestPitch + visibleRows()) { lowestPitch = juce::jlimit (0, 127 - visibleRows() + 1, keep[0].pitch - visibleRows() / 2); }
 }
-void PianoRoll::nudgeSelection (double beats)
+void PianoRoll::nudgeBeats (double beats)
 {
     auto* seq = getSequence(); const auto idx = selectedIndices();
     if (seq == nullptr || idx.empty()) return;
@@ -1048,10 +1048,10 @@ bool PianoRoll::keyPressed (const juce::KeyPress& key)
     if (k (juce::KeyPress::downKey, M::commandModifier)) { changeVelocity (-10); return true; }
     if (k (juce::KeyPress::upKey, M::commandModifier | M::shiftModifier)) { changeVelocity (1); return true; }
     if (k (juce::KeyPress::downKey, M::commandModifier | M::shiftModifier)) { changeVelocity (-1); return true; }
-    if (k (juce::KeyPress::leftKey) || k (',')) { nudgeSelection (-grid); return true; }
-    if (k (juce::KeyPress::rightKey) || k ('.')) { nudgeSelection (grid); return true; }
-    if (k (juce::KeyPress::leftKey, M::shiftModifier)) { nudgeSelection (-grid / 4.0); return true; }
-    if (k (juce::KeyPress::rightKey, M::shiftModifier)) { nudgeSelection (grid / 4.0); return true; }
+    if (k (juce::KeyPress::leftKey) || k (',')) { nudgeBeats (-grid); return true; }
+    if (k (juce::KeyPress::rightKey) || k ('.')) { nudgeBeats (grid); return true; }
+    if (k (juce::KeyPress::leftKey, M::shiftModifier)) { nudgeBeats (-grid / 4.0); return true; }
+    if (k (juce::KeyPress::rightKey, M::shiftModifier)) { nudgeBeats (grid / 4.0); return true; }
     if (k (juce::KeyPress::tabKey)) { selectNextNote (true); return true; }
     if (k (juce::KeyPress::tabKey, M::shiftModifier)) { selectNextNote (false); return true; }
     if (k ('z', M::altModifier)) { zoomToFit(); return true; }

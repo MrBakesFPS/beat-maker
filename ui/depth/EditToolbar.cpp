@@ -67,7 +67,7 @@ EditToolbar::EditToolbar (EditSettings& s) : settings (s)
     addAndMakeVisible (notesButton);
     notesButton.setClickingTogglesState (true);
     notesButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
-    notesButton.setTooltip ("Keyboard focus: on = the note editor (piano roll) gets the keys and the edit commands, off = the tracks (Ctrl+Alt+N)");
+    notesButton.setTooltip ("Keyboard focus: on = the editor panel (notes or drums) gets the keys and the edit commands, off = the tracks (Ctrl+Alt+N)");
     notesButton.onClick = [this] { if (onFocusNotes) onFocusNotes (notesButton.getToggleState()); refresh(); };
     startTimer (250);
 
@@ -98,7 +98,7 @@ void EditToolbar::refresh()
     notesButton.setToggleState (notes, juce::dontSendNotification);
 
     juce::String h = juce::String (EditSettings::modeName (settings.mode)) + "  |  " + EditSettings::toolName (settings.tool)
-                   + (notes ? "    NOTES: Up/Down transpose (Shift octave)   Ctrl+Up/Down velocity   Left/Right nudge   Alt+Q quantize   Ctrl+L legato   Ctrl+D duplicate   Tab next note   double-click: spot"
+                   + (notes ? "    " + (editorHint != nullptr ? editorHint() : juce::String())
                             : "    Del: delete   Ctrl+E: separate   Ctrl+D: duplicate   Ctrl+F: fades   , . : nudge   Tab: transient   Alt+Q: quantize   right-click: Elastic");
     hint.setText (h, juce::dontSendNotification);
 }
@@ -130,7 +130,7 @@ void EditToolbar::resized()
     area.removeFromLeft (4);
     focusButton.setBounds (area.removeFromLeft (36));
     area.removeFromLeft (4);
-    notesButton.setBounds (area.removeFromLeft (48));
+    notesButton.setBounds (area.removeFromLeft (52));
     area.removeFromLeft (12);
     ioButton.setBounds (area.removeFromRight (56));
     area.removeFromRight (8);

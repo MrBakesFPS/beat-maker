@@ -12,7 +12,7 @@ namespace beatmaker::engine
 struct StepPattern
 {
     static constexpr int maxPads  = 16;
-    static constexpr int maxSteps = 64;
+    static constexpr int maxSteps = 256;   // 16 bars of sixteenths: room to unroll a looping clip
 
     int numSteps     = 16;   // 16 sixteenth notes = one 4/4 bar
     int stepsPerBeat = 4;

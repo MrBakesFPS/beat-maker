@@ -44,7 +44,7 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Undo | `ctrl + Z` |  |
 | Redo | `ctrl + shift + Z` |  |
 | Redo (Ctrl+Y) | `ctrl + Y` |  |
-| Keyboard Focus: Notes / Tracks | `ctrl + alt + N` |  |
+| Keyboard Focus: Editor (notes or drums) / Tracks | `ctrl + alt + N` |  |
 | Select All (clips, or notes when the note editor has focus) | `ctrl + A` |  |
 | Cut | `ctrl + X` | `X` |
 | Copy | `ctrl + C` | `C` |
@@ -77,8 +77,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Transpose Down an Octave |  |  |
 | Velocity +10 |  |  |
 | Velocity -10 |  |  |
-| Unroll Loop (write every repeat out) |  |  |
-| Note Editor Follows the Tracks' View on/off |  |  |
+| Unroll Loop (write every repeat out; notes or drum steps) |  |  |
+| Editor Follows the Tracks' View on/off |  |  |
 | Announce Note Selection |  |  |
 
 ## Edit Mode

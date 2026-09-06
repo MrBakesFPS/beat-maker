@@ -21,6 +21,7 @@ public:
     // Which editor has the keyboard: the note editor or the tracks. The app answers and switches.
     std::function<bool()> notesFocused;
     std::function<void (bool notes)> onFocusNotes;
+    std::function<juce::String()> editorHint;   // the focused editor's key vocabulary
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -33,7 +34,7 @@ private:
     juce::TextButton relativeButton { "Rel" };
     juce::TextButton tceButton { "TCE" };
     juce::TextButton focusButton { "a-z" };
-    juce::TextButton notesButton { "Notes" };
+    juce::TextButton notesButton { "Editor" };
     bool lastNotes = false;
     void timerCallback() override;
     juce::TextButton ioButton { "I/O..." };

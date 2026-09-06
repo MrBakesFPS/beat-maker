@@ -2,7 +2,19 @@
 
 ## Drum Machine
 
-A Drum Machine track has a synthesised 16-pad kit and a 4-bar pattern clip with a starter beat. The step sequencer panel edits it: click a step to toggle it, Shift-click for a soft hit, drag to paint, click a pad name to audition it, and drop an audio file on a pad row to replace its sample. Smart Controls add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals, Perc and Sub.
+A Drum Machine track has a synthesised 16-pad kit and a 4-bar pattern clip with a starter beat. Smart Controls add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals, Perc and Sub.
+
+### Drum editor
+
+The step sequencer in the editor panel works like the [note editor](#note-editor): it is drawn on the session timeline, follows the tracks' view while **Link** is on (the steps sit under their clip; scrolling or zooming either view moves both), shows every repeat of a looping pattern with the later ones as ghosts, and **Unroll** (or the first edit inside a repeat) writes the loop out so each bar of the clip is its own. The header reads out the selection.
+
+- **Steps**: click to toggle, Shift-click for a soft hit, drag to paint (one undo step per stroke), right-click to clear. Painting past the clip's end extends the clip to the next bar.
+- **Tools**: the Selector rubber-bands hits, the Grabber drags them to other steps and pads, the Zoomer zooms; the Smart Tool and Pencil toggle and paint. Ctrl-click adds a hit to the selection, Ctrl+A selects all, Escape clears.
+- **Velocity lane** along the bottom shows the hits of the pad you last clicked; drag a bar to set its velocity (the whole selection follows when the bar is selected).
+- **Keys**, with the drum editor focused: Up/Down move the selected hits to the pad above or below, Ctrl+Up/Down velocity by 10 (Ctrl+Shift by 1), Left/Right or , . nudge by a step, Delete clears, Ctrl+C/X/V copy, cut and paste at the insertion (the playhead when it is inside the clip), Ctrl+D duplicates after the selection, Alt+Z fits the clip.
+- Click a pad name to audition it; drop an audio file on a pad row to replace its sample.
+
+Keyboard focus is shared with the note editor: Ctrl+Alt+N or the Editor button in the toolbar switches between the editor panel and the tracks, and the Edit and View commands act on whichever has focus.
 
 ## Instruments
 

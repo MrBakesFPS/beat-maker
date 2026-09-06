@@ -192,9 +192,19 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
 - Audio tracks: import files (open dialog, drag-and-drop, command line), shown
   as waveform clips on colour-coded tracks.
 - Drum Machine tracks: a synthesised 16-pad kit, a 4-bar pattern clip with a
-  starter beat, and a step-sequencer editor panel. Click a step to toggle it,
-  Shift-click for a soft hit, drag to paint, click a pad name to audition it,
-  drop an audio file on a pad row to replace its sample.
+  starter beat, and a step-sequencer editor panel drawn on the session
+  timeline like the note editor: linked to the tracks' view by default (the
+  steps sit under their clip, scrolling or zooming either view moves both),
+  every repeat of a looping pattern shown with the later ones as ghosts, and
+  Unroll (or the first edit in a repeat) writing the loop out so each bar is
+  its own. Click a step to toggle it, Shift-click for a soft hit, drag to
+  paint (one undo step per stroke); the Selector rubber-bands hits, the
+  Grabber moves them, the Zoomer zooms, right-click clears, Ctrl-click adds
+  to the selection, and a velocity lane edits the hits of the pad you last
+  touched. Keys: Up/Down move hits to another pad, Ctrl+Up/Down velocity,
+  Left/Right nudge a step, Delete, Ctrl+A/C/X/V/D. Painting past the clip's
+  end extends the clip to the next bar. Click a pad name to audition it, drop
+  an audio file on a pad row to replace its sample.
 - Smart Controls (B): a macro-knob strip for the selected track. Every track
   has Volume and Pan (-3 dB centre-compensated pan law); instrument tracks add
   one knob per parameter the instrument describes (a Wave menu where it has
@@ -225,9 +235,10 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   copy, cut and paste at the insertion, Ctrl+D duplicate, Alt+Q quantize
   (Alt+Shift+Q lengths too), Ctrl+L legato, Tab next note, Alt+Z fit, plus the
   Commands Focus letters. Ctrl+Alt+N (or the Notes button in the toolbar)
-  switches keyboard focus between the note editor and the tracks; the focused
-  editor shows the accent outline and the toolbar hint changes with it, and
-  the Edit and View commands in the palette act on whichever has focus. Ctrl+
+  switches keyboard focus between the editor panel (notes or drums) and the
+  tracks; the focused editor shows the accent outline, the toolbar hint
+  changes with it, the Edit and View commands in the palette act on whichever
+  has focus, and focus survives switching away from and back to the window. Ctrl+
   wheel zooms, Shift+wheel scrolls, clicking the ruler locates the playhead.
   - **Synth**: polyphonic subtractive (PolyBLEP saw/square/triangle/sine,
     detuned second oscillator, state-variable low-pass with envelope, ADSR).

@@ -14,6 +14,7 @@
 #pragma once
 
 #include "../shared/EditSettings.h"
+#include "../shared/EditorPanel.h"
 #include "../shared/Theme.h"
 #include <NoteEdits.h>
 #include <Session.h>
@@ -27,6 +28,7 @@ namespace beatmaker::ui
 {
 
 class PianoRoll final : public juce::Component,
+                        public EditorPanel,
                         private juce::Timer
 {
 public:
@@ -36,43 +38,42 @@ public:
     void setTarget (int trackIndex, int midiClipIndex);
     void setDefaultVelocities (int normal, int soft) { defaultVelocity = juce::jlimit (1, 127, normal); softVelocity = juce::jlimit (1, 127, soft); }
     int getTrackIndex() const noexcept { return trackIndex; }
-    bool hasTarget() const { return getSequence() != nullptr; }
+    bool hasTarget() const override { return getSequence() != nullptr; }
 
     // Editing commands (also reachable from the palette when the notes have focus)
-    bool hasSelection() const noexcept { return ! selection.empty(); }
+    bool hasSelection() const override { return ! selection.empty(); }
     int numSelected() const noexcept { return (int) selection.size(); }
-    void selectAll();
-    void clearSelection();
-    void deleteSelection();
-    void copySelection();
-    void cutSelection();
-    bool canPaste() const;
-    void pasteAtInsertion();
-    void duplicateSelection();
-    void quantizeSelection (bool lengthsToo = false);
-    void transposeSelection (int semitones);
-    void nudgeSelection (double beats);
-    void changeVelocity (int delta);
-    void legatoSelection();
+    void selectAll() override;
+    void clearSelection() override;
+    void deleteSelection() override;
+    void copySelection() override;
+    void cutSelection() override;
+    bool canPaste() const override;
+    void pasteAtInsertion() override;
+    void duplicateSelection() override;
+    void quantizeSelection (bool lengthsToo) override;
+    void transposeSelection (int semitones) override;
+    void nudgeBeats (double beats);
+    void nudgeSelection (int gridSteps) override { nudgeBeats (gridSteps * gridBeats()); }
+    void changeVelocity (int delta) override;
+    void legatoSelection() override;
     void selectNextNote (bool forward);
-    void zoomBy (double factor);
-    void zoomToFit();
-    juce::String describeSelection() const;
+    void zoomBy (double factor) override;
+    void zoomToFit() override;
+    juce::String describeSelection() const override;
+    juce::String keyHint() const override
+    {
+        return "NOTES: Up/Down transpose (Shift octave)   Ctrl+Up/Down velocity   Left/Right nudge   Alt+Q quantize   Ctrl+L legato   Ctrl+D duplicate   Tab next note   double-click: spot";
+    }
 
     std::function<void (int trackIndex, int clipIndex, std::shared_ptr<const engine::MidiSequence>, juce::String)> onSequenceChanged;
     std::function<void (int trackIndex, int presetIndex)> onPresetChanged;
-    std::function<void (const juce::String&)> onStatus;
-    // Time axis link with the track area: the source gives the lane origin (in
-    // this component's coordinates), the view start and the pixels per second;
-    // the sink receives scroll and zoom made here.
-    struct View { double originX = 0.0, startSeconds = 0.0, pixelsPerSecond = 60.0, laneWidth = 800.0; };
-    std::function<View()> viewSource;
-    std::function<void (double startSeconds, double pixelsPerSecond)> onViewChanged;
+    using View = TimelineView;   // viewSource / onViewChanged / onStatus come from EditorPanel
     // A note added past the clip's end: the app extends the clip (samples at the clip's rate).
     std::function<void (int trackIndex, int clipIndex, juce::int64 newLengthSamples)> onClipExtend;
-    bool isLinked() const noexcept { return linked; }
-    void setLinked (bool);
-    void unrollLoop();   // one sequence as long as the clip, every repeat written out
+    bool isLinked() const override { return linked; }
+    void setLinked (bool) override;
+    void unrollLoop() override;   // one sequence as long as the clip, every repeat written out
 
     void paint (juce::Graphics&) override;
     void resized() override;
