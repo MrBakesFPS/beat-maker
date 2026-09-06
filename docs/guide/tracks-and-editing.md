@@ -25,6 +25,12 @@ Clips can be moved (also across compatible tracks), trimmed at either edge, sepa
 
 The **a-z** button (**Ctrl+Alt+K**) turns single letters into edit commands, as in Pro Tools: A/S trim start or end to the insertion, D/G fade in or out to the insertion, F default fades, B separate, H duplicate, X/C/V cut, copy and paste clips at the insertion, R/T zoom out and in, E zoom to the selection. With focus on, the panel toggles keep working through Ctrl+Shift+E/L/B/X and record through Ctrl+Space. The full list is in [Keyboard shortcuts](../reference/shortcuts.md).
 
+## Tempo and time signature
+
+The tempo LCD in the transport bar is live: double-click it to type a BPM, drag it up or down (hold Shift for tenths), roll the mouse wheel over it, or right-click it for a time signature from 2/4 to 7/4. **Set Tempo...** (**Ctrl+Shift+T**) is the dialog form and **Tap Tempo** (**Ctrl+Alt+T**) sets the tempo from the average of your taps once you stop tapping.
+
+A tempo change is one undo step. With "Clips follow tempo changes" on (Preferences > Editing, the default), clips, memory locations, automation breakpoints, the cycle range and the playhead keep their bar positions, so a two-bar pattern is still two bars long. With "Loops re-conform on tempo change" on, every audio clip with a known source tempo (library loops) is re-stretched with Elastic Audio to the new tempo as a second undo step, behind a progress window when there is a lot to render. Recorded audio without a source tempo keeps its length and moves with its bar.
+
 ## Fades and clip gain
 
 Drag the top corners of a clip with the Smart Tool for fade in and out. Ctrl+drag a clip vertically for clip gain (or **Ctrl+Shift+Up/Down** in 0.5 dB steps). **Ctrl+F** opens the Fades window to set length, shape (Standard, Equal Power, S-Curve) and gain for every selected clip at once. Fades render in the same code path as playback and bounce; separating a clip makes the cut hard on both sides, and trims clamp the fades.

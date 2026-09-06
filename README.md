@@ -414,6 +414,16 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   the least recently used files that nothing references go first when the
   budget (Preferences > Processing > Audio cache size, 2 GB by default) is
   exceeded. Audio in use is never dropped.
+- Tempo and time signature: double-click the tempo LCD to type a BPM, drag it
+  up or down (Shift for tenths), roll the wheel, or right-click it for 2/4 to
+  7/4; Set Tempo... (Ctrl+Shift+T) is the dialog and Tap Tempo (Ctrl+Alt+T)
+  averages your taps. A tempo change is one undo step in which clips, memory
+  locations and automation keep their bar positions (tick-based, like
+  GarageBand), the cycle range and playhead included; library loops are then
+  re-conformed with Elastic Audio to the new tempo as a second step, with a
+  progress window when there is a lot to render. Both behaviours can be
+  switched off in Preferences > Editing. Scripts set the tempo through the
+  same command.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

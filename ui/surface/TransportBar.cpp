@@ -63,6 +63,18 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     recordButton.setTitle ("Record"); playButton.setTitle ("Play or stop"); stopButton.setTitle ("Stop"); rtzButton.setTitle ("Return to start");
     recordModeButton.setTitle ("Record mode"); rollButton.setTitle ("Pre-roll and post-roll");
     barsBeatsLcd.setTitle ("Bars and beats"); timeLcd.setTitle ("Time"); tempoLcd.setTitle ("Tempo");
+    tempoLcd.setTooltip ("Tempo: double-click to type a BPM, drag up or down (Shift for 0.1), wheel for 1 BPM, right-click for the time signature");
+    tempoLcd.setEditable (false, true, false);
+    tempoLcd.setInterceptsMouseClicks (true, false);
+    tempoLcd.addMouseListener (this, false);
+    tempoLcd.onEditorShow = [this] { if (auto* e = tempoLcd.getCurrentTextEditor()) { e->setText (juce::String (transport.getBpm(), 1), false); e->selectAll(); } };
+    tempoLcd.onTextChange = [this]
+    {
+        const auto text = tempoLcd.getText().retainCharacters ("0123456789.");
+        const double bpm = text.getDoubleValue();
+        if (bpm >= 20.0 && bpm <= 400.0 && onTempoEdited) onTempoEdited (bpm, transport.getBeatsPerBar());
+        updateDisplay();
+    };
     libraryButton.setTooltip ("Loop Library (L)");
     controlsButton.setTooltip ("Smart Controls for the selected track (B)");
     mixerButton.setTooltip ("Mix window: inserts, sends, faders, meters (X)");
@@ -172,10 +184,60 @@ void TransportBar::resized()
 void TransportBar::mouseDown (const juce::MouseEvent& e)
 {
     if (e.eventComponent == &cpuLabel && onCpuClicked) onCpuClicked();
+    if (e.eventComponent == &tempoLcd)
+    {
+        if (e.mods.isPopupMenu()) { showTimeSignatureMenu(); return; }
+        draggingTempo = true; tempoPreviewing = false; dragStartBpm = transport.getBpm(); previewBpm = dragStartBpm;
+    }
+}
+
+void TransportBar::mouseDrag (const juce::MouseEvent& e)
+{
+    if (! draggingTempo || e.eventComponent != &tempoLcd) return;
+    const double step = e.mods.isShiftDown() ? 0.1 : 1.0;
+    const double bpm = juce::jlimit (20.0, 400.0, std::round ((dragStartBpm - e.getDistanceFromDragStartY() / 3.0 * step) / step) * step);
+    if (std::abs (bpm - previewBpm) < 1e-9) return;
+    previewBpm = bpm; tempoPreviewing = true;
+    if (onTempoPreview) onTempoPreview (bpm);
+    updateDisplay();
+}
+
+void TransportBar::mouseUp (const juce::MouseEvent& e)
+{
+    if (! draggingTempo || e.eventComponent != &tempoLcd) return;
+    draggingTempo = false;
+    if (tempoPreviewing && onTempoEdited) onTempoEdited (previewBpm, transport.getBeatsPerBar());
+    tempoPreviewing = false;
+}
+
+void TransportBar::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    if (e.eventComponent != &tempoLcd) return;
+    const double step = e.mods.isShiftDown() ? 0.1 : 1.0;
+    const double bpm = juce::jlimit (20.0, 400.0, std::round ((transport.getBpm() + (wheel.deltaY > 0 ? step : -step)) / step) * step);
+    if (! tempoPreviewing) dragStartBpm = transport.getBpm();
+    previewBpm = bpm; tempoPreviewing = true; wheelCommitTicks = 8;   // commit once the wheel rests
+    if (onTempoPreview) onTempoPreview (bpm);
+    updateDisplay();
+}
+
+void TransportBar::showTimeSignatureMenu()
+{
+    juce::PopupMenu m;
+    for (int n = 2; n <= 7; ++n) m.addItem (n, juce::String (n) + "/4", true, transport.getBeatsPerBar() == n);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (tempoLcd), [this] (int n)
+    {
+        if (n > 0 && onTempoEdited) onTempoEdited (transport.getBpm(), n);
+    });
 }
 
 void TransportBar::timerCallback()
 {
+    if (wheelCommitTicks > 0 && --wheelCommitTicks == 0 && tempoPreviewing && ! draggingTempo)
+    {
+        tempoPreviewing = false;
+        if (onTempoEdited) onTempoEdited (previewBpm, transport.getBeatsPerBar());
+    }
     updateDisplay();
     cpuLabel.setText ("CPU " + juce::String (juce::roundToInt (juce::jlimit (0.0f, 9.99f, cpuLoad) * 100.0f)) + "%" + (cpuOverruns > 0 ? "!" : ""), juce::dontSendNotification);
     cpuLabel.setColour (juce::Label::textColourId, cpuLoad > 0.9f || cpuOverruns > 0 ? theme::record.brighter (0.3f) : cpuLoad > 0.7f ? juce::Colour (0xfff1c40f) : theme::accent);
@@ -214,8 +276,9 @@ void TransportBar::updateDisplay()
     const double remSecs = secs - mins * 60.0;
     timeLcd.setText (juce::String::formatted ("%02d:%06.3f", mins, remSecs), juce::dontSendNotification);
 
-    tempoLcd.setText (juce::String (transport.getBpm(), 1) + " BPM   " + juce::String (transport.getBeatsPerBar()) + "/4",
-                      juce::dontSendNotification);
+    if (! tempoLcd.isBeingEdited())
+        tempoLcd.setText (juce::String (transport.getBpm(), 1) + " BPM   " + juce::String (transport.getBeatsPerBar()) + "/4",
+                          juce::dontSendNotification);
 }
 
 } // namespace beatmaker::ui

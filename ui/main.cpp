@@ -259,6 +259,8 @@ public:
         transportBar.onRecordModeClicked = [this] (juce::TextButton& b) { showRecordModeMenu (b); };
         transportBar.onRollClicked = [this] (juce::TextButton& b) { showRollMenu (b); };
         transportBar.onCpuClicked = [this] { showSystemUsage(); };
+        transportBar.onTempoEdited = [this] (double bpm, int bpb) { setTempo (bpm, bpb); };
+        transportBar.onTempoPreview = [this] (double bpm) { engine.getTransport().setBpm (bpm); };
         refreshRecordSettingsDisplay();
         mixerView.onEditGroup = [this] (int groupId) { showGroupDialog (groupId); };
         trackArea.onMonitorChanged = [this] (int i, bool on)
@@ -358,6 +360,7 @@ public:
     void showSystemUsageFromCommandLine() { showSystemUsage(); }
     void showPendingCrashReportFromCommandLine() { showPendingCrashReport(); }
     void dumpDocsFromCommandLine (const juce::File& dir) { dumpDocs (dir); }
+    void setTempoFromCommandLine (double bpm) { setTempo (bpm, session.getBeatsPerBar()); }
     void reportProblemFromCommandLine() { reportProblem (false); }
     void exportAafFromCommandLine (const juce::String& spec) { exportAafFromCommandLineImpl (spec); }
     void showAafExportFromCommandLine() { showAafExport(); }
@@ -654,7 +657,7 @@ public:
     // and pitched up a fourth, and a copy of the drums TCE'd to 3 beats.
     void elasticDemoFromCommandLine()
     {
-        engine.getTransport().setBpm (100.0);
+        setTempo (100.0, 4, false);
         const auto loops = bundledLoopsFolder();
         importLoop (loops.getChildFile ("Drum Loop 120.wav"), -1, 0.0);
         importLoop (loops.getChildFile ("Synth Pad 120 Am.wav"), -1, 0.0);
@@ -803,6 +806,8 @@ public:
         using Mode = ui::EditSettings::Mode; using Tool = ui::EditSettings::Tool;
 
         // Transport
+        add ("transport.setTempo", "Transport", "Set Tempo...", juce::KeyPress ('t', M::commandModifier | M::shiftModifier, 0), 0, [this] { showTempoDialog(); });
+        add ("transport.tapTempo", "Transport", "Tap Tempo", juce::KeyPress ('t', M::commandModifier | M::altModifier, 0), 0, [this] { tapTempo(); });
         add ("transport.playStop", "Transport", "Play / Stop", juce::KeyPress (juce::KeyPress::spaceKey), 0, [&transport] { transport.togglePlay(); });
         add ("transport.returnToStart", "Transport", "Return to Start", juce::KeyPress (juce::KeyPress::returnKey), 0, [&transport] { transport.returnToStart(); });
         add ("transport.returnToStartHome", "Transport", "Return to Start (Home)", juce::KeyPress (juce::KeyPress::homeKey), 0, [&transport] { transport.returnToStart(); });
@@ -1959,7 +1964,7 @@ private:
     {
         persistence::TransportState t;
         const auto& tr = engine.getTransport();
-        t.bpm = tr.getBpm(); t.beatsPerBar = tr.getBeatsPerBar();
+        t.bpm = session.getBpm(); t.beatsPerBar = session.getBeatsPerBar();
         t.loopStart = tr.getLoopStart(); t.loopEnd = tr.getLoopEnd(); t.loopEnabled = tr.isLoopEnabled();
         return t;
     }
@@ -2121,7 +2126,7 @@ private:
         auto& tr = engine.getTransport();
         if (choice.name == "Beat Making")
         {
-            tr.setBpm (90.0);
+            setTempo (90.0, 4, false);
             addDrumMachineTrack();
             addInstrumentTrack (engine::InstrumentType::subtractive);
             addInstrumentTrack (engine::InstrumentType::bass);
@@ -2133,7 +2138,7 @@ private:
         }
         else if (choice.name == "Songwriter")
         {
-            tr.setBpm (120.0);
+            setTempo (120.0, 4, false);
             const int vox = addTrack ("Vocal"), gtr = addTrack ("Guitar");
             session.execute (std::make_unique<model::SetInsertCommand> (vox, 0, engine::EffectType::eq, sr));
             session.execute (std::make_unique<model::SetInsertCommand> (vox, 1, engine::EffectType::compressor, sr));
@@ -2561,7 +2566,7 @@ private:
         auto cmd = persistence::SessionImport::build (session, *importSource, engine.getSampleRate(), o, summary);
         if (cmd == nullptr) { statusMessage = "Import Session Data: nothing selected"; updateStatus(); return; }
         session.execute (std::move (cmd));
-        if (o.importTempo) { engine.getTransport().setBpm (ts.bpm); engine.getTransport().setBeatsPerBar (ts.beatsPerBar); }
+        if (o.importTempo) setTempo (ts.bpm, ts.beatsPerBar, false);
         trackArea.setSelectedTrack (session.getNumTracks() - 1);
         statusMessage = "Imported " + juce::String (summary.tracksAdded) + " new track(s)" + (summary.tracksMerged > 0 ? ", merged " + juce::String (summary.tracksMerged) : juce::String())
                       + ", " + juce::String (summary.clipsAdded) + " clips" + (summary.markersAdded > 0 ? ", " + juce::String (summary.markersAdded) + " memory locations" : juce::String())
@@ -2817,6 +2822,7 @@ private:
         model::Session& session() override { return main.session; }
         engine::Transport& transport() override { return main.engine.getTransport(); }
         double sampleRate() const override { return main.engine.getSampleRate(); }
+        void setTempo (double bpm) override { main.setTempo (bpm, main.session.getBeatsPerBar()); }
         int addTrack (const juce::String& kind, const juce::String& name) override { return main.scriptAddTrack (kind, name); }
         void status (const juce::String& m) override { main.statusMessage = m; main.updateStatus(); }
         void log (const juce::String& m) override { main.scriptLog (m); }
@@ -3093,8 +3099,137 @@ private:
             engine.getTransport().setLoopRange (0, (juce::int64) std::llround (session.getLengthSeconds() * sr));
     }
 
+    // The session's tempo is the source of truth; the transport follows it here
+    // (undo and redo included). When clips follow bars, the cycle range and the
+    // playhead keep their bar positions too.
+    void mirrorTempo()
+    {
+        auto& tr = engine.getTransport();
+        const double sb = session.getBpm();
+        if (std::abs (sb - mirroredBpm) > 1e-9)
+        {
+            if (mirroredBpm > 0.0 && prefs.getBool ("editing.clipsFollowTempo"))
+            {
+                const double f = mirroredBpm / sb;
+                tr.setLoopRange ((juce::int64) std::llround ((double) tr.getLoopStart() * f), (juce::int64) std::llround ((double) tr.getLoopEnd() * f));
+                if (! tr.isPlaying()) tr.setPositionSamples ((juce::int64) std::llround ((double) tr.getPositionSamples() * f));
+            }
+            mirroredBpm = sb;
+        }
+        tr.setBpm (sb);
+        tr.setBeatsPerBar (session.getBeatsPerBar());
+    }
+
+    // One undo step for the tempo (clips follow bars per preference), then the
+    // loops with a known source tempo are re-conformed as a second step.
+    void setTempo (double bpm, int beatsPerBar, bool reconformLoops = true)
+    {
+        bpm = juce::jlimit (20.0, 400.0, bpm);
+        if (std::abs (bpm - session.getBpm()) < 1e-9 && beatsPerBar == session.getBeatsPerBar()) { engine.getTransport().setBpm (bpm); return; }
+        const double oldBpm = session.getBpm();
+        session.execute (std::make_unique<model::SetTempoCommand> (bpm, beatsPerBar, prefs.getBool ("editing.clipsFollowTempo")));
+        statusMessage = "Tempo " + juce::String (bpm, 1) + " BPM, " + juce::String (beatsPerBar) + "/4";
+        updateStatus();
+        if (reconformLoops && std::abs (bpm - oldBpm) > 1e-9 && prefs.getBool ("editing.loopsFollowTempo")) reconformLoopsToTempo (bpm);
+    }
+
+    // Every audio clip with a source tempo gets an Elastic conform to `bpm`; all
+    // renders become one "Conform Loops" undo step (background job when long).
+    void reconformLoopsToTempo (double bpm)
+    {
+        std::vector<std::unique_ptr<model::SetClipElasticCommand>> cmds;
+        double totalSeconds = 0.0;
+        for (int t = 0; t < session.getNumTracks(); ++t)
+        {
+            const auto& track = session.getTracks()[(size_t) t];
+            for (int c = 0; c < (int) track.clips.size(); ++c)
+            {
+                const auto& clip = track.clips[(size_t) c];
+                if (clip.sourceBpm <= 0.0 || clip.audio == nullptr) continue;
+                engine::StretchMode mode = clip.isElastic() ? clip.elastic.mode : engine::StretchMode::polyphonic;
+                if (! clip.isElastic() && clip.sourceFile.existsAsFile())
+                    if (persistence::LoopLibrary::analyse (clip.sourceFile, loader.getFormatManager()).category == persistence::LoopInfo::Category::drums) mode = engine::StretchMode::rhythmic;
+                auto cmd = std::make_unique<model::SetClipElasticCommand> (session, model::ClipRef { t, model::ClipRef::Kind::audio, c }, model::Elastic::forTempo (clip, bpm, mode), "Conform to Tempo", true);
+                if (cmd->wasCancelled()) continue;
+                totalSeconds += cmd->getSampleRate() > 0.0 ? (double) cmd->getSourceLength() / cmd->getSampleRate() : 0.0;
+                cmds.push_back (std::move (cmd));
+            }
+        }
+        if (cmds.empty()) return;
+        auto apply = [this] (std::vector<std::unique_ptr<model::SetClipElasticCommand>> done)
+        {
+            auto compound = std::make_unique<model::CompoundCommand> ("Conform Loops to Tempo");
+            int n = 0;
+            for (auto& c : done) if (c->isRendered()) { compound->add (std::move (c)); ++n; }
+            if (n > 0) session.execute (std::move (compound));
+            statusMessage = "Conformed " + juce::String (n) + " loop(s) to " + juce::String (session.getBpm(), 1) + " BPM"; updateStatus();
+        };
+        if (totalSeconds <= ui::ElasticJob::asyncThresholdSeconds)
+        {
+            for (auto& c : cmds) c->render();
+            apply (std::move (cmds));
+            return;
+        }
+        struct Job final : juce::ThreadWithProgressWindow
+        {
+            Job (std::vector<std::unique_ptr<model::SetClipElasticCommand>> c, std::function<void (std::vector<std::unique_ptr<model::SetClipElasticCommand>>)> a)
+                : ThreadWithProgressWindow ("Conforming loops to the new tempo...", true, true), cmds (std::move (c)), apply (std::move (a)) {}
+            void run() override
+            {
+                for (size_t i = 0; i < cmds.size() && ! threadShouldExit(); ++i)
+                    cmds[i]->render ([this, i] (double p) { setProgress (((double) i + p) / (double) cmds.size()); return ! threadShouldExit(); });
+            }
+            void threadComplete (bool cancelled) override
+            {
+                if (! cancelled) apply (std::move (cmds));
+                juce::MessageManager::callAsync ([this] { delete this; });
+            }
+            std::vector<std::unique_ptr<model::SetClipElasticCommand>> cmds;
+            std::function<void (std::vector<std::unique_ptr<model::SetClipElasticCommand>>)> apply;
+        };
+        (new Job (std::move (cmds), std::move (apply)))->launchThread();
+    }
+
+    void showTempoDialog()
+    {
+        auto* w = new juce::AlertWindow ("Set Tempo", "Tempo in beats per minute (20 to 400) and beats per bar. Clips, memory locations and automation keep their bar positions, and library loops are re-conformed, unless switched off in Preferences > Editing.", juce::MessageBoxIconType::NoIcon);
+        w->addTextEditor ("bpm", juce::String (session.getBpm(), 1), "BPM");
+        juce::StringArray sigs; for (int n = 2; n <= 7; ++n) sigs.add (juce::String (n) + "/4");
+        w->addComboBox ("sig", sigs, "Time signature");
+        w->getComboBoxComponent ("sig")->setSelectedId (juce::jlimit (1, 6, session.getBeatsPerBar() - 1));
+        w->addButton ("Set", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w] (int result)
+        {
+            if (result == 1)
+            {
+                const double bpm = w->getTextEditorContents ("bpm").retainCharacters ("0123456789.").getDoubleValue();
+                if (bpm >= 20.0 && bpm <= 400.0) setTempo (bpm, w->getComboBoxComponent ("sig")->getSelectedId() + 1);
+                else { statusMessage = "Tempo must be between 20 and 400 BPM"; updateStatus(); }
+            }
+        }), true);
+    }
+
+    // Tap Tempo: the average interval of the recent taps; the tempo is applied
+    // (with loop conforming) once the taps stop.
+    void tapTempo()
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+        if (! tapTimes.empty() && now - tapTimes.back() > 2.0) tapTimes.clear();
+        tapTimes.push_back (now);
+        if (tapTimes.size() > 8) tapTimes.erase (tapTimes.begin());
+        if (tapTimes.size() < 2) { statusMessage = "Tap Tempo: keep tapping (Ctrl+Alt+T)"; updateStatus(); return; }
+        const double bpm = juce::jlimit (20.0, 400.0, 60.0 * (double) (tapTimes.size() - 1) / (tapTimes.back() - tapTimes.front()));
+        const double rounded = std::round (bpm * 10.0) / 10.0;
+        engine.getTransport().setBpm (rounded);   // live preview
+        statusMessage = "Tap Tempo: " + juce::String (rounded, 1) + " BPM (" + juce::String ((int) tapTimes.size()) + " taps)"; updateStatus();
+        const int generation = ++tapGeneration;
+        juce::Timer::callAfterDelay (1500, [this, generation, rounded] { if (generation == tapGeneration) setTempo (rounded, session.getBeatsPerBar()); });
+    }
+
     void sessionChanged (model::Session&) override
     {
+        mirrorTempo();
         if (session.getHistory().canUndo()) ui::CrashReporter::get().addBreadcrumb ("edit " + session.getHistory().getUndoName());
         pushSnapshot();
         updateLoopRange();
@@ -3148,6 +3283,8 @@ private:
     juce::String untitledName = "Untitled";
     int savedHistorySize = 0, autosaveCounter = 0;
     juce::String lastDeviceInfo;
+    double mirroredBpm = 0.0;
+    std::vector<double> tapTimes; int tapGeneration = 0;
     juce::Component::SafePointer<juce::DialogWindow> memoryWindow, preferencesWindow, paletteWindow;
     juce::Component::SafePointer<ui::PreferencesWindow> preferencesContent;
     juce::Component::SafePointer<juce::DialogWindow> eventListWindow, syncWindow;
@@ -3280,6 +3417,7 @@ public:
             else if (arg == "--crash") { ui::CrashReporter::get().addBreadcrumb ("deliberate crash (--crash)"); ui::CrashReporter::crashNow(); }
             else if (arg == "--crash-dialog") main.showPendingCrashReportFromCommandLine();
             else if (arg == "--diagnostics") main.reportProblemFromCommandLine();
+            else if (arg.startsWith ("--tempo=")) main.setTempoFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue());
             else if (arg.startsWith ("--dump-docs=")) main.dumpDocsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--stems=")) main.stemsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();

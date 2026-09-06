@@ -95,7 +95,7 @@ struct LuaBindings
     static int position (lua_State* L) { lua_pushnumber (L, transport (L).getPositionSeconds()); return 1; }
     static int setPosition (lua_State* L) { transport (L).setPositionSeconds (juce::jmax (0.0, luaL_checknumber (L, 1))); return 0; }
     static int bpm (lua_State* L) { lua_pushnumber (L, transport (L).getBpm()); return 1; }
-    static int setBpm (lua_State* L) { transport (L).setBpm (juce::jlimit (20.0, 400.0, luaL_checknumber (L, 1))); return 0; }
+    static int setBpm (lua_State* L) { engine (L).host.setTempo (juce::jlimit (20.0, 400.0, luaL_checknumber (L, 1))); return 0; }
     static int bar (lua_State* L) { lua_pushinteger (L, transport (L).getBarBeat().bar); return 1; }
     static int locateBar (lua_State* L)
     {

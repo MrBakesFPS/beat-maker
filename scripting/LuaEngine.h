@@ -21,6 +21,7 @@ public:
     virtual model::Session& session() = 0;
     virtual engine::Transport& transport() = 0;
     virtual double sampleRate() const = 0;
+    virtual void setTempo (double bpm) { transport().setBpm (bpm); }   // apps route this through their undoable tempo command
     // kind: audio | drums | synth | fm | wavetable | sampler | electricpiano | bass | aux | vca. Returns the track index or -1.
     virtual int addTrack (const juce::String& kind, const juce::String& name) = 0;
     virtual void status (const juce::String&) = 0;

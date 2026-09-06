@@ -32,6 +32,9 @@ public:
     // CPU readout (0..1) and overrun count, shown at the right of the LCDs
     void setCpuLoad (float load, long long overruns) { cpuLoad = load; cpuOverruns = overruns; cpuLabel.repaint(); }
     std::function<void()> onCpuClicked;
+    // Tempo LCD: double-click to type, drag up/down or wheel to change, right-click for the time signature.
+    std::function<void (double bpm, int beatsPerBar)> onTempoEdited;   // commit (one undo step)
+    std::function<void (double bpm)> onTempoPreview;                    // live while dragging
     void setControlsVisible (bool visible) { controlsButton.setToggleState (visible, juce::dontSendNotification); }
     void setMixerVisible (bool visible) { mixerButton.setToggleState (visible, juce::dontSendNotification); }
 
@@ -41,6 +44,9 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     void timerCallback() override;
@@ -58,6 +64,9 @@ private:
     juce::Label barsBeatsLcd, timeLcd, tempoLcd;
     juce::Label cpuLabel;
     float cpuLoad = 0.0f; long long cpuOverruns = 0;
+    double dragStartBpm = 0.0, previewBpm = 0.0; bool draggingTempo = false, tempoPreviewing = false;
+    int wheelCommitTicks = 0;
+    void showTimeSignatureMenu();
     juce::TextButton libraryButton { "Library" };
     juce::TextButton controlsButton { "Controls" };
     juce::TextButton mixerButton { "Mix" };

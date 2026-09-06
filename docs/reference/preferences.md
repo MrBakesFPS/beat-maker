@@ -34,6 +34,8 @@ Preferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Ma
 |---|---|---|
 | Default fade length | 10 ms | Length used by the focus keys D/G/F and new fades. Range 1 to 5000. |
 | Default fade shape | Equal Power | Shape of new fades. Choices: Linear, Equal Power, S-Curve. |
+| Clips follow tempo changes | on | When the tempo changes, clips, memory locations and automation keep their bar positions (tick-based). Off: they keep their time in seconds. |
+| Loops re-conform on tempo change | on | Audio clips with a known source tempo (library loops) are re-stretched with Elastic Audio to the new tempo. |
 | Select clips after paste | on | Pasted clips become the selection. |
 | Nudge amount follows grid | on | The , and . keys move clips by the grid value. |
 | Delete with a time selection | Delete clips in range | What Delete does when a time range is selected. Choices: Delete clips in range, Clear the range (separate first). |

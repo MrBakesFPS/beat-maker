@@ -393,6 +393,7 @@ private:
     friend class SetIOSetupCommand;
     friend class SetDelayCompensationCommand;
     friend class SetRecordSettingsCommand;
+    friend class SetTempoCommand;
     friend class SetTrackPunchCommand;
     friend class AddMarkerCommand;
     friend class SetTrackMidiPropsCommand;
@@ -1149,6 +1150,105 @@ private:
 };
 
 // Record mode and pre/post-roll: transport settings, not document edits.
+// Sets the session tempo and time signature. With `clipsFollowBars` every
+// clip, marker and automation breakpoint keeps its bar position (times scale
+// by old/new tempo) as on a tick-based track; without it they keep their
+// time in seconds. Loop re-conforming (Elastic) is the app's job afterwards.
+class SetTempoCommand final : public Command
+{
+public:
+    SetTempoCommand (double newBpm, int newBeatsPerBar, bool clipsFollowBars)
+        : bpm (juce::jlimit (20.0, 400.0, newBpm)), beatsPerBar (juce::jlimit (1, 16, newBeatsPerBar)), follow (clipsFollowBars) {}
+    juce::String getName() const override { return "Set Tempo"; }
+    void execute (Session& s) override
+    {
+        oldBpm = s.bpm; oldBeatsPerBar = s.beatsPerBar;
+        if (! captured) { capture (s); captured = true; }
+        s.bpm = bpm; s.beatsPerBar = beatsPerBar;
+        if (follow && std::abs (oldBpm - bpm) > 1e-9) scale (s, oldBpm / bpm);
+    }
+    void undo (Session& s) override
+    {
+        s.bpm = oldBpm; s.beatsPerBar = oldBeatsPerBar;
+        if (follow) restore (s);
+    }
+    double getOldBpm() const noexcept { return oldBpm; }
+
+private:
+    struct TrackTimes
+    {
+        std::vector<juce::int64> audioStarts;                         // main playlist
+        std::vector<std::vector<juce::int64>> alternateStarts;
+        std::vector<std::pair<juce::int64, juce::int64>> patterns;    // start, length
+        std::vector<std::array<juce::int64, 3>> midi;                 // start, length, loopOffset
+        std::vector<std::shared_ptr<const engine::AutomationLane>> automation;
+    };
+    static TrackTimes captureTrack (const Track& t)
+    {
+        TrackTimes tt;
+        for (const auto& c : t.clips) tt.audioStarts.push_back (c.timelineStart);
+        for (const auto& p : t.alternates) { std::vector<juce::int64> v; for (const auto& c : p.clips) v.push_back (c.timelineStart); tt.alternateStarts.push_back (std::move (v)); }
+        for (const auto& c : t.patternClips) tt.patterns.emplace_back (c.timelineStart, c.length);
+        for (const auto& c : t.midiClips) tt.midi.push_back ({ c.timelineStart, c.length, c.loopOffset });
+        tt.automation = t.automation;
+        return tt;
+    }
+    static void restoreTrack (Track& t, const TrackTimes& tt)
+    {
+        for (size_t i = 0; i < t.clips.size() && i < tt.audioStarts.size(); ++i) t.clips[i].timelineStart = tt.audioStarts[i];
+        for (size_t p = 0; p < t.alternates.size() && p < tt.alternateStarts.size(); ++p)
+            for (size_t i = 0; i < t.alternates[p].clips.size() && i < tt.alternateStarts[p].size(); ++i) t.alternates[p].clips[i].timelineStart = tt.alternateStarts[p][i];
+        for (size_t i = 0; i < t.patternClips.size() && i < tt.patterns.size(); ++i) { t.patternClips[i].timelineStart = tt.patterns[i].first; t.patternClips[i].length = tt.patterns[i].second; }
+        for (size_t i = 0; i < t.midiClips.size() && i < tt.midi.size(); ++i) { t.midiClips[i].timelineStart = tt.midi[i][0]; t.midiClips[i].length = tt.midi[i][1]; t.midiClips[i].loopOffset = tt.midi[i][2]; }
+        t.automation = tt.automation;
+    }
+    static void scaleTrack (Track& t, double f)
+    {
+        auto sc = [f] (juce::int64 v) { return (juce::int64) std::llround ((double) v * f); };
+        for (auto& c : t.clips) c.timelineStart = sc (c.timelineStart);
+        for (auto& p : t.alternates) for (auto& c : p.clips) c.timelineStart = sc (c.timelineStart);
+        for (auto& c : t.patternClips) { c.timelineStart = sc (c.timelineStart); c.length = juce::jmax<juce::int64> (1, sc (c.length)); c.loopOffset = sc (c.loopOffset); }
+        for (auto& c : t.midiClips) { c.timelineStart = sc (c.timelineStart); c.length = juce::jmax<juce::int64> (1, sc (c.length)); c.loopOffset = sc (c.loopOffset); }
+        for (auto& lane : t.automation)
+        {
+            if (lane == nullptr || lane->isEmpty()) continue;
+            auto copy = std::make_shared<engine::AutomationLane> (*lane);
+            for (auto& pt : copy->points) pt.time = sc (pt.time);
+            lane = copy;
+        }
+    }
+    void capture (Session& s)
+    {
+        tracks.clear();
+        for (const auto& t : s.tracks) tracks.push_back (captureTrack (t));
+        master = captureTrack (s.master);
+        markers = s.markers;
+    }
+    void restore (Session& s)
+    {
+        for (size_t i = 0; i < s.tracks.size() && i < tracks.size(); ++i) restoreTrack (s.tracks[i], tracks[i]);
+        restoreTrack (s.master, master);
+        s.markers = markers;
+    }
+    void scale (Session& s, double f)
+    {
+        for (auto& t : s.tracks) scaleTrack (t, f);
+        scaleTrack (s.master, f);
+        for (auto& m : s.markers)
+        {
+            m.seconds *= f;
+            if (m.endSeconds >= 0.0) m.endSeconds *= f;
+            m.selectionStart *= f; m.selectionEnd *= f; m.viewStartSeconds *= f;
+        }
+    }
+    double bpm, oldBpm = 120.0;
+    int beatsPerBar, oldBeatsPerBar = 4;
+    bool follow, captured = false;
+    std::vector<TrackTimes> tracks;
+    TrackTimes master;
+    std::vector<Marker> markers;
+};
+
 class SetRecordSettingsCommand final : public Command
 {
 public:

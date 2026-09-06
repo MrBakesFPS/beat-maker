@@ -2,6 +2,11 @@
 
 All notable changes to Beat Maker. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Editable tempo and time signature: the tempo LCD accepts typing, dragging, the wheel and a right-click signature menu; Set Tempo... (Ctrl+Shift+T) and Tap Tempo (Ctrl+Alt+T). Tempo changes are undoable, keep clips, markers and automation on their bars, and re-conform library loops (both switchable in Preferences > Editing). `--tempo=<bpm>` flag; Lua `set_bpm` goes through the same command.
+
 ## [1.0.0-beta.1] - 2026-09-06
 
 The first public beta. Everything below is new.

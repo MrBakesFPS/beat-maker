@@ -32,6 +32,7 @@ target_sources(beatmaker_tests PRIVATE
     ../ui/shared/Preferences.cpp
     ../ui/shared/CrashReporter.cpp
     crash_reporter_test.cpp
+    tempo_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp

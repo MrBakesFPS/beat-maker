@@ -6,6 +6,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 
 | Command | Shortcut | Focus key |
 |---|---|---|
+| Set Tempo... | `ctrl + shift + T` |  |
+| Tap Tempo | `ctrl + alt + T` |  |
 | Play / Stop | `spacebar` |  |
 | Return to Start | `return` |  |
 | Return to Start (Home) | `home` |  |

@@ -40,6 +40,8 @@ std::vector<PrefDef> Preferences::definitions()
         // Editing
         number ("editing.defaultFadeMs", "Editing", "Default fade length", "Length used by the focus keys D/G/F and new fades.", 10.0, 1.0, 5000.0, 1.0, "ms"),
         choice ("editing.defaultFadeShape", "Editing", "Default fade shape", "Shape of new fades.", 1, { "Linear", "Equal Power", "S-Curve" }),
+        toggle ("editing.clipsFollowTempo", "Editing", "Clips follow tempo changes", "When the tempo changes, clips, memory locations and automation keep their bar positions (tick-based). Off: they keep their time in seconds.", true),
+        toggle ("editing.loopsFollowTempo", "Editing", "Loops re-conform on tempo change", "Audio clips with a known source tempo (library loops) are re-stretched with Elastic Audio to the new tempo.", true),
         toggle ("editing.autoSelectAfterPaste", "Editing", "Select clips after paste", "Pasted clips become the selection.", true),
         toggle ("editing.nudgeFollowsGrid", "Editing", "Nudge amount follows grid", "The , and . keys move clips by the grid value.", true),
         choice ("editing.separateOnDelete", "Editing", "Delete with a time selection", "What Delete does when a time range is selected.", 0, { "Delete clips in range", "Clear the range (separate first)" }),
