@@ -2433,7 +2433,9 @@ private:
     void openUserGuide()
     {
         const juce::File source (BEATMAKER_SOURCE_DIR);
-        const auto site = source.getChildFile ("site").getChildFile ("index.html");
+        const auto exeDir = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getParentDirectory();
+        auto site = exeDir.getChildFile ("docs").getChildFile ("index.html");                 // packaged: docs/ beside the binary
+        if (! site.existsAsFile()) site = source.getChildFile ("site").getChildFile ("index.html");
         const auto md = source.getChildFile ("docs").getChildFile ("index.md");
         if (site.existsAsFile()) { juce::URL (site).launchInDefaultBrowser(); statusMessage = "User Guide opened in the browser"; }
         else if (md.existsAsFile()) { md.revealToUser(); statusMessage = "User Guide sources in " + md.getParentDirectory().getFullPathName() + " (run tools/build_docs.py for the site)"; }
@@ -3190,11 +3192,17 @@ class BeatMakerApplication final : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override    { return JUCE_APPLICATION_NAME_STRING; }
-    const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
+    const juce::String getApplicationVersion() override { return BEATMAKER_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override          { return true; }
 
     void initialise (const juce::String& commandLine) override
     {
+        if (getCommandLineParameterArray().contains ("--version"))
+        {
+            std::cout << "Beat Maker " << BEATMAKER_VERSION_STRING << " (JUCE " << JUCE_MAJOR_VERSION << "." << JUCE_MINOR_VERSION << "." << JUCE_BUILDNUMBER << ")" << std::endl;
+            quit();
+            return;
+        }
         // Out-of-process plugin validation: scan one plugin, print its descriptions, exit.
         for (const auto& arg : getCommandLineParameterArray())
             if (arg.startsWith ("--scan-plugin="))

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
-project(BeatMaker VERSION 0.1.0 LANGUAGES C CXX)
+project(BeatMaker VERSION 1.0.0 LANGUAGES C CXX)
+set(BEATMAKER_VERSION_STRING "1.0.0-beta.1")   # shown in the app, --version, packages and crash reports
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

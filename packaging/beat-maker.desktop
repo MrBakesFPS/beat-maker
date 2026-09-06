@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Beat Maker
+Comment=A DAW with a GarageBand-style surface and Pro Tools-style depth
+Exec=beat-maker %F
+Icon=beat-maker
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+MimeType=audio/x-wav;audio/wav;audio/aiff;audio/flac;audio/mpeg;audio/ogg;
+Keywords=DAW;music;audio;recording;beat;

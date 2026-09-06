@@ -55,7 +55,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --synth --freeze=2 --bounce=frozen.wav # freeze track 2, then bounce
 ```
 
-Run the tests with `ctest --test-dir build`.
+Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release tarball (binary, assets, user guide, desktop entry, `install.sh`); `beat-maker --version` prints the version.
 
 ## Status
 
@@ -422,7 +422,7 @@ Keys: Space play/stop, R record, Return back to start, C cycle, L library, B Sma
 Ctrl+Shift+D new drum track, Ctrl+I new Synth track, Ctrl+B bounce, Ctrl+Z / Ctrl+Shift+Z undo/redo, Ctrl+O open,
 Ctrl+wheel zoom, wheel scroll, click the ruler to locate.
 
-Remaining before 1.0: the beta program (packaging, changelog, release checklist). See PLAN.md §5.
+This is the 1.0.0-beta.1 feature set. `tools/package.sh` builds the beta tarball, [CHANGELOG.md](CHANGELOG.md) lists what is in it and [RELEASING.md](RELEASING.md) describes the beta program and the release checklist. 1.0 follows the beta feedback.
 
 ## Architecture in one paragraph
 
