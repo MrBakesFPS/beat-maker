@@ -223,7 +223,7 @@ beat-maker/
 - [x] **Milestone:** Feature parity with the "settings and options" targets in §3.2. *(Phase 4 complete 2026-09-06.)*
 
 ### Phase 5 — Polish & Release (Weeks 39–46)
-- [~] Stem export, Import Session Data, AAF/OMF export. *(2026-09-06: stem export done (model/Freeze::stemSnapshot with a direct-output mute that keeps sends alive so stems sum to the mix; StemExportDialog, Ctrl+Alt+B, `--stems=<dir>`). Import Session Data and AAF/OMF pending.)*
+- [~] Stem export, Import Session Data, AAF/OMF export. *(2026-09-06: stem export done (model/Freeze::stemSnapshot with a direct-output mute that keeps sends alive so stems sum to the mix; StemExportDialog, Ctrl+Alt+B, `--stems=<dir>`). Import Session Data done (persistence/SessionImport + ImportSessionDialog, Shift+Alt+I, `--import-session=<bundle>[,offset]`). AAF/OMF pending.)*
 - [ ] Onboarding, tooltips, in-app tutorials, sample projects.
 - [~] Performance pass: CPU meter, freeze/commit tracks, disk cache. *(2026-09-06: freeze/commit done (Track::FreezeState, Freeze/Unfreeze commands, builder plays the render, DelayCompensation ignores baked inserts, session files keep the render; a frozen bounce is sample-identical to the live one). CPU meter and disk cache pending.)*
 - [ ] Accessibility (screen reader labels, high-contrast theme, full keyboard nav).

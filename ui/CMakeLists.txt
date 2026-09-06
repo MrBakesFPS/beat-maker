@@ -30,6 +30,7 @@ target_sources(BeatMaker PRIVATE
     depth/SyncDialog.cpp
     depth/ScriptConsole.cpp
     depth/StemExportDialog.cpp
+    depth/ImportSessionDialog.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE

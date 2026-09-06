@@ -11,6 +11,8 @@
 #include "depth/MidiEventList.h"
 #include "depth/ScriptConsole.h"
 #include "depth/StemExportDialog.h"
+#include "depth/ImportSessionDialog.h"
+#include <SessionImport.h>
 #include <Freeze.h>
 #include <LuaEngine.h>
 #include "depth/SyncDialog.h"
@@ -331,6 +333,23 @@ public:
     void runLuaFromCommandLine (const juce::String& code) { const auto r = lua.run (code, "command-line"); statusMessage = r.ok ? (r.output.isNotEmpty() ? r.output.trimEnd() : "Lua ok") : "Lua error: " + r.error; updateStatus(); std::cout << (r.ok ? r.output : "error: " + r.error + "\n"); }
     void showScriptConsoleFromCommandLine() { showScriptConsole(); }
     void freezeFromCommandLine (int oneBased) { freezeTrack (oneBased - 1); }
+    void showImportDialogFromCommandLine (const juce::File& bundle) { showImportSessionDialog (bundle); }
+    // --import-session=<bundle>[,<seconds>]: every track, markers and tempo; placed at the offset (default absolute).
+    void importSessionFromCommandLine (const juce::String& spec)
+    {
+        const auto parts = juce::StringArray::fromTokens (spec, ",", {});
+        const auto bundle = juce::File::getCurrentWorkingDirectory().getChildFile (parts[0]);
+        importSource = std::make_unique<model::Session>();
+        persistence::TransportState ts; juce::StringArray warnings;
+        if (const auto error = persistence::SessionImport::open (*importSource, ts, bundle, loadContext(), warnings); error.isNotEmpty())
+        { statusMessage = "Import failed: " + error; updateStatus(); importSource.reset(); return; }
+        persistence::ImportOptions o;
+        for (int i = 0; i < importSource->getNumTracks(); ++i) o.tracks.push_back (i);
+        o.offsetSeconds = parts.size() > 1 ? parts[1].getDoubleValue() : 0.0;
+        o.importMarkers = true; o.importTempo = true;
+        applyImport (o, ts, warnings);
+        importSource.reset();
+    }
     void unfreezeFromCommandLine (int oneBased) { unfreezeTrack (oneBased - 1); }
     void commitFromCommandLine (int oneBased) { commitTrack (oneBased - 1); }
     // --stems=<dir>: every renderable track, WAV 24-bit, whole arrangement; synchronous for smoke tests.
@@ -835,6 +854,7 @@ public:
         add ("track.unfreeze", "Track", "Unfreeze Selected Track", {}, 0, [this] { unfreezeTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isFrozen(); });
         add ("track.commit", "Track", "Commit Selected Track", {}, 0, [this] { commitTrack (trackArea.getSelectedTrack()); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && model::Freeze::canFreeze (*t); });
         add ("file.stems", "File", "Export Stems...", juce::KeyPress ('b', M::commandModifier | M::altModifier, 0), 0, [this] { showStemExport(); });
+        add ("file.importSession", "File", "Import Session Data...", juce::KeyPress ('i', M::shiftModifier | M::altModifier, 0), 0, [this] { chooseSessionToImport(); });
 
         // Windows
         add ("window.preferences", "Window", "Preferences...", juce::KeyPress (',', M::commandModifier, 0), 0, [this] { showPreferences ({}); });
@@ -2045,6 +2065,7 @@ private:
             addInstrumentTrack (engine::InstrumentType::bass);
             addTrack ("Vocal");
             addTrack ("Sample");
+            for (int i = 0; i < 3; ++i) session.execute (std::make_unique<model::SetTrackMixCommand> (i, 0.6f, 0.0f));   // headroom for the sum
             tr.setLoopRange (0, (juce::int64) std::llround (tr.beatsToSeconds (16.0) * sr));
             tr.setLoopEnabled (true);
         }
@@ -2161,6 +2182,63 @@ private:
         paletteWindow = options.launchAsync();
         if (query.isNotEmpty()) content->setQuery (query);
         content->grabKeyboardFocus();
+    }
+
+    //==========================================================================
+    // Import Session Data
+
+    void chooseSessionToImport()
+    {
+        sessionsFolder().createDirectory();
+        fileChooser = std::make_unique<juce::FileChooser> ("Import Session Data: choose a session", sessionsFolder(), "*.bmk;*.bmkt");
+        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
+                                  [this] (const juce::FileChooser& fc)
+                                  {
+                                      auto f = fc.getResult();
+                                      if (f.getFileName() == "session.json") f = f.getParentDirectory();
+                                      if (persistence::SessionFile::isSessionBundle (f)) showImportSessionDialog (f);
+                                      else if (f != juce::File()) { statusMessage = "Not a Beat Maker session: " + f.getFileName(); updateStatus(); }
+                                  });
+    }
+
+    void showImportSessionDialog (const juce::File& bundle)
+    {
+        importSource = std::make_unique<model::Session>();
+        persistence::TransportState ts; juce::StringArray warnings;
+        if (const auto error = persistence::SessionImport::open (*importSource, ts, bundle, loadContext(), warnings); error.isNotEmpty())
+        { statusMessage = "Import failed: " + error; updateStatus(); importSource.reset(); return; }
+        auto* dialog = new ui::ImportSessionDialog (*importSource, ts, persistence::SessionFile::sessionName (bundle), engine.getTransport().getPositionSeconds());
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Import Session Data";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        dialog->onCancel = [this, window] { window->setVisible (false); importSource.reset(); };
+        dialog->onImport = [this, window, ts, warnings] (const persistence::ImportOptions& o)
+        {
+            window->setVisible (false);
+            applyImport (o, ts, warnings);
+            importSource.reset();
+        };
+    }
+
+    void applyImport (const persistence::ImportOptions& o, const persistence::TransportState& ts, const juce::StringArray& loadWarnings)
+    {
+        if (importSource == nullptr) return;
+        persistence::ImportSummary summary;
+        auto cmd = persistence::SessionImport::build (session, *importSource, engine.getSampleRate(), o, summary);
+        if (cmd == nullptr) { statusMessage = "Import Session Data: nothing selected"; updateStatus(); return; }
+        session.execute (std::move (cmd));
+        if (o.importTempo) { engine.getTransport().setBpm (ts.bpm); engine.getTransport().setBeatsPerBar (ts.beatsPerBar); }
+        trackArea.setSelectedTrack (session.getNumTracks() - 1);
+        statusMessage = "Imported " + juce::String (summary.tracksAdded) + " new track(s)" + (summary.tracksMerged > 0 ? ", merged " + juce::String (summary.tracksMerged) : juce::String())
+                      + ", " + juce::String (summary.clipsAdded) + " clips" + (summary.markersAdded > 0 ? ", " + juce::String (summary.markersAdded) + " memory locations" : juce::String())
+                      + (o.importTempo ? ", tempo " + juce::String (ts.bpm, 1) : juce::String())
+                      + (loadWarnings.isEmpty() && summary.warnings.isEmpty() ? juce::String() : "  WARNING: " + (loadWarnings.isEmpty() ? summary.warnings[0] : loadWarnings[0]));
+        updateStatus();
     }
 
     //==========================================================================
@@ -2521,6 +2599,8 @@ private:
         menu.addItem (5, "Save As Template...");
         menu.addSeparator();
         menu.addItem (6, "Import Audio Files...");
+        menu.addItem (8, "Import Session Data...  (Shift+Alt+I)");
+        menu.addItem (9, "Export Stems...  (Ctrl+Alt+B)");
         menu.addItem (7, "Memory Locations...  (Ctrl+5)");
         menu.showMenuAsync (juce::PopupMenu::Options(), [this] (int r)
         {
@@ -2533,6 +2613,8 @@ private:
                 case 5: saveAsTemplate(); break;
                 case 6: openFileChooser(); break;
                 case 7: showMemoryLocations(); break;
+                case 8: chooseSessionToImport(); break;
+                case 9: showStemExport(); break;
                 default: break;
             }
         });
@@ -2661,6 +2743,7 @@ private:
     scripting::LuaEngine lua { scriptHost };
     juce::Component::SafePointer<juce::DialogWindow> scriptWindow;
     std::unique_ptr<StemJob> stemJob;
+    std::unique_ptr<model::Session> importSource;
     juce::Component::SafePointer<ui::ScriptConsole> scriptConsoleContent;
     juce::StringArray scriptCommands;
     ui::Preferences prefs { preferencesFile() };
@@ -2751,6 +2834,8 @@ public:
             else if (arg.startsWith ("--lua=")) main.runLuaFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--script-console") main.showScriptConsoleFromCommandLine();
             else if (arg.startsWith ("--freeze=")) main.freezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
+            else if (arg.startsWith ("--import-session=")) main.importSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--import-dialog=")) main.showImportDialogFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--unfreeze=")) main.unfreezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--commit=")) main.commitFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--stems=")) main.stemsFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));

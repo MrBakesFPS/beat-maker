@@ -50,6 +50,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --synth --event-list --sync-window            # open the Event List and Sync windows
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --script=build_song.lua --bounce=song.wav      # build a session from Lua and render it
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --elastic-demo --stems=stems --quit            # one WAV per track
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --synth --import-session=song.bmk,4 --save=merged.bmk --quit   # import at 4 s
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --synth --freeze=2 --bounce=frozen.wav # freeze track 2, then bounce
 ```
 
@@ -343,6 +344,13 @@ Run the tests with `ctest --test-dir build`.
   automation copied) and mutes the source. Renders are written to the
   session's Audio Files folder, or `~/Music/Beat Maker/Freeze` for unsaved
   sessions, and survive save and reopen.
+- Import Session Data (Shift+Alt+I, or File... > Import Session Data): open
+  another session bundle, tick the tracks you want, and bring them in with
+  their clips, instruments, inserts, sends, automation and playlists. Place
+  them at their original time or at the playhead, as new tracks or appended
+  to existing tracks with the same name, optionally with the source's memory
+  locations and tempo. VCA links survive when the VCA master comes along.
+  Everything arrives as one undo step.
 - Export Stems (Ctrl+Alt+B, or File... > Export Stems): each chosen track
   bounced to its own file, post-fader with automation and sends, all the same
   length so they line up. Other tracks keep feeding the buses, so an aux
