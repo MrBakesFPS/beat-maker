@@ -411,9 +411,13 @@ void AudioGraph::scheduleMidi (juce::int64 rangeStart, int numSamples)
             const juce::int64 iterationStart = origin + (juce::int64) std::llround ((double) k * periodSamples);
             if (iterationStart >= to) break;
 
-            for (const auto& note : seq.notes)
+            const bool identity = clip.props.isIdentity();
+            const juce::int64 delaySamples = identity ? 0 : (juce::int64) std::llround (clip.props.delayMs * 0.001 * transport.getSampleRate());
+            for (const auto& stored : seq.notes)
             {
-                const juce::int64 t = iterationStart + (juce::int64) std::llround (note.startBeat * samplesPerBeat);
+                const NoteEvent note = identity ? stored : clip.props.apply (stored);
+                if (! juce::isPositiveAndBelow (note.pitch, 128)) continue;
+                const juce::int64 t = iterationStart + (juce::int64) std::llround (note.startBeat * samplesPerBeat) + delaySamples;
                 if (t < from || t >= to) continue;
 
                 const juce::int64 gate = juce::jmin ((juce::int64) std::llround (note.lengthBeats * samplesPerBeat), clipEnd - t);

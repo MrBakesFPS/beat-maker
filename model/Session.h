@@ -238,6 +238,7 @@ struct Track
     std::vector<PatternClip> patternClips;        // drum machine tracks
     std::shared_ptr<const engine::DrumKit> drumKit;
     std::vector<MidiClip> midiClips;              // synth (instrument) tracks
+    engine::MidiRealtimeProps midiProps;          // real-time properties (quantize, transpose, velocity, delay, duration)
     std::shared_ptr<engine::Instrument> instrument;                    // stateful voice pool, owned here like an Effect
     std::shared_ptr<const engine::InstrumentParams> instrumentParams;  // immutable, copy-on-write
 
@@ -381,6 +382,7 @@ private:
     friend class SetRecordSettingsCommand;
     friend class SetTrackPunchCommand;
     friend class AddMarkerCommand;
+    friend class SetTrackMidiPropsCommand;
     friend class RemoveMarkerCommand;
     friend class ReplaceMarkerCommand;
     friend class LoadSessionCommand;
@@ -972,6 +974,18 @@ public:
 private:
     IOSetup newSetup, old;
     std::vector<std::pair<int, int>> oldTrackPaths;
+};
+
+class SetTrackMidiPropsCommand final : public Command
+{
+public:
+    SetTrackMidiPropsCommand (int trackIndex, engine::MidiRealtimeProps p) : index (trackIndex), props (p) {}
+    juce::String getName() const override { return "Real-Time Properties"; }
+    void execute (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) { old = s.tracks[(size_t) index].midiProps; s.tracks[(size_t) index].midiProps = props; } }
+    void undo (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) s.tracks[(size_t) index].midiProps = old; }
+private:
+    int index;
+    engine::MidiRealtimeProps props, old;
 };
 
 class AddMarkerCommand final : public Command

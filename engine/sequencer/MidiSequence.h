@@ -26,6 +26,41 @@ struct NoteEvent
     }
 };
 
+// Pro Tools-style real-time properties: applied while playing, the stored
+// notes are untouched.
+struct MidiRealtimeProps
+{
+    bool quantize = false;
+    double quantizeBeats = 0.25;      // grid
+    float quantizeStrength = 1.0f;    // 0..1
+    int transpose = 0;                // semitones
+    float velocityScale = 1.0f;       // multiplier
+    int velocityOffset = 0;           // added after scaling
+    double delayMs = 0.0;             // +/- shift
+    float durationScale = 1.0f;       // note length multiplier
+
+    bool isIdentity() const noexcept
+    {
+        return ! quantize && transpose == 0 && std::abs (velocityScale - 1.0f) < 1e-6f && velocityOffset == 0
+            && std::abs (delayMs) < 1e-9 && std::abs (durationScale - 1.0f) < 1e-6f;
+    }
+
+    // Beat-domain part (delay is applied in samples by the scheduler).
+    NoteEvent apply (const NoteEvent& n) const noexcept
+    {
+        NoteEvent out = n;
+        if (quantize && quantizeBeats > 0.0)
+        {
+            const double target = std::round (n.startBeat / quantizeBeats) * quantizeBeats;
+            out.startBeat = n.startBeat + (target - n.startBeat) * (double) std::clamp (quantizeStrength, 0.0f, 1.0f);
+        }
+        out.pitch = n.pitch + transpose;
+        out.velocity = std::clamp ((int) std::lround (n.velocity * velocityScale) + velocityOffset, 1, 127);
+        out.lengthBeats = std::max (0.001, n.lengthBeats * (double) std::max (0.01f, durationScale));
+        return out;
+    }
+};
+
 struct MidiSequence
 {
     std::vector<NoteEvent> notes;

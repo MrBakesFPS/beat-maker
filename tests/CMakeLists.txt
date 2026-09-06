@@ -21,6 +21,7 @@ target_sources(beatmaker_tests PRIVATE
     beat_detective_test.cpp
     session_file_test.cpp
     preferences_test.cpp
+    midi_sync_test.cpp
     ../ui/shared/Preferences.cpp
     pan_test.cpp
     clip_edit_test.cpp

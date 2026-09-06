@@ -16,7 +16,9 @@ target_sources(beatmaker_engine INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/graph/AudioGraph.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/AudioEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/Recorder.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/metering/Loudness.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/metering/Loudness.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sync/MidiSync.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sync/MidiSyncController.cpp)
 
 target_include_directories(beatmaker_engine INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 

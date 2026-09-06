@@ -46,6 +46,8 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --template="Beat Making" --save=song.bmk        # new from template, save
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --session=song.bmk --marker-demo                # open, add sections/markers
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pref=mixing.panDepth=3 --palette=zoom         # set a preference, open the palette
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --play --sync=clock-out               # MIDI clock on the "Beat Maker Sync" port
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --synth --event-list --sync-window            # open the Event List and Sync windows
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -303,6 +305,19 @@ Run the tests with `ctest --test-dir build`.
   cut/copy/paste clips at the insertion, R/T zoom out/in, E zoom to the
   selection. With focus on, the panel toggles keep working through
   Ctrl+Shift+E/L/B/X and record through Ctrl+Space.
+- MIDI Event List (Ctrl+Alt+E): every note of the selected instrument track
+  in time order with bar|beat|tick start, note name, velocity, length and
+  clip, all editable in place (type F#3 or a note number); click a row to
+  locate, Delete removes selected events, Insert Note adds one at the
+  playhead. Above the list, the track's Real-Time Properties (Quantize with
+  grid and strength, Transpose, Velocity scale and offset, Delay, Duration)
+  apply while playing and leave the stored notes untouched, like Pro Tools.
+- Synchronization (Ctrl+2): send MIDI Beat Clock (24 ppqn, Start/Continue/
+  Stop, Song Position Pointer on locate) or MIDI Time Code (quarter frames at
+  24/25/29.97/30 fps, full frames on locate, session start offset) to a MIDI
+  output, or chase incoming clock (tempo, start/stop, position) or MTC
+  (locate and run). "Beat Maker Sync" is a virtual ALSA/CoreMIDI port other
+  applications can connect to without hardware.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.

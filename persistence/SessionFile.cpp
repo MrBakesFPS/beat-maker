@@ -265,6 +265,13 @@ namespace
         auto midi = arr();
         for (const auto& c : t.midiClips) push (midi, midiClipToVar (c));
         set (o, "midiClips", midi);
+        {
+            auto rp = obj(); const auto& p = t.midiProps;
+            set (rp, "quantize", p.quantize); set (rp, "quantizeBeats", p.quantizeBeats); set (rp, "quantizeStrength", (double) p.quantizeStrength);
+            set (rp, "transpose", p.transpose); set (rp, "velocityScale", (double) p.velocityScale); set (rp, "velocityOffset", p.velocityOffset);
+            set (rp, "delayMs", p.delayMs); set (rp, "durationScale", (double) p.durationScale);
+            set (o, "midiProps", rp);
+        }
         if (t.instrumentParams != nullptr)
         {
             auto inst = obj();
@@ -356,6 +363,13 @@ namespace
         }
         const auto midi = get (v, "midiClips");
         for (int i = 0; i < count (midi); ++i) t.midiClips.push_back (midiClipFrom (midi[i]));
+        if (v.hasProperty ("midiProps"))
+        {
+            const auto rp = get (v, "midiProps"); auto& p = t.midiProps;
+            p.quantize = get (rp, "quantize", false); p.quantizeBeats = (double) get (rp, "quantizeBeats", 0.25); p.quantizeStrength = (float) (double) get (rp, "quantizeStrength", 1.0);
+            p.transpose = (int) get (rp, "transpose", 0); p.velocityScale = (float) (double) get (rp, "velocityScale", 1.0); p.velocityOffset = (int) get (rp, "velocityOffset", 0);
+            p.delayMs = (double) get (rp, "delayMs", 0.0); p.durationScale = (float) (double) get (rp, "durationScale", 1.0);
+        }
         if (v.hasProperty ("instrument"))
         {
             const auto iv = get (v, "instrument");

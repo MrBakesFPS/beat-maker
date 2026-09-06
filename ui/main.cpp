@@ -8,6 +8,9 @@
 #include "depth/BeatDetectiveDialog.h"
 #include "depth/MemoryLocationsWindow.h"
 #include "depth/CommandPalette.h"
+#include "depth/MidiEventList.h"
+#include "depth/SyncDialog.h"
+#include <sync/MidiSyncController.h>
 #include "depth/PreferencesWindow.h"
 #include "shared/CommandRegistry.h"
 #include "shared/Preferences.h"
@@ -172,7 +175,8 @@ public:
             else if (kind == model::Track::InstrumentKind::synth)             addInstrumentTrack (instrument);
             else                                                              addDrumMachineTrack();
         };
-        trackArea.onSelectionChanged = [this] (int) { updateSequencerTarget(); };
+        trackArea.onSelectionChanged = [this] (int i) { updateSequencerTarget(); if (eventListContent != nullptr) eventListContent->setTrack (i); };
+        midiSync.onTransportChanged = [this] { updateStatus(); };
 
         sequencer.onStepChanged = [this] (int track, int clip, int pad, int step, std::uint8_t velocity)
         {
@@ -277,6 +281,22 @@ public:
     void punchFromCommandLine() { if (engine.getRecorder().isRecording()) punchAll (! engine.getRecorder().isPunched (-1)); }
     void stopTransportFromCommandLine() { engine.getTransport().stop(); }
     void showPreferencesFromCommandLine() { showPreferences ({}); }
+    void showMidiEventListFromCommandLine() { showMidiEventList(); }
+    void showSyncDialogFromCommandLine() { showSyncDialog(); }
+    // --sync=<clock-out|mtc-out|clock-in|mtc-in>[,<device>]: virtual "Beat Maker Sync" port unless a device is named
+    void setSyncFromCommandLine (const juce::String& spec)
+    {
+        using Mode = engine::MidiSyncController::Mode;
+        const auto parts = juce::StringArray::fromTokens (spec, ",", {});
+        const auto modeName = parts[0].toLowerCase();
+        const auto device = parts.size() > 1 ? parts[1] : juce::String (engine::MidiSyncController::virtualPortName);
+        Mode mode = Mode::off;
+        if (modeName == "clock-out") mode = Mode::sendClock; else if (modeName == "mtc-out") mode = Mode::sendMtc;
+        else if (modeName == "clock-in") mode = Mode::chaseClock; else if (modeName == "mtc-in") mode = Mode::chaseMtc;
+        if (mode == Mode::sendClock || mode == Mode::sendMtc) midiSync.setOutputDevice (device); else if (mode != Mode::off) midiSync.setInputDevice (device);
+        midiSync.setMode (mode);
+        statusMessage = midiSync.getStatus(); updateStatus();
+    }
     void showPaletteFromCommandLine (const juce::String& query) { showCommandPalette (query); }
     void setFocusModeFromCommandLine (bool on) { editSettings.commandsFocus = on; editSettings.notify(); }
     void runCommandFromCommandLine (const juce::String& id) { if (! commands.run (id)) { statusMessage = "Unknown command: " + id; updateStatus(); } }
@@ -780,6 +800,8 @@ public:
         add ("window.beatDetective", "Window", "Beat Detective", juce::KeyPress ('8', M::commandModifier, 0), 0, [this] { showBeatDetective(); });
         add ("window.ioSetup", "Window", "I/O Setup", juce::KeyPress ('i', M::commandModifier | M::altModifier, 0), 0, [this] { showIOSetupDialog(); });
         add ("window.scanPlugins", "Window", "Scan for Plugins", {}, 0, [this] { scanPlugins(); });
+        add ("window.midiEventList", "Window", "MIDI Event List", juce::KeyPress ('e', M::commandModifier | M::altModifier, 0), 0, [this] { showMidiEventList(); });
+        add ("window.sync", "Window", "Synchronization (Session Setup)", juce::KeyPress ('2', M::commandModifier, 0), 0, [this] { showSyncDialog(); });
     }
 
     engine::FadeShape defaultFadeShape() const { return (engine::FadeShape) juce::jlimit (0, 2, prefs.getInt ("editing.defaultFadeShape")); }
@@ -845,6 +867,7 @@ private:
 
         loopLibrary.setFolders (folders);
         loopLibrary.rescanAsync();
+        loadSyncSettings();
         loopBrowser.setSessionBpm (engine.getTransport().getBpm());
     }
 
@@ -2092,6 +2115,59 @@ private:
         content->grabKeyboardFocus();
     }
 
+    void showMidiEventList()
+    {
+        if (eventListWindow != nullptr) { eventListWindow->setVisible (true); eventListWindow->toFront (true); if (eventListContent) eventListContent->setTrack (trackArea.getSelectedTrack()); return; }
+        auto* content = new ui::MidiEventList (session, engine.getTransport());
+        eventListContent = content;
+        content->setTrack (trackArea.getSelectedTrack());
+        content->onStatus = [this] { statusMessage = "Insert Note: the track needs a MIDI clip first"; updateStatus(); };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "MIDI Event List";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        eventListWindow = options.launchAsync();
+    }
+
+    void loadSyncSettings()
+    {
+        if (appSettings == nullptr) return;
+        midiSync.setFrameRate ((engine::MtcFrameRate) juce::jlimit (0, 3, appSettings->getIntValue ("sync.frameRate", 3)));
+        midiSync.setStartOffsetSeconds (appSettings->getDoubleValue ("sync.startSeconds", 0.0));
+        if (const auto out = appSettings->getValue ("sync.output"); out.isNotEmpty()) midiSync.setOutputDevice (out);
+        if (const auto in = appSettings->getValue ("sync.input"); in.isNotEmpty()) midiSync.setInputDevice (in);
+        midiSync.setMode ((engine::MidiSyncController::Mode) juce::jlimit (0, 4, appSettings->getIntValue ("sync.mode", 0)));
+    }
+
+    void saveSyncSettings()
+    {
+        if (appSettings == nullptr) return;
+        appSettings->setValue ("sync.mode", (int) midiSync.getMode());
+        appSettings->setValue ("sync.frameRate", (int) midiSync.getFrameRate());
+        appSettings->setValue ("sync.startSeconds", midiSync.getStartOffsetSeconds());
+        appSettings->setValue ("sync.output", midiSync.getOutputDeviceName());
+        appSettings->setValue ("sync.input", midiSync.getInputDeviceName());
+        appSettings->saveIfNeeded();
+    }
+
+    void showSyncDialog()
+    {
+        if (syncWindow != nullptr) { syncWindow->setVisible (true); syncWindow->toFront (true); return; }
+        auto* content = new ui::SyncDialog (midiSync);
+        content->onChanged = [this] { saveSyncSettings(); statusMessage = midiSync.getStatus(); updateStatus(); };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Synchronization";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        syncWindow = options.launchAsync();
+    }
+
     void showNewSessionDialog()
     {
         auto* dialog = new ui::NewSessionDialog (templateChoices(), "Untitled");
@@ -2256,6 +2332,9 @@ private:
     int savedHistorySize = 0, autosaveCounter = 0;
     juce::Component::SafePointer<juce::DialogWindow> memoryWindow, preferencesWindow, paletteWindow;
     juce::Component::SafePointer<ui::PreferencesWindow> preferencesContent;
+    juce::Component::SafePointer<juce::DialogWindow> eventListWindow, syncWindow;
+    juce::Component::SafePointer<ui::MidiEventList> eventListContent;
+    engine::MidiSyncController midiSync { engine.getTransport() };
     ui::Preferences prefs { preferencesFile() };
     ui::CommandRegistry commands;
     int prefsListener = -1;
@@ -2339,6 +2418,9 @@ public:
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--marker-demo") main.markerDemoFromCommandLine();
             else if (arg == "--prefs-window") main.showPreferencesFromCommandLine();
+            else if (arg == "--event-list") main.showMidiEventListFromCommandLine();
+            else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();
+            else if (arg.startsWith ("--sync=")) main.setSyncFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--palette")) main.showPaletteFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--pref="))
             {

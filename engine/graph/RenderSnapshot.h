@@ -85,6 +85,7 @@ struct RenderMidiClip
     juce::int64 length        = 0;
     float gain                = 1.0f;
     juce::int64 loopOffset    = 0;    // sequence position at timelineStart
+    MidiRealtimeProps props;          // track real-time properties
 };
 
 // Pass a device input straight to the outputs (input monitoring).

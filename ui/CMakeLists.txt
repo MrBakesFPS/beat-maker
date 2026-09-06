@@ -26,6 +26,8 @@ target_sources(BeatMaker PRIVATE
     depth/NewSessionDialog.cpp
     depth/CommandPalette.cpp
     depth/PreferencesWindow.cpp
+    depth/MidiEventList.cpp
+    depth/SyncDialog.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
