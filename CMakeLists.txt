@@ -31,6 +31,20 @@ FetchContent_Populate(clap)
 add_library(clap_headers INTERFACE)
 target_include_directories(clap_headers INTERFACE ${clap_SOURCE_DIR}/include)
 
+# Lua 5.4 for the scripting API, built from source (MIT).
+FetchContent_Declare(lua
+    GIT_REPOSITORY https://github.com/lua/lua.git
+    GIT_TAG        v5.4.8
+    GIT_SHALLOW    TRUE)
+FetchContent_Populate(lua)
+file(GLOB LUA_SOURCES ${lua_SOURCE_DIR}/*.c)
+list(FILTER LUA_SOURCES EXCLUDE REGEX ".*/(lua|luac|onelua|ltests)\\.c$")
+add_library(lua_static STATIC ${LUA_SOURCES})
+target_include_directories(lua_static PUBLIC ${lua_SOURCE_DIR})
+target_compile_definitions(lua_static PUBLIC LUA_USE_POSIX=1)
+target_compile_options(lua_static PRIVATE -w)
+set_target_properties(lua_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(rubberband STATIC ${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp)
 target_include_directories(rubberband PUBLIC ${rubberband_SOURCE_DIR})
 target_compile_options(rubberband PRIVATE -w)   # third-party: warnings are theirs

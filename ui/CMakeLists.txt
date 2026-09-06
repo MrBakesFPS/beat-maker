@@ -28,6 +28,7 @@ target_sources(BeatMaker PRIVATE
     depth/PreferencesWindow.cpp
     depth/MidiEventList.cpp
     depth/SyncDialog.cpp
+    depth/ScriptConsole.cpp
     shared/Preferences.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
@@ -42,6 +43,7 @@ target_link_libraries(BeatMaker PRIVATE
     beatmaker_model
     beatmaker_persistence
     beatmaker_plugins
+    beatmaker_scripting
     juce::juce_audio_utils
     juce::juce_gui_extra
     PUBLIC

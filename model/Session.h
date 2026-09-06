@@ -383,6 +383,7 @@ private:
     friend class SetTrackPunchCommand;
     friend class AddMarkerCommand;
     friend class SetTrackMidiPropsCommand;
+    friend class RenameTrackCommand;
     friend class RemoveMarkerCommand;
     friend class ReplaceMarkerCommand;
     friend class LoadSessionCommand;
@@ -974,6 +975,18 @@ public:
 private:
     IOSetup newSetup, old;
     std::vector<std::pair<int, int>> oldTrackPaths;
+};
+
+class RenameTrackCommand final : public Command
+{
+public:
+    RenameTrackCommand (int trackIndex, juce::String newName) : index (trackIndex), name (std::move (newName)) {}
+    juce::String getName() const override { return "Rename Track"; }
+    void execute (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) { old = s.tracks[(size_t) index].name; s.tracks[(size_t) index].name = name; } }
+    void undo (Session& s) override { if (juce::isPositiveAndBelow (index, (int) s.tracks.size())) s.tracks[(size_t) index].name = old; }
+private:
+    int index;
+    juce::String name, old;
 };
 
 class SetTrackMidiPropsCommand final : public Command

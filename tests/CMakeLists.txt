@@ -22,6 +22,7 @@ target_sources(beatmaker_tests PRIVATE
     session_file_test.cpp
     preferences_test.cpp
     midi_sync_test.cpp
+    lua_test.cpp
     ../ui/shared/Preferences.cpp
     pan_test.cpp
     clip_edit_test.cpp
@@ -62,6 +63,7 @@ target_link_libraries(beatmaker_tests PRIVATE
     beatmaker_model
     beatmaker_persistence
     beatmaker_plugins
+    beatmaker_scripting
     Catch2::Catch2WithMain
     juce::juce_audio_formats
     juce::juce_graphics

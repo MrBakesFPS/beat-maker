@@ -9,6 +9,8 @@
 #include "depth/MemoryLocationsWindow.h"
 #include "depth/CommandPalette.h"
 #include "depth/MidiEventList.h"
+#include "depth/ScriptConsole.h"
+#include <LuaEngine.h>
 #include "depth/SyncDialog.h"
 #include <sync/MidiSyncController.h>
 #include "depth/PreferencesWindow.h"
@@ -314,7 +316,10 @@ public:
             default:                        prefs.set (id, value); break;
         }
     }
-    bool openSessionFromCommandLine (const juce::File& f) { return openSession (f); }
+    bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    void runScriptFromCommandLine (const juce::File& f) { runScriptFile (f); }
+    void runLuaFromCommandLine (const juce::String& code) { const auto r = lua.run (code, "command-line"); statusMessage = r.ok ? (r.output.isNotEmpty() ? r.output.trimEnd() : "Lua ok") : "Lua error: " + r.error; updateStatus(); std::cout << (r.ok ? r.output : "error: " + r.error + "\n"); }
+    void showScriptConsoleFromCommandLine() { showScriptConsole(); }
     bool saveSessionFromCommandLine (const juce::File& f) { return writeSession (f, f.hasFileExtension ("bmkt")); }
     void templateFromCommandLine (const juce::String& name)
     {
@@ -801,6 +806,10 @@ public:
         add ("window.ioSetup", "Window", "I/O Setup", juce::KeyPress ('i', M::commandModifier | M::altModifier, 0), 0, [this] { showIOSetupDialog(); });
         add ("window.scanPlugins", "Window", "Scan for Plugins", {}, 0, [this] { scanPlugins(); });
         add ("window.midiEventList", "Window", "MIDI Event List", juce::KeyPress ('e', M::commandModifier | M::altModifier, 0), 0, [this] { showMidiEventList(); });
+        add ("window.scriptConsole", "Window", "Script Console (Lua)", juce::KeyPress ('l', M::commandModifier | M::altModifier, 0), 0, [this] { showScriptConsole(); });
+        add ("script.reload", "Script", "Reload Scripts Folder", {}, 0, [this] { registerScripts(); });
+        add ("script.openFolder", "Script", "Open Scripts Folder", {}, 0, [this] { scriptsFolder().createDirectory(); scriptsFolder().revealToUser(); });
+        registerScripts();
         add ("window.sync", "Window", "Synchronization (Session Setup)", juce::KeyPress ('2', M::commandModifier, 0), 0, [this] { showSyncDialog(); });
     }
 
@@ -1912,7 +1921,7 @@ private:
         }), true);
     }
 
-    bool openSession (const juce::File& bundle)
+    bool openSessionBundle (const juce::File& bundle)
     {
         if (engine.getRecorder().isRecording()) finishRecording();
         engine.getTransport().stop();
@@ -1948,7 +1957,7 @@ private:
                                       auto f = fc.getResult();
                                       if (f == juce::File()) return;
                                       if (f.getFileName() == "session.json") f = f.getParentDirectory();
-                                      if (persistence::SessionFile::isSessionBundle (f)) openSession (f);
+                                      if (persistence::SessionFile::isSessionBundle (f)) openSessionBundle (f);
                                       else if (f.existsAsFile()) importAudioFile (f);
                                       grabKeyboardFocus();
                                   });
@@ -1985,7 +1994,7 @@ private:
 
     void applyTemplate (const ui::NewSessionDialog::Choice& choice, const juce::String& name)
     {
-        if (choice.templateFile != juce::File()) { openSession (choice.templateFile); untitledName = name; updateWindowTitle(); return; }
+        if (choice.templateFile != juce::File()) { openSessionBundle (choice.templateFile); untitledName = name; updateWindowTitle(); return; }
         newEmptySession (name);
         const double sr = engine.getSampleRate();
         auto& tr = engine.getTransport();
@@ -2113,6 +2122,110 @@ private:
         paletteWindow = options.launchAsync();
         if (query.isNotEmpty()) content->setQuery (query);
         content->grabKeyboardFocus();
+    }
+
+    //==========================================================================
+    // Lua scripting (ScriptHost)
+
+    static juce::File scriptsFolder() { return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Scripts"); }
+
+    // Adapter so the Lua engine sees a ScriptHost without the member/method name clash on `session`.
+    struct HostAdapter final : scripting::ScriptHost
+    {
+        explicit HostAdapter (MainComponent& m) : main (m) {}
+        model::Session& session() override { return main.session; }
+        engine::Transport& transport() override { return main.engine.getTransport(); }
+        double sampleRate() const override { return main.engine.getSampleRate(); }
+        int addTrack (const juce::String& kind, const juce::String& name) override { return main.scriptAddTrack (kind, name); }
+        void status (const juce::String& m) override { main.statusMessage = m; main.updateStatus(); }
+        void log (const juce::String& m) override { main.scriptLog (m); }
+        bool runCommand (const juce::String& id) override { return main.commands.run (id); }
+        juce::String bounce (const juce::File& f) override { const auto msg = main.bounceArrangementToFile (f); return msg.startsWith ("Bounced") ? juce::String() : msg; }
+        bool saveSession (const juce::File& f) override { return main.writeSession (f, f.hasFileExtension ("bmkt")); }
+        bool openSession (const juce::File& f) override { return main.openSessionBundle (f); }
+        juce::var getPreference (const juce::String& id) override { return main.prefs.get (id); }
+        void setPreference (const juce::String& id, const juce::var& v) override { main.prefs.set (id, v); }
+        void registerCommand (const juce::String& id, const juce::String& name, std::function<void()> run) override { main.scriptRegisterCommand (id, name, std::move (run)); }
+        MainComponent& main;
+    };
+
+    int scriptAddTrack (const juce::String& kind, const juce::String& name)
+    {
+        const auto k = kind.toLowerCase().removeCharacters (" -_");
+        int index = -1;
+        if (k == "audio")            index = addTrack (name.isNotEmpty() ? name : "Audio " + juce::String (countTracks (model::Track::Type::audio) + 1));
+        else if (k == "drums" || k == "drummachine") { addDrumMachineTrack(); index = trackArea.getSelectedTrack(); }
+        else if (k == "aux")         { addAuxTrack(); index = session.getNumTracks() - 1; }
+        else if (k == "vca")         { addVcaTrack(); index = session.getNumTracks() - 1; }
+        else
+        {
+            for (auto type : engine::Instrument::availableTypes())
+                if (juce::String (engine::Instrument::typeName (type)).removeCharacters (" ").equalsIgnoreCase (k) || (k == "synth" && type == engine::InstrumentType::subtractive))
+                { addInstrumentTrack (type); index = trackArea.getSelectedTrack(); break; }
+        }
+        if (index >= 0 && name.isNotEmpty() && session.getTracks()[(size_t) index].name != name)
+            session.execute (std::make_unique<model::RenameTrackCommand> (index, name));
+        return index;
+    }
+    void scriptLog (const juce::String& m) { juce::Logger::writeToLog ("[lua] " + m); if (scriptConsoleContent != nullptr) scriptConsoleContent->append (m); }
+    void scriptRegisterCommand (const juce::String& id, const juce::String& name, std::function<void()> run)
+    {
+        commands.add ({ id, name, "Script", {}, 0, [this, run, id] { run(); if (scriptConsoleContent != nullptr) scriptConsoleContent->append ("-- ran " + id); }, nullptr });
+    }
+
+    // Every .lua in the Scripts folder becomes a "Script: <name>" command (palette / File menu).
+    void registerScripts()
+    {
+        scriptsFolder().createDirectory();
+        scriptCommands.clear();
+        for (const auto& f : scriptsFolder().findChildFiles (juce::File::findFiles, false, "*.lua"))
+        {
+            const auto id = "script.file." + f.getFileNameWithoutExtension();
+            scriptCommands.add (id);
+            if (commands.find (id) == nullptr)
+                commands.add ({ id, f.getFileNameWithoutExtension(), "Script", {}, 0, [this, f] { runScriptFile (f); }, nullptr });
+        }
+    }
+
+    void runScriptFile (const juce::File& f)
+    {
+        const auto r = lua.runFile (f);
+        if (scriptConsoleContent != nullptr) { if (r.output.isNotEmpty()) scriptConsoleContent->append (r.output.trimEnd()); scriptConsoleContent->append (r.ok ? "-- ran " + f.getFileName() : "-- error: " + r.error); }
+        statusMessage = r.ok ? "Ran script " + f.getFileName() : "Script error: " + r.error;
+        updateStatus();
+    }
+
+    void showScriptConsole()
+    {
+        if (scriptWindow != nullptr) { scriptWindow->setVisible (true); scriptWindow->toFront (true); return; }
+        auto* content = new ui::ScriptConsole (lua);
+        scriptConsoleContent = content;
+        content->onSaveScript = [this] (const juce::String& code)
+        {
+            auto* window = new juce::AlertWindow ("Save Script", "Script name:", juce::MessageBoxIconType::NoIcon);
+            window->addTextEditor ("name", "My Script");
+            window->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, code] (int result)
+            {
+                const auto name = window->getTextEditorContents ("name").trim();
+                if (result == 1 && name.isNotEmpty())
+                {
+                    scriptsFolder().createDirectory();
+                    scriptsFolder().getChildFile (juce::File::createLegalFileName (name) + ".lua").replaceWithText (code);
+                    registerScripts();
+                    statusMessage = "Saved script " + name + " (run it from the command palette)"; updateStatus();
+                }
+            }), true);
+        };
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (content);
+        options.dialogTitle = "Script Console";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = true;
+        scriptWindow = options.launchAsync();
     }
 
     void showMidiEventList()
@@ -2335,6 +2448,11 @@ private:
     juce::Component::SafePointer<juce::DialogWindow> eventListWindow, syncWindow;
     juce::Component::SafePointer<ui::MidiEventList> eventListContent;
     engine::MidiSyncController midiSync { engine.getTransport() };
+    HostAdapter scriptHost { *this };
+    scripting::LuaEngine lua { scriptHost };
+    juce::Component::SafePointer<juce::DialogWindow> scriptWindow;
+    juce::Component::SafePointer<ui::ScriptConsole> scriptConsoleContent;
+    juce::StringArray scriptCommands;
     ui::Preferences prefs { preferencesFile() };
     ui::CommandRegistry commands;
     int prefsListener = -1;
@@ -2419,6 +2537,9 @@ public:
             else if (arg == "--marker-demo") main.markerDemoFromCommandLine();
             else if (arg == "--prefs-window") main.showPreferencesFromCommandLine();
             else if (arg == "--event-list") main.showMidiEventListFromCommandLine();
+            else if (arg.startsWith ("--script=")) main.runScriptFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
+            else if (arg.startsWith ("--lua=")) main.runLuaFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg == "--script-console") main.showScriptConsoleFromCommandLine();
             else if (arg == "--sync-window") main.showSyncDialogFromCommandLine();
             else if (arg.startsWith ("--sync=")) main.setSyncFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--palette")) main.showPaletteFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));

@@ -48,6 +48,7 @@ cmake --build build
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --pref=mixing.panDepth=3 --palette=zoom         # set a preference, open the palette
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --drums --play --sync=clock-out               # MIDI clock on the "Beat Maker Sync" port
 "./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --synth --event-list --sync-window            # open the Event List and Sync windows
+"./build/ui/BeatMaker_artefacts/Debug/Beat Maker" --script=build_song.lua --bounce=song.wav      # build a session from Lua and render it
 ```
 
 Run the tests with `ctest --test-dir build`.
@@ -318,6 +319,17 @@ Run the tests with `ctest --test-dir build`.
   output, or chase incoming clock (tempo, start/stop, position) or MTC
   (locate and run). "Beat Maker Sync" is a virtual ALSA/CoreMIDI port other
   applications can connect to without hardware.
+- Lua scripting (Script Console on Ctrl+Alt+L): a sandboxed Lua 5.4 with
+  `beatmaker.transport` (play, stop, position, bpm, locate_bar...),
+  `beatmaker.session` (tracks, add_track of any kind, gain/pan/mute/solo/arm,
+  clips and their move/trim/delete/duplicate, markers and sections, inserts
+  and their parameters by name, sends, MIDI notes, undo/redo) and
+  `beatmaker.app` (status, run_command for any registered command, bounce,
+  save, open, preferences, register_command). Every change is an undoable
+  command like the UI's. Scripts saved to `~/Music/Beat Maker/Scripts`
+  appear in the command palette as "Script: name"; scripts can register
+  their own commands too. `--script=<file>` and `--lua=<code>` run at
+  startup, which makes scripted smoke tests and batch bounces possible.
 - Transport with bar|beat|tick and time LCDs, and a Cycle mode that loops the
   arrangement sample-accurately.
 - Tracks have mute/solo; every edit is an undoable command.
