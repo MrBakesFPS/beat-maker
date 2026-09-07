@@ -224,6 +224,14 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   every clip makes a new one-bar clip there. In the tracks, right-click empty
   space on an instrument track to Add Clip for the time selection (or one bar
   at the click), also Ctrl+Alt+M with a selection.
+- Split and join: Ctrl+E (Separate) splits the selected clips, or every clip
+  under the playhead, at the playhead or at the edges of a time selection,
+  for audio, pattern and MIDI clips alike (a split loop keeps its phase).
+  Ctrl+J (Join Selected Clips, also in the clip menus) merges the selected
+  clips of a track into one: MIDI and pattern clips have their notes or steps
+  written out at their positions, loops included and gaps kept as silence;
+  audio clips join when they are adjacent pieces of the same audio (heal),
+  otherwise Bounce or Commit is the way to glue them.
 - Looping clips: a pattern or MIDI clip plays its content once until you
   choose Loop for that clip (the Loop button in the editor header, or
   right-click the clip). Loop adds one more pass, extending the clip by its

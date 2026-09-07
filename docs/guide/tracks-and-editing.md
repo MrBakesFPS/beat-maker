@@ -33,6 +33,10 @@ The tempo LCD in the transport bar is live: double-click it to type a BPM, drag 
 
 A tempo change is one undo step. With "Clips follow tempo changes" on (Preferences > Editing, the default), clips, memory locations, automation breakpoints, the cycle range and the playhead keep their bar positions, so a two-bar pattern is still two bars long. With "Loops re-conform on tempo change" on, every audio clip with a known source tempo (library loops) is re-stretched with Elastic Audio to the new tempo as a second undo step, behind a progress window when there is a lot to render. Recorded audio without a source tempo keeps its length and moves with its bar.
 
+## Split and join
+
+**Ctrl+E** (Separate) splits at the playhead: the selected clips, or every clip under the playhead when none is selected, or at both edges of a time selection. It works on audio, pattern and MIDI clips, and a split looping clip keeps its phase. **Ctrl+J** joins the selected clips of a track into one (also in a clip's right-click menu): MIDI and pattern clips have their notes or steps written out at their timeline positions, loops included and gaps kept as silence, into one clip that plays once; audio clips join when they are adjacent pieces of the same audio, which heals an earlier split. Audio that is not from one file cannot be joined this way: bounce or commit it.
+
 ## Fades and clip gain
 
 Drag the top corners of a clip with the Smart Tool for fade in and out. Ctrl+drag a clip vertically for clip gain (or **Ctrl+Shift+Up/Down** in 0.5 dB steps). **Ctrl+F** opens the Fades window to set length, shape (Standard, Equal Power, S-Curve) and gain for every selected clip at once. Fades render in the same code path as playback and bounce; separating a clip makes the cut hard on both sides, and trims clamp the fades.

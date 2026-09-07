@@ -232,6 +232,8 @@ public:
     // A new (empty) pattern or MIDI clip covering the time selection on the selected instrument
     // track(s), or one bar at `seconds` when there is no selection. Returns how many were made.
     int addClipForSelection (double fallbackSeconds = -1.0);
+    // Joins the selected clips (per track and kind) into one clip each.
+    void joinSelectedClips();
 private:
     int warpMarkerAt (const model::ClipRef&, juce::Point<int>) const;   // -1 = none
     void applyElastic (const model::ClipRef&, engine::StretchSpec, const juce::String& name);

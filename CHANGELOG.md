@@ -13,6 +13,9 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - Smart Controls sit above the tracks instead of between the tracks and the editor panel.
 - The mixer's strips scroll sideways with the wheel and a thicker scrollbar.
 
+### Added
+- Join Selected Clips (Ctrl+J, and in the clip menus): MIDI and pattern clips merge into one with their contents written out (loops included), audio clips heal when adjacent pieces of one file. Split at Playhead is in the clip menus too.
+
 ### Fixed
 - Choosing an edit mode or tool lit two buttons (the old one stayed on): JUCE fires the click of the radio button it turns off, which re-selected it. `--click-button=<text>` presses a button by label for smoke tests.
 - The track list scrolls when there are more tracks than fit: wheel over the tracks, a scrollbar at the right, and the selected track kept in view; Shift+wheel scrolls time. The ruler stays fixed while headers slide under it. `--scroll-tracks=<px>` flag.

@@ -1,5 +1,6 @@
 #include "TrackArea.h"
 #include <ClipLoop.h>
+#include <ClipJoin.h>
 #include "../shared/UiProfiler.h"
 #include <GroupLogic.h>
 #include <Playlists.h>
@@ -2468,6 +2469,24 @@ int TrackArea::warpMarkerAt (const model::ClipRef& ref, juce::Point<int> p) cons
     return -1;
 }
 
+void TrackArea::joinSelectedClips()
+{
+    const auto groups = model::ClipJoin::groups (session, selectedClips);
+    auto compound = std::make_unique<model::CompoundCommand> ("Join Clips");
+    int joined = 0; juce::String reason;
+    for (const auto& g : groups)
+    {
+        if (g.size() < 2) continue;
+        if (! model::ClipJoin::canJoin (session, g, reason)) continue;
+        auto cmd = std::make_unique<model::JoinClipsCommand> (session, g);
+        if (! cmd->wasCancelled()) { compound->add (std::move (cmd)); ++joined; }
+    }
+    if (joined == 0) { if (onStatus) onStatus (reason.isNotEmpty() ? "Join: " + reason : "Join: select two or more clips on one track"); return; }
+    selectedClips.clear();
+    session.execute (std::move (compound));
+    if (onStatus) onStatus ("Joined " + juce::String (joined) + " group(s) of clips into one clip each");
+}
+
 int TrackArea::addClipForSelection (double fallbackSeconds)
 {
     const bool useSelection = timeSelection.isValid();
@@ -2532,6 +2551,9 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
     for (int n : { 1, 2, 4, 8, 16, 32 }) bars.addItem (10 + n, juce::String (n) + (n == 1 ? " bar" : " bars"), true, std::abs (lengthBars - n) < 0.01);
     bars.addItem (60, "Other...");
     menu.addSubMenu ("Loop Length", bars);
+    menu.addSeparator();
+    menu.addItem (3, "Split at Playhead  (Ctrl+E)");
+    menu.addItem (4, "Join Selected Clips  (Ctrl+J)", selectedClips.size() >= 2);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, ref, midi, loop, contentBeats, sr, start, bpb] (int result)
     {
         if (result == 0) return;
@@ -2550,6 +2572,8 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
             if (onStatus) onStatus (! loop ? "Looping: one extra pass (drag the clip's right edge for more)" : "Clip back to its own length");
         }
         else if (result == 2) { if (auto cmd = model::ClipLoop::setLoop (session, ref, false)) session.execute (std::move (cmd)); }
+        else if (result == 3) { selectedClips = { ref }; separateAtPlayhead(); }
+        else if (result == 4) joinSelectedClips();
         else if (result >= 11 && result <= 42) setLength (result - 10);
         else if (result == 60)
         {
@@ -2592,6 +2616,9 @@ void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screen
     menu.addItem (5, "Separate at Transients");
     menu.addItem (7, "Beat Detective...  (Ctrl+8)");
     menu.addItem (6, "Reset Elastic (original audio)", elastic);
+    menu.addSeparator();
+    menu.addItem (8, "Split at Playhead  (Ctrl+E)");
+    menu.addItem (9, "Join Selected Clips  (Ctrl+J)", selectedClips.size() >= 2);
 
     const double anchor = dragAnchorSeconds;
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, ref, anchor] (int result)
@@ -2608,6 +2635,8 @@ void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screen
         }
         else if (result >= 288 && result <= 312)
             applyElastic (ref, model::Elastic::withPitch (c, (double) (result - 300)), "Pitch Shift");
+        else if (result == 8) { selectedClips = { ref }; separateAtPlayhead(); }
+        else if (result == 9) joinSelectedClips();
         else if (result == 1)
             applyElastic (ref, model::Elastic::forTempo (c, transport.getBpm(), c.elastic.isActive() ? c.elastic.mode : engine::StretchMode::polyphonic), "Conform to Tempo");
         else if (result == 2)

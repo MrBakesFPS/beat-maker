@@ -936,6 +936,7 @@ public:
         add ("edit.undo", "Edit", "Undo", juce::KeyPress ('z', M::commandModifier, 0), 0, [this] { session.undo(); }, [this] { return session.getHistory().canUndo(); });
         add ("edit.redo", "Edit", "Redo", juce::KeyPress ('z', M::commandModifier | M::shiftModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
         add ("edit.redoY", "Edit", "Redo (Ctrl+Y)", juce::KeyPress ('y', M::commandModifier, 0), 0, [this] { session.redo(); }, [this] { return session.getHistory().canRedo(); });
+        add ("edit.join", "Edit", "Join Selected Clips", juce::KeyPress ('j', M::commandModifier, 0), 0, [this] { trackArea.joinSelectedClips(); }, [this] { return trackArea.hasSelection(); });
         add ("edit.addClip", "Edit", "Add Clip for Selection (instrument tracks)", juce::KeyPress ('m', M::commandModifier | M::altModifier, 0), 0, [this] { trackArea.addClipForSelection(); });
         add ("edit.notesFocus", "Edit", "Keyboard Focus: Editor (notes or drums) / Tracks", juce::KeyPress ('n', M::commandModifier | M::altModifier, 0), 0, [this] { focusNotes (! notesFocused()); });
         add ("edit.selectAll", "Edit", "Select All (clips, or notes when the note editor has focus)", juce::KeyPress ('a', M::commandModifier, 0), 0, [this] { if (auto* ed = focusedEditor()) ed->selectAll(); else trackArea.selectAllClips(); });

@@ -36,6 +36,7 @@ target_sources(beatmaker_tests PRIVATE
     note_edits_test.cpp
     step_edits_test.cpp
     clip_loop_test.cpp
+    clip_join_test.cpp
     pan_test.cpp
     clip_edit_test.cpp
     fades_test.cpp
