@@ -1983,8 +1983,13 @@ void TrackArea::commitDrag()
         if (auto ref = model::ClipEdits::clipAt (session, track, toSamples (ghostStart) + 1))
         {
             selectedClips.push_back (*ref);
-            // A looping clip trimmed back to its content stops looping (choose Loop again to loop)
-            if (! isMove) if (auto off = model::ClipLoop::afterTrim (session, *ref)) { session.execute (std::move (off)); if (onStatus) onStatus ("Clip is back to its own length: loop off"); }
+            // A looping clip trimmed back to its base stops looping (choose Loop again to loop); a clip shrunk
+            // below content that grew with nothing in it folds the content back to the clip
+            if (! isMove)
+            {
+                const bool wasLooping = model::ClipLoop::isLooping (session, *ref);
+                if (auto fix = model::ClipLoop::afterTrim (session, *ref)) { session.execute (std::move (fix)); if (wasLooping && onStatus) onStatus ("Clip is back to its own length: loop off"); }
+            }
         }
     }
 }
@@ -2537,8 +2542,7 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
     const bool midi = ref.kind == model::ClipRef::Kind::midi;
     if (midi ? ref.index >= (int) t->midiClips.size() : ref.index >= (int) t->patternClips.size()) return;
     const bool loop = midi ? t->midiClips[(size_t) ref.index].loop : t->patternClips[(size_t) ref.index].loop;
-    const double contentBeats = midi ? (t->midiClips[(size_t) ref.index].sequence != nullptr ? t->midiClips[(size_t) ref.index].sequence->lengthBeats : 0.0)
-                                     : (t->patternClips[(size_t) ref.index].pattern != nullptr ? t->patternClips[(size_t) ref.index].pattern->getLengthBeats() : 0.0);
+    const double contentBeats = loop ? model::ClipLoop::baseBeats (session, ref) : model::ClipLoop::clipBeats (session, ref);   // what Loop returns the clip to
     const double sr = midi ? t->midiClips[(size_t) ref.index].sampleRate : t->patternClips[(size_t) ref.index].sampleRate;
     const juce::int64 start = midi ? t->midiClips[(size_t) ref.index].timelineStart : t->patternClips[(size_t) ref.index].timelineStart;
     const juce::int64 length = midi ? t->midiClips[(size_t) ref.index].length : t->patternClips[(size_t) ref.index].length;
@@ -2561,10 +2565,11 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
         {
             const auto newLength = (juce::int64) std::llround (transport.beatsToSeconds (barsWanted * bpb) * sr);
             auto compound = std::make_unique<model::CompoundCommand> ("Loop Length");
-            compound->add (std::make_unique<model::SetClipLoopCommand> (ref.track, midi, ref.index, true));
+            if (! model::ClipLoop::isLooping (session, ref)) compound->add (model::ClipLoop::setLoop (session, ref, true));   // remembers the clip's length first
             compound->add (std::make_unique<model::TrimClipCommand> (ref, start, juce::jmax<juce::int64> (1, newLength)));
             session.execute (std::move (compound));
-            if (onStatus) onStatus ("Loops for " + juce::String (barsWanted, 1) + " bars");
+            if (auto fix = model::ClipLoop::afterTrim (session, ref)) { session.execute (std::move (fix)); if (onStatus) onStatus ("Loop length is the clip's own length: loop off"); }
+            else if (onStatus) onStatus ("Loops for " + juce::String (barsWanted, 1) + " bars");
         };
         if (result == 1)
         {
