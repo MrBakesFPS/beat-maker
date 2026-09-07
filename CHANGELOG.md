@@ -9,7 +9,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 
 ### Changed
 - The note and drum editors show every clip of the track, with an active clip that edits and clicks switch between; a note or step in empty time creates a new clip. Add Clip for Selection (Ctrl+Alt+M, or right-click an empty lane) makes an empty clip covering the time selection on instrument tracks.
-- New pattern and MIDI clips play their content once: a one-bar beat and a two-bar arpeggio. Loop is a per-clip switch (editor header button or right-click menu) and the loop's reach is the clip's length, set by trimming or the Loop Length menu; Play Once shrinks a clip back to its content.
+- New pattern and MIDI clips play their content once: a one-bar beat and a two-bar arpeggio. Loop is chosen per clip (editor header button or right-click menu): it adds one pass, growing the clip by its own length or up to the next clip, and the extension can then be trimmed longer or shorter; switching Loop off or trimming the clip back to its content returns it to its original state.
 - Smart Controls sit above the tracks instead of between the tracks and the editor panel.
 - The mixer's strips scroll sideways with the wheel and a thicker scrollbar.
 

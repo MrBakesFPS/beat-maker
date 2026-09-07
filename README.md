@@ -224,12 +224,14 @@ Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release 
   every clip makes a new one-bar clip there. In the tracks, right-click empty
   space on an instrument track to Add Clip for the time selection (or one bar
   at the click), also Ctrl+Alt+M with a selection.
-- Looping clips: a pattern or MIDI clip plays its content once unless Loop is
-  on (the Loop button in the editor header, or right-click the clip). With
-  Loop on, the clip repeats its notes or steps for its whole length, so how
-  far the loop goes is the clip's length: drag its right edge, or pick 1 to 32
-  bars (or type a number) from the clip's Loop Length menu; Play Once shrinks
-  it back to its content. With Loop off, a clip longer than its content is
+- Looping clips: a pattern or MIDI clip plays its content once until you
+  choose Loop for that clip (the Loop button in the editor header, or
+  right-click the clip). Loop adds one more pass, extending the clip by its
+  own length or up to the next clip on the track, and the extension is then
+  yours to drag longer or shorter at the clip's right edge (or pick a Loop
+  Length of 1 to 32 bars from the menu). Switching Loop off, or trimming the
+  clip back to its own length, returns it to its original state; choose Loop
+  again to loop it again. With Loop off, a clip longer than its content is
   silent past the end until you add notes or steps there, which extends the
   content instead. Older sessions keep looping as they did.
 - Note editor: the piano roll is drawn on the session timeline and, with

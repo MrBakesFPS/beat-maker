@@ -1,4 +1,5 @@
 #include "TrackArea.h"
+#include <ClipLoop.h>
 #include "../shared/UiProfiler.h"
 #include <GroupLogic.h>
 #include <Playlists.h>
@@ -1979,7 +1980,11 @@ void TrackArea::commitDrag()
         // Re-select the edited clip (it may have moved lists)
         const int track = isMove ? dragTargetTrack : dragClip.track;
         if (auto ref = model::ClipEdits::clipAt (session, track, toSamples (ghostStart) + 1))
+        {
             selectedClips.push_back (*ref);
+            // A looping clip trimmed back to its content stops looping (choose Loop again to loop)
+            if (! isMove) if (auto off = model::ClipLoop::afterTrim (session, *ref)) { session.execute (std::move (off)); if (onStatus) onStatus ("Clip is back to its own length: loop off"); }
+        }
     }
 }
 
@@ -2522,8 +2527,8 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
     const double lengthBars = transport.secondsToBeats ((double) length / sr) / bpb;
 
     juce::PopupMenu menu, bars;
-    menu.addItem (1, "Loop Clip", true, loop);
-    menu.addItem (2, "Play Once (clip as long as its " + juce::String (contentBeats / bpb, 1) + " bars)", contentBeats > 0.0);
+    menu.addItem (1, loop ? "Loop Clip  (on: switch off to return it to " + juce::String (contentBeats / bpb, 1) + " bars)" : "Loop Clip  (adds one pass, up to the next clip)", true, loop);
+    menu.addItem (2, "Play Once (clip as long as its " + juce::String (contentBeats / bpb, 1) + " bars)", contentBeats > 0.0 && loop);
     for (int n : { 1, 2, 4, 8, 16, 32 }) bars.addItem (10 + n, juce::String (n) + (n == 1 ? " bar" : " bars"), true, std::abs (lengthBars - n) < 0.01);
     bars.addItem (60, "Other...");
     menu.addSubMenu ("Loop Length", bars);
@@ -2539,14 +2544,12 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
             session.execute (std::move (compound));
             if (onStatus) onStatus ("Loops for " + juce::String (barsWanted, 1) + " bars");
         };
-        if (result == 1) session.execute (std::make_unique<model::SetClipLoopCommand> (ref.track, midi, ref.index, ! loop));
-        else if (result == 2)
+        if (result == 1)
         {
-            auto compound = std::make_unique<model::CompoundCommand> ("Play Once");
-            compound->add (std::make_unique<model::SetClipLoopCommand> (ref.track, midi, ref.index, false));
-            compound->add (std::make_unique<model::TrimClipCommand> (ref, start, juce::jmax<juce::int64> (1, (juce::int64) std::llround (transport.beatsToSeconds (contentBeats) * sr))));
-            session.execute (std::move (compound));
+            if (auto cmd = model::ClipLoop::setLoop (session, ref, ! loop)) session.execute (std::move (cmd));
+            if (onStatus) onStatus (! loop ? "Looping: one extra pass (drag the clip's right edge for more)" : "Clip back to its own length");
         }
+        else if (result == 2) { if (auto cmd = model::ClipLoop::setLoop (session, ref, false)) session.execute (std::move (cmd)); }
         else if (result >= 11 && result <= 42) setLength (result - 10);
         else if (result == 60)
         {

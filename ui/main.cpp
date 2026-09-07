@@ -23,6 +23,7 @@
 #include "shared/UiProfiler.h"
 #include <cstdlib>
 #include <AafExport.h>
+#include <ClipLoop.h>
 #include <SampleProjects.h>
 #include <SessionImport.h>
 #include <Freeze.h>
@@ -148,8 +149,16 @@ public:
             session.execute (std::make_unique<model::AddPatternClipCommand> (track, std::move (c)));
             return (int) session.getTracks()[(size_t) track].patternClips.size() - 1;
         };
-        pianoRoll.onClipLoopChanged = [this] (int track, int clip, bool on) { session.execute (std::make_unique<model::SetClipLoopCommand> (track, true, clip, on)); };
-        sequencer.onClipLoopChanged = [this] (int track, int clip, bool on) { session.execute (std::make_unique<model::SetClipLoopCommand> (track, false, clip, on)); };
+        pianoRoll.onClipLoopChanged = [this] (int track, int clip, bool on)
+        {
+            if (auto cmd = model::ClipLoop::setLoop (session, { track, model::ClipRef::Kind::midi, clip }, on)) session.execute (std::move (cmd));
+            statusMessage = on ? "Looping: one extra pass added (drag the clip's right edge for more)" : "Clip back to its own length"; updateStatus();
+        };
+        sequencer.onClipLoopChanged = [this] (int track, int clip, bool on)
+        {
+            if (auto cmd = model::ClipLoop::setLoop (session, { track, model::ClipRef::Kind::pattern, clip }, on)) session.execute (std::move (cmd));
+            statusMessage = on ? "Looping: one extra pass added (drag the clip's right edge for more)" : "Clip back to its own length"; updateStatus();
+        };
         pianoRoll.onClipExtend = [this] (int track, int clip, juce::int64 newLength)
         {
             auto* t = session.getTrack (track);
@@ -3587,6 +3596,7 @@ public:
             else if (arg == "--crash") { ui::CrashReporter::get().addBreadcrumb ("deliberate crash (--crash)"); ui::CrashReporter::crashNow(); }
             else if (arg == "--crash-dialog") main.showPendingCrashReportFromCommandLine();
             else if (arg == "--diagnostics") main.reportProblemFromCommandLine();
+            else if (arg.startsWith ("--lua-later=")) juce::Timer::callAfterDelay (1500, [&main, code = arg.fromFirstOccurrenceOf ("=", false, false)] { main.runLuaFromCommandLine (code); });
             else if (arg.startsWith ("--click-button=")) juce::Timer::callAfterDelay (600, [&main, text = arg.fromFirstOccurrenceOf ("=", false, false)] { main.clickButtonFromCommandLine (text); });
             else if (arg.startsWith ("--scroll-tracks=")) main.scrollTracksFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg == "--notes-focus") juce::Timer::callAfterDelay (400, [&main] { main.focusNotesFromCommandLine(); });   // after the window takes focus

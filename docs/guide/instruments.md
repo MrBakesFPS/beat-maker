@@ -24,7 +24,7 @@ To add a clip in the tracks, select a time range on an instrument track (or just
 
 ## Looping clips
 
-A pattern or MIDI clip plays its content once unless **Loop** is on: the Loop button in the editor header, or right-click the clip in the tracks. With Loop on the clip repeats its notes or steps for its whole length, so the loop goes as far as the clip does: drag the clip's right edge with the Trimmer or Smart Tool, or right-click it and pick a Loop Length of 1 to 32 bars (or type a number). **Play Once** in the same menu switches looping off and shrinks the clip back to its content. With Loop off, a clip longer than its content is silent after the content ends; adding notes or steps there extends the content instead of looping it. Sessions saved before this option keep looping as they did.
+A pattern or MIDI clip plays its content once until you choose **Loop** for it: the Loop button in the editor header, or right-click the clip in the tracks. Loop adds one more pass: the clip grows by its own length, or as far as the next clip on the track if that is closer. The extension is then yours to shape: drag the clip's right edge with the Trimmer or Smart Tool for more or fewer passes, or right-click it and pick a Loop Length of 1 to 32 bars (or type a number). Switching Loop off, or trimming the clip back to its own length, returns it to its original state, and Loop must be chosen again to loop it again. With Loop off, a clip longer than its content is silent after the content ends; adding notes or steps there extends the content instead of looping it. Sessions saved before this option keep looping as they did.
 
 ## Instruments
 

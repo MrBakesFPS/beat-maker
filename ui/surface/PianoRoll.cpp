@@ -31,7 +31,7 @@ PianoRoll::PianoRoll (model::Session& s, engine::Transport& t, engine::AudioGrap
     addAndMakeVisible (loopButton);
     loopButton.setClickingTogglesState (true);
     loopButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
-    loopButton.setTooltip ("Loop: repeat the notes for the clip's length. Off: they play once. Lengthen the clip in the tracks (drag its right edge) to loop further");
+    loopButton.setTooltip ("Loop this clip: adds one more pass of its notes (up to the next clip); drag the clip's right edge in the tracks for more or less. Off, or trimmed back to its notes, returns it to its own length");
     loopButton.onClick = [this] { if (auto* c = getClip(); c != nullptr && onClipLoopChanged) onClipLoopChanged (trackIndex, clipIndex, loopButton.getToggleState()); };
     addAndMakeVisible (unrollButton);
     unrollButton.setTooltip ("Write the loop out so every bar of the clip can be edited on its own (happens by itself when you edit a repeat)");
