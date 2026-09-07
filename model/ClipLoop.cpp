@@ -32,6 +32,65 @@ juce::int64 ClipLoop::contentLength (const Session& s, const ClipRef& ref)
     return 0;
 }
 
+double ClipLoop::contentBeats (const Session& s, const ClipRef& ref)
+{
+    const auto* t = s.getTrack (ref.track);
+    if (t == nullptr) return 0.0;
+    if (ref.kind == ClipRef::Kind::midi && juce::isPositiveAndBelow (ref.index, (int) t->midiClips.size()))
+        return t->midiClips[(size_t) ref.index].sequence != nullptr ? t->midiClips[(size_t) ref.index].sequence->lengthBeats : 0.0;
+    if (ref.kind == ClipRef::Kind::pattern && juce::isPositiveAndBelow (ref.index, (int) t->patternClips.size()))
+        return t->patternClips[(size_t) ref.index].pattern != nullptr ? t->patternClips[(size_t) ref.index].pattern->getLengthBeats() : 0.0;
+    return 0.0;
+}
+
+double ClipLoop::baseBeats (const Session& s, const ClipRef& ref)
+{
+    const auto* t = s.getTrack (ref.track);
+    double base = 0.0;
+    if (t != nullptr && ref.kind == ClipRef::Kind::midi && juce::isPositiveAndBelow (ref.index, (int) t->midiClips.size())) base = t->midiClips[(size_t) ref.index].loopBaseBeats;
+    if (t != nullptr && ref.kind == ClipRef::Kind::pattern && juce::isPositiveAndBelow (ref.index, (int) t->patternClips.size())) base = t->patternClips[(size_t) ref.index].loopBaseBeats;
+    return base > 0.0 ? base : contentBeats (s, ref);
+}
+
+double ClipLoop::usedBeats (const Session& s, const ClipRef& ref)
+{
+    const auto* t = s.getTrack (ref.track);
+    if (t == nullptr) return 0.0;
+    double used = 0.0;
+    if (ref.kind == ClipRef::Kind::midi && juce::isPositiveAndBelow (ref.index, (int) t->midiClips.size()))
+    {
+        if (const auto& seq = t->midiClips[(size_t) ref.index].sequence) for (const auto& n : seq->notes) used = juce::jmax (used, n.getEndBeat());
+    }
+    else if (ref.kind == ClipRef::Kind::pattern && juce::isPositiveAndBelow (ref.index, (int) t->patternClips.size()))
+    {
+        if (const auto& p = t->patternClips[(size_t) ref.index].pattern)
+            for (int pad = 0; pad < engine::StepPattern::maxPads; ++pad)
+                for (int st = p->numSteps - 1; st >= 0; --st)
+                    if (p->get (pad, st) > 0) { used = juce::jmax (used, (double) (st + 1) / juce::jmax (1, p->stepsPerBeat)); break; }
+    }
+    return used;
+}
+
+void ClipLoop::addRestoreContent (const Session& s, const ClipRef& ref, CompoundCommand& compound)
+{
+    const double base = baseBeats (s, ref), content = contentBeats (s, ref);
+    if (base <= 0.0 || content <= base + 1.0e-9) return;                 // nothing grew
+    if (usedBeats (s, ref) > base + 1.0e-9) return;                       // notes or hits live past the base: keep them
+    const auto* t = s.getTrack (ref.track);
+    if (ref.kind == ClipRef::Kind::midi)
+    {
+        auto seq = std::make_shared<engine::MidiSequence> (*t->midiClips[(size_t) ref.index].sequence);
+        seq->lengthBeats = base;
+        compound.add (std::make_unique<ReplaceMidiSequenceCommand> (ref.track, ref.index, std::move (seq), "Restore Clip"));
+    }
+    else
+    {
+        auto pat = std::make_shared<engine::StepPattern> (*t->patternClips[(size_t) ref.index].pattern);
+        pat->numSteps = juce::jlimit (1, engine::StepPattern::maxSteps, (int) std::round (base * pat->stepsPerBeat));
+        compound.add (std::make_unique<ReplacePatternCommand> (ref.track, ref.index, std::move (pat), "Restore Clip"));
+    }
+}
+
 juce::int64 ClipLoop::nextClipStart (const Session& s, const ClipRef& ref)
 {
     const auto timing = ClipEdits::timing (s, ref);
@@ -51,9 +110,13 @@ std::unique_ptr<Command> ClipLoop::setLoop (const Session& s, const ClipRef& ref
     if (! isLoopClip (s, ref)) return nullptr;
     const auto timing = ClipEdits::timing (s, ref);
     if (! timing) return nullptr;
-    const auto content = contentLength (s, ref);
+    const bool midi = ref.kind == ClipRef::Kind::midi;
     auto compound = std::make_unique<CompoundCommand> (on ? "Loop Clip" : "Play Clip Once");
-    compound->add (std::make_unique<SetClipLoopCommand> (ref.track, ref.kind == ClipRef::Kind::midi, ref.index, on));
+    compound->add (std::make_unique<SetClipLoopCommand> (ref.track, midi, ref.index, on));
+    if (on) compound->add (std::make_unique<SetClipLoopBaseCommand> (ref.track, midi, ref.index, contentBeats (s, ref)));   // remember what "normal" is
+    else addRestoreContent (s, ref, *compound);
+    const double secondsPerBeat = 60.0 / juce::jmax (1.0, s.getBpm());
+    const auto content = on ? contentLength (s, ref) : (juce::int64) std::llround (baseBeats (s, ref) * secondsPerBeat * timing->sampleRate);
     if (content > 0)
     {
         if (on)
@@ -65,9 +128,10 @@ std::unique_ptr<Command> ClipLoop::setLoop (const Session& s, const ClipRef& ref
             wanted = juce::jmax (wanted, juce::jmin (timing->length, content));   // never shrink below what it was (or its content)
             if (wanted != timing->length) compound->add (std::make_unique<TrimClipCommand> (ref, timing->start, juce::jmax<juce::int64> (1, wanted)));
         }
-        else if (timing->length > content)
+        else if (timing->length != content)
             compound->add (std::make_unique<TrimClipCommand> (ref, timing->start, content));   // back to its original size
     }
+    if (! on) compound->add (std::make_unique<SetClipLoopBaseCommand> (ref.track, midi, ref.index, 0.0));
     return compound;
 }
 
@@ -75,9 +139,16 @@ std::unique_ptr<Command> ClipLoop::afterTrim (const Session& s, const ClipRef& r
 {
     if (! isLoopClip (s, ref) || ! isLooping (s, ref)) return nullptr;
     const auto timing = ClipEdits::timing (s, ref);
-    const auto content = contentLength (s, ref);
-    if (! timing || content <= 0 || timing->length > content) return nullptr;
-    return std::make_unique<SetClipLoopCommand> (ref.track, ref.kind == ClipRef::Kind::midi, ref.index, false);
+    if (! timing) return nullptr;
+    const double secondsPerBeat = 60.0 / juce::jmax (1.0, s.getBpm());
+    const auto base = (juce::int64) std::llround (baseBeats (s, ref) * secondsPerBeat * timing->sampleRate);
+    if (base <= 0 || timing->length > base) return nullptr;
+    // Back to (or below) its base: the loop is off, grown content shrinks to the base, the base is forgotten
+    auto compound = std::make_unique<CompoundCommand> ("Loop Off");
+    compound->add (std::make_unique<SetClipLoopCommand> (ref.track, ref.kind == ClipRef::Kind::midi, ref.index, false));
+    addRestoreContent (s, ref, *compound);
+    compound->add (std::make_unique<SetClipLoopBaseCommand> (ref.track, ref.kind == ClipRef::Kind::midi, ref.index, 0.0));
+    return compound;
 }
 
 } // namespace beatmaker::model

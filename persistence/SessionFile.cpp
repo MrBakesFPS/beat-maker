@@ -154,7 +154,7 @@ namespace
     {
         auto o = obj();
         set (o, "name", c.name); set (o, "sampleRate", c.sampleRate); set (o, "start", c.timelineStart); set (o, "length", c.length);
-        set (o, "loopOffset", c.loopOffset); set (o, "gain", (double) c.gain); set (o, "loop", c.loop);
+        set (o, "loopOffset", c.loopOffset); set (o, "gain", (double) c.gain); set (o, "loop", c.loop); set (o, "loopBaseBeats", c.loopBaseBeats);
         if (c.pattern != nullptr)
         {
             auto p = obj();
@@ -176,7 +176,7 @@ namespace
         PatternClip c;
         c.name = get (v, "name", "Pattern").toString(); c.sampleRate = (double) get (v, "sampleRate", 48000.0);
         c.timelineStart = (juce::int64) get (v, "start", 0); c.length = (juce::int64) get (v, "length", 0);
-        c.loopOffset = (juce::int64) get (v, "loopOffset", 0); c.gain = (float) (double) get (v, "gain", 1.0); c.loop = get (v, "loop", true);   // older files looped
+        c.loopOffset = (juce::int64) get (v, "loopOffset", 0); c.gain = (float) (double) get (v, "gain", 1.0); c.loop = get (v, "loop", true); c.loopBaseBeats = (double) get (v, "loopBaseBeats", 0.0);   // older files looped
         auto pattern = std::make_shared<engine::StepPattern>();
         const auto p = get (v, "pattern");
         pattern->numSteps = juce::jlimit (1, engine::StepPattern::maxSteps, (int) get (p, "numSteps", 16));
@@ -196,7 +196,7 @@ namespace
     {
         auto o = obj();
         set (o, "name", c.name); set (o, "sampleRate", c.sampleRate); set (o, "start", c.timelineStart); set (o, "length", c.length);
-        set (o, "loopOffset", c.loopOffset); set (o, "gain", (double) c.gain); set (o, "loop", c.loop);
+        set (o, "loopOffset", c.loopOffset); set (o, "gain", (double) c.gain); set (o, "loop", c.loop); set (o, "loopBaseBeats", c.loopBaseBeats);
         if (c.sequence != nullptr)
         {
             auto seq = obj();
@@ -213,7 +213,7 @@ namespace
         MidiClip c;
         c.name = get (v, "name", "MIDI").toString(); c.sampleRate = (double) get (v, "sampleRate", 48000.0);
         c.timelineStart = (juce::int64) get (v, "start", 0); c.length = (juce::int64) get (v, "length", 0);
-        c.loopOffset = (juce::int64) get (v, "loopOffset", 0); c.gain = (float) (double) get (v, "gain", 1.0); c.loop = get (v, "loop", true);   // older files looped
+        c.loopOffset = (juce::int64) get (v, "loopOffset", 0); c.gain = (float) (double) get (v, "gain", 1.0); c.loop = get (v, "loop", true); c.loopBaseBeats = (double) get (v, "loopBaseBeats", 0.0);   // older files looped
         auto seq = std::make_shared<engine::MidiSequence>();
         const auto s = get (v, "sequence");
         seq->lengthBeats = (double) get (s, "lengthBeats", 8.0);

@@ -17,6 +17,13 @@ public:
     static bool isLoopClip (const Session&, const ClipRef&);            // a pattern or MIDI clip
     static bool isLooping (const Session&, const ClipRef&);
     static juce::int64 contentLength (const Session&, const ClipRef&);   // samples of one pass at the session tempo
+    static double contentBeats (const Session&, const ClipRef&);
+    // The length Loop restores to: the content length when Loop was switched on (else the content now).
+    static double baseBeats (const Session&, const ClipRef&);
+    // The last note or hit's end, in beats (0 when empty).
+    static double usedBeats (const Session&, const ClipRef&);
+    // Commands that put the content back to its base length when everything past the base is empty.
+    static void addRestoreContent (const Session&, const ClipRef&, CompoundCommand&);
     static juce::int64 nextClipStart (const Session&, const ClipRef&);   // -1 when none follows
     // Loop on: extend by one content length, stopping short of the next clip. Loop off: back to the content length.
     static std::unique_ptr<Command> setLoop (const Session&, const ClipRef&, bool on);

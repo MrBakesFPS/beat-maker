@@ -77,6 +77,7 @@ struct PatternClip
     juce::int64 loopOffset    = 0;   // pattern position (samples) at timelineStart; lets trims/splits keep phase
     float gain = 1.0f;
     bool loop = false;               // repeat the pattern for the clip's length (off: it plays once)
+    double loopBaseBeats = 0.0;      // the content length when Loop was switched on; what "back to normal" restores (0 = unknown)
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
@@ -94,6 +95,7 @@ struct MidiClip
     juce::int64 loopOffset    = 0;   // sequence position (samples) at timelineStart
     float gain = 1.0f;
     bool loop = false;               // repeat the sequence for the clip's length (off: it plays once)
+    double loopBaseBeats = 0.0;      // the content length when Loop was switched on; what "back to normal" restores (0 = unknown)
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
@@ -383,6 +385,7 @@ private:
     friend class SetStepCommand;
     friend class ReplacePatternCommand;
     friend class SetClipLoopCommand;
+    friend class SetClipLoopBaseCommand;
     friend class SetPadSampleCommand;
     friend class AddMidiClipCommand;
     friend class ReplaceMidiSequenceCommand;
@@ -648,6 +651,25 @@ private:
         else      { if (juce::isPositiveAndBelow (clip, (int) t.patternClips.size())) { if (remember) *remember = t.patternClips[(size_t) clip].loop; t.patternClips[(size_t) clip].loop = value; } }
     }
     int index; bool midi; int clip; bool on, was = false;
+};
+
+// Remembers (or forgets, with 0) the content length a clip had when Loop was switched on.
+class SetClipLoopBaseCommand final : public Command
+{
+public:
+    SetClipLoopBaseCommand (int trackIndex, bool isMidi, int clipIndex, double beats) : index (trackIndex), midi (isMidi), clip (clipIndex), value (beats) {}
+    juce::String getName() const override { return "Loop Base"; }
+    void execute (Session& s) override { apply (s, value, &was); }
+    void undo (Session& s) override { apply (s, was, nullptr); }
+private:
+    void apply (Session& s, double v, double* remember)
+    {
+        if (! juce::isPositiveAndBelow (index, (int) s.tracks.size())) return;
+        auto& t = s.tracks[(size_t) index];
+        if (midi) { if (juce::isPositiveAndBelow (clip, (int) t.midiClips.size())) { if (remember) *remember = t.midiClips[(size_t) clip].loopBaseBeats; t.midiClips[(size_t) clip].loopBaseBeats = v; } }
+        else      { if (juce::isPositiveAndBelow (clip, (int) t.patternClips.size())) { if (remember) *remember = t.patternClips[(size_t) clip].loopBaseBeats; t.patternClips[(size_t) clip].loopBaseBeats = v; } }
+    }
+    int index; bool midi; int clip; double value, was = 0.0;
 };
 
 // Copy-on-write replacement of one pad's sample.

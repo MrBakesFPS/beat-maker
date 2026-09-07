@@ -1,4 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+using Catch::Matchers::WithinAbs;
 #include <ClipLoop.h>
 #include <Session.h>
 
@@ -43,6 +45,39 @@ TEST_CASE ("Loop on extends a clip by its content, stopping at the next clip; of
     s.execute (model::ClipLoop::setLoop (s, a, false));
     s.execute (model::ClipLoop::setLoop (s, a, true));
     CHECK (s.getTracks()[0].midiClips[0].length == 10 * 24000);
+}
+
+TEST_CASE ("A clip extended, edited beyond its notes, then shortened, loops from its original length again")
+{
+    model::Session s; fillSession (s);
+    const model::ClipRef a { 0, model::ClipRef::Kind::midi, 0 };
+    s.execute (model::ClipLoop::setLoop (s, a, true));                     // 8 -> 16 beats, base 8 remembered
+    CHECK_THAT (model::ClipLoop::baseBeats (s, a), WithinAbs (8.0, 1e-9));
+    // The editor unrolls the loop to add a note in the second pass, then the note goes away again
+    auto grown = std::make_shared<engine::MidiSequence> (*s.getTracks()[0].midiClips[0].sequence);
+    grown->lengthBeats = 16.0; grown->notes.push_back ({ 60, 100, 10.0, 1.0 });
+    s.execute (std::make_unique<model::ReplaceMidiSequenceCommand> (0, 0, grown, "Unroll"));
+    auto emptied = std::make_shared<engine::MidiSequence> (*grown); emptied->notes.clear();
+    s.execute (std::make_unique<model::ReplaceMidiSequenceCommand> (0, 0, emptied, "Delete Note"));
+    CHECK_THAT (model::ClipLoop::contentBeats (s, a), WithinAbs (16.0, 1e-9));
+    // Shortened back to two bars: loop off and the content returns to eight beats
+    s.execute (std::make_unique<model::TrimClipCommand> (a, 0, 8 * 24000));
+    auto off = model::ClipLoop::afterTrim (s, a);
+    REQUIRE (off != nullptr);
+    s.execute (std::move (off));
+    CHECK (! model::ClipLoop::isLooping (s, a));
+    CHECK_THAT (model::ClipLoop::contentBeats (s, a), WithinAbs (8.0, 1e-9));
+    CHECK_THAT (model::ClipLoop::baseBeats (s, a), WithinAbs (8.0, 1e-9));   // forgotten base falls back to the content
+    // Loop again: one extra pass of the original length, not of the grown one
+    s.execute (model::ClipLoop::setLoop (s, a, true));
+    CHECK (s.getTracks()[0].midiClips[0].length == 16 * 24000);
+    // A note left past the base keeps the grown content on Loop off (nothing is lost)
+    auto kept = std::make_shared<engine::MidiSequence> (*s.getTracks()[0].midiClips[0].sequence);
+    kept->lengthBeats = 16.0; kept->notes.push_back ({ 62, 100, 12.0, 1.0 });
+    s.execute (std::make_unique<model::ReplaceMidiSequenceCommand> (0, 0, kept, "Unroll"));
+    s.execute (model::ClipLoop::setLoop (s, a, false));
+    CHECK_THAT (model::ClipLoop::contentBeats (s, a), WithinAbs (16.0, 1e-9));
+    CHECK (s.getTracks()[0].midiClips[0].length == 8 * 24000);   // the clip itself returns to its base length
 }
 
 TEST_CASE ("Trimming a looping clip back to its content switches the loop off")
