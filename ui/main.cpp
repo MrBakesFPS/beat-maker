@@ -20,6 +20,7 @@
 #include "depth/AafExportDialog.h"
 #include "depth/CrashReportWindow.h"
 #include "shared/CrashReporter.h"
+#include "shared/SessionChooser.h"
 #include "shared/UiProfiler.h"
 #include <cstdlib>
 #include <AafExport.h>
@@ -124,9 +125,7 @@ public:
         {
             ui::TimelineView v;
             trackArea.getView (v.startSeconds, v.pixelsPerSecond);
-            v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - pianoRoll.getX();
-            v.laneWidth = juce::jmax (50, trackArea.getLaneWidth());
-            return v;
+            return v;   // the editor keeps its own left edge and width: it spans the panel whether linked or not
         };
         pianoRoll.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
         pianoRoll.onClipCreate = [this] (int track, juce::int64 start, juce::int64 length) -> int
@@ -275,8 +274,6 @@ public:
         {
             ui::TimelineView v;
             trackArea.getView (v.startSeconds, v.pixelsPerSecond);
-            v.originX = trackArea.getX() + ui::theme::trackHeaderWidth - sequencer.getX();
-            v.laneWidth = juce::jmax (50, trackArea.getLaneWidth());
             return v;
         };
         sequencer.onViewChanged = [this] (double start, double pps) { trackArea.setView (start, pps); };
@@ -425,6 +422,16 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
+    // takes the double-click/Return path on it (smoke tests)
+    void showOpenDialogFromCommandLine (const juce::File& bundle)
+    {
+        auto* browser = openSessionChooser();
+        if (bundle == juce::File() || browser == nullptr) return;
+        browser->showBundle (bundle);
+        juce::Component::SafePointer<ui::SessionBrowser> safe (browser);
+        juce::Timer::callAfterDelay (800, [safe, bundle] { if (auto* b = safe.getComponent()) b->fileDoubleClicked (bundle); });
+    }
     void runScriptFromCommandLine (const juce::File& f) { runScriptFile (f); }
     void runLuaFromCommandLine (const juce::String& code) { const auto r = lua.run (code, "command-line"); statusMessage = r.ok ? (r.output.isNotEmpty() ? r.output.trimEnd() : "Lua ok") : "Lua error: " + r.error; updateStatus(); std::cout << (r.ok ? r.output : "error: " + r.error + "\n"); }
     void showScriptConsoleFromCommandLine() { showScriptConsole(); }
@@ -2255,21 +2262,20 @@ private:
         });
     }
 
-    void openSessionChooser()
+    // The Open Session browser: a session bundle opens on double-click, Return or Open (it is a folder, but not one to step into)
+    ui::SessionBrowser* openSessionChooser()
     {
         sessionsFolder().createDirectory();
-        fileChooser = std::make_unique<juce::FileChooser> ("Open Session or Audio File", sessionsFolder(), "*.bmk;*.bmkt;" + loader.getWildcard());
-        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
-                                  [this] (const juce::FileChooser& fc)
-                                  {
-                                      auto f = fc.getResult();
-                                      if (f == juce::File()) return;
-                                      if (f.getFileName() == "session.json") f = f.getParentDirectory();
-                                      if (persistence::SessionFile::isSessionBundle (f)) openSessionBundle (f);
-                                      else if (f.existsAsFile()) importAudioFile (f);
-                                      grabKeyboardFocus();
-                                  });
+        return ui::SessionChooser::launch ("Open Session or Audio File", sessionsFolder(), "*.bmk;*.bmkt;" + loader.getWildcard(), [this] (juce::File f)
+        {
+            if (f == juce::File()) return;
+            if (f.getFileName() == "session.json") f = f.getParentDirectory();
+            if (persistence::SessionFile::isSessionBundle (f)) openSessionBundle (f);
+            else if (f.existsAsFile()) importAudioFile (f);
+            grabKeyboardFocus();
+        });
     }
+
 
     void newEmptySession (const juce::String& name)
     {
@@ -2708,15 +2714,12 @@ private:
     void chooseSessionToImport()
     {
         sessionsFolder().createDirectory();
-        fileChooser = std::make_unique<juce::FileChooser> ("Import Session Data: choose a session", sessionsFolder(), "*.bmk;*.bmkt");
-        fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
-                                  [this] (const juce::FileChooser& fc)
-                                  {
-                                      auto f = fc.getResult();
-                                      if (f.getFileName() == "session.json") f = f.getParentDirectory();
-                                      if (persistence::SessionFile::isSessionBundle (f)) showImportSessionDialog (f);
-                                      else if (f != juce::File()) { statusMessage = "Not a Beat Maker session: " + f.getFileName(); updateStatus(); }
-                                  });
+        ui::SessionChooser::launch ("Import Session Data: choose a session", sessionsFolder(), "*.bmk;*.bmkt", [this] (juce::File f)
+        {
+            if (f.getFileName() == "session.json") f = f.getParentDirectory();
+            if (persistence::SessionFile::isSessionBundle (f)) showImportSessionDialog (f);
+            else if (f != juce::File()) { statusMessage = "Not a Beat Maker session: " + f.getFileName(); updateStatus(); }
+        });
     }
 
     void showImportSessionDialog (const juce::File& bundle)
@@ -3594,6 +3597,7 @@ public:
             else if (arg.startsWith ("--commit=")) main.commitFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--export-aaf=")) main.exportAafFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--aaf-dialog") main.showAafExportFromCommandLine();
+            else if (arg == "--open-dialog" || arg.startsWith ("--open-dialog=")) juce::Timer::callAfterDelay (400, [&main, arg] { main.showOpenDialogFromCommandLine (arg.contains ("=") ? juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)) : juce::File()); });
             else if (arg == "--crash") { ui::CrashReporter::get().addBreadcrumb ("deliberate crash (--crash)"); ui::CrashReporter::crashNow(); }
             else if (arg == "--crash-dialog") main.showPendingCrashReportFromCommandLine();
             else if (arg == "--diagnostics") main.reportProblemFromCommandLine();
@@ -3675,7 +3679,7 @@ public:
             main.startPlayback();
     }
 
-    void shutdown() override { quitPoller.stopTimer(); mainWindow.reset(); ui::CrashReporter::get().shutdownLogging(); }
+    void shutdown() override { quitPoller.stopTimer(); ui::SessionChooser::closeAny(); mainWindow.reset(); ui::CrashReporter::get().shutdownLogging(); }
     void systemRequestedQuit() override { quit(); }
 
 private:

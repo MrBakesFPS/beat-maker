@@ -14,7 +14,7 @@ StepSequencer::StepSequencer (model::Session& s, engine::Transport& t, engine::A
     linkButton.setClickingTogglesState (true);
     linkButton.setToggleState (true, juce::dontSendNotification);
     linkButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
-    linkButton.setTooltip ("Link the time axis to the tracks: the steps sit under their clip and scrolling or zooming either view moves both");
+    linkButton.setTooltip ("Link the time axis to the tracks: the steps show the same time and zoom as the clips, and scrolling or zooming either view moves both");
     linkButton.onClick = [this] { setLinked (linkButton.getToggleState()); };
     addAndMakeVisible (loopButton);
     loopButton.setClickingTogglesState (true);
@@ -82,12 +82,12 @@ const engine::StepPattern* StepSequencer::patternOf (int ci) const { auto* c = c
 TimelineView StepSequencer::view() const
 {
     TimelineView v;
-    if (linked && viewSource != nullptr) v = viewSource();
-    else
+    if (linked && viewSource != nullptr) v = viewSource();   // the tracks' time and zoom
+    else { v.startSeconds = ownStartSeconds; v.pixelsPerSecond = ownPixelsPerSecond; }
+    v.originX = padColumnWidth + 8.0;   // the grid always starts after the pads and runs to the panel's edge
+    v.laneWidth = juce::jmax (50.0, (double) getWidth() - v.originX);
+    if (! (linked && viewSource != nullptr))
     {
-        v.originX = padColumnWidth + 8.0;
-        v.laneWidth = juce::jmax (50.0, (double) getWidth() - v.originX);
-        v.startSeconds = ownStartSeconds; v.pixelsPerSecond = ownPixelsPerSecond;
         if (auto* clip = getClip(); clip != nullptr && v.pixelsPerSecond <= 0.0) { v.startSeconds = clip->getStartSeconds(); v.pixelsPerSecond = v.laneWidth / juce::jmax (0.5, clip->getLengthSeconds()); }
         if (v.pixelsPerSecond <= 0.0) v.pixelsPerSecond = 60.0;
     }

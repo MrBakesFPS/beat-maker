@@ -17,6 +17,8 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - Join Selected Clips (Ctrl+J, and in the clip menus): MIDI and pattern clips merge into one with their contents written out (loops included), audio clips heal when adjacent pieces of one file. Split at Playhead is in the clip menus too.
 
 ### Fixed
+- The Open Session browser stepped into a session bundle (it is a folder) on a double-click or Return instead of opening it. Bundles now open on double-click, Return or the Open button; other folders still navigate. `--open-dialog[=<bundle>]` flag.
+- With Link on, the note and drum editors kept the tracks' lane offset and left an empty band at the left. The editors now span the whole panel, keyboard or pads at the left, and Link only shares the time and zoom.
 - A clip extended (by Loop or by dragging its edge), edited in the extension and then shortened back kept the grown length as its "normal" size, so the next Loop doubled the wrong thing. Loop now measures the clip as shown on the timeline and remembers that length; shrinking any clip folds content that grew with nothing in it back to the clip, and Loop off or a trim back to the remembered length restores the clip.
 - Choosing an edit mode or tool lit two buttons (the old one stayed on): JUCE fires the click of the radio button it turns off, which re-selected it. `--click-button=<text>` presses a button by label for smoke tests.
 - The track list scrolls when there are more tracks than fit: wheel over the tracks, a scrollbar at the right, and the selected track kept in view; Shift+wheel scrolls time. The ruler stays fixed while headers slide under it. `--scroll-tracks=<px>` flag.

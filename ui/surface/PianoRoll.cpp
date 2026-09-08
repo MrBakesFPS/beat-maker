@@ -26,7 +26,7 @@ PianoRoll::PianoRoll (model::Session& s, engine::Transport& t, engine::AudioGrap
     linkButton.setClickingTogglesState (true);
     linkButton.setToggleState (true, juce::dontSendNotification);
     linkButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
-    linkButton.setTooltip ("Link the time axis to the tracks: the notes sit under their clip and scrolling or zooming either view moves both");
+    linkButton.setTooltip ("Link the time axis to the tracks: the notes show the same time and zoom as the clips, and scrolling or zooming either view moves both");
     linkButton.onClick = [this] { setLinked (linkButton.getToggleState()); };
     addAndMakeVisible (loopButton);
     loopButton.setClickingTogglesState (true);
@@ -178,12 +178,13 @@ double PianoRoll::snapDelta (double anchorStart, double delta) const noexcept
 PianoRoll::View PianoRoll::view() const
 {
     View v;
-    if (linked && viewSource != nullptr) v = viewSource();
-    else
+    if (linked && viewSource != nullptr) v = viewSource();   // the tracks' time and zoom
+    else { v.startSeconds = ownStartSeconds; v.pixelsPerSecond = ownPixelsPerSecond; }
+    // The lanes always start right after the keyboard and run to the panel's edge, linked or not
+    v.originX = keyboardWidth + 8.0;
+    v.laneWidth = juce::jmax (50.0, (double) getWidth() - v.originX);
+    if (! (linked && viewSource != nullptr))
     {
-        v.originX = juce::jmax (keyboardWidth + 8.0, linked ? keyboardWidth + 8.0 : 240.0);
-        v.laneWidth = juce::jmax (50.0, (double) getWidth() - v.originX);
-        v.startSeconds = ownStartSeconds; v.pixelsPerSecond = ownPixelsPerSecond;
         if (auto* clip = getClip(); clip != nullptr && v.pixelsPerSecond <= 0.0)
         {
             v.startSeconds = clip->getStartSeconds();

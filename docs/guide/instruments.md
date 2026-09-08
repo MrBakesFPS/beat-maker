@@ -6,7 +6,7 @@ A Drum Machine track has a synthesised 16-pad kit and a one-bar pattern clip wit
 
 ### Drum editor
 
-The step sequencer in the editor panel works like the [note editor](#note-editor): it is drawn on the session timeline, follows the tracks' view while **Link** is on (the steps sit under their clip; scrolling or zooming either view moves both), shows every repeat of a looping pattern with the later ones as ghosts, and **Unroll** (or the first edit inside a repeat) writes the loop out so each bar of the clip is its own. The header reads out the selection.
+The step sequencer in the editor panel works like the [note editor](#note-editor): it is drawn on the session timeline, follows the tracks' view while **Link** is on (the same time and zoom as the clips; scrolling or zooming either view moves both), shows every repeat of a looping pattern with the later ones as ghosts, and **Unroll** (or the first edit inside a repeat) writes the loop out so each bar of the clip is its own. The header reads out the selection.
 
 - **Steps**: click to toggle, Shift-click for a soft hit, drag to paint (one undo step per stroke), right-click to clear. Painting past the clip's end extends the clip to the next bar.
 - **Tools**: the Selector rubber-bands hits, the Grabber drags them to other steps and pads, the Zoomer zooms; the Smart Tool and Pencil toggle and paint. Ctrl-click adds a hit to the selection, Ctrl+A selects all, Escape clears.
@@ -39,7 +39,7 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 
 ### Note editor
 
-The piano roll in the editor panel is drawn on the session timeline. With **Link** on (the default) it follows the tracks' view: the same ruler and zoom, the notes sit directly under their clip, and scrolling or zooming in either view moves both. Link off gives the note editor a view of its own (Ctrl+wheel zooms, Shift+wheel scrolls, Alt+Z fits the clip).
+The piano roll in the editor panel is drawn on the session timeline. With **Link** on (the default) it follows the tracks' view: the same ruler start and zoom, and scrolling or zooming in either view moves both. The editor always spans the whole panel, keyboard at the left, linked or not. Link off gives the note editor a view of its own (Ctrl+wheel zooms, Shift+wheel scrolls, Alt+Z fits the clip).
 
 A looping clip (the default two-bar arpeggio in a four-bar clip, say) shows every repeat of its sequence; the repeats after the first are drawn as ghosts with a loop line between them. Editing a ghost note, or pressing **Unroll**, writes the loop out so that each bar of the clip is its own notes; a note added past the clip's end extends the clip. The header reads out the selection and the loop length.
 

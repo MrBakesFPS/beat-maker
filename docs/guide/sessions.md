@@ -4,7 +4,7 @@
 
 A session is a `.bmk` folder holding `session.json` (every track, clip, pattern, MIDI sequence, instrument, insert with parameters and plugin state, send, automation lane, playlist, group, marker, I/O path and transport setting) plus an `Audio Files` folder for audio that only existed in memory, such as pencil edits, freezes and recordings. Audio kept outside the bundle is referenced by path and reported if missing. Elastic clips store their source file and stretch settings and are re-rendered on open, so a reopened session bounces byte-for-byte the same.
 
-**File...** (or **Ctrl+N**, **Ctrl+O**, **Ctrl+S**, **Ctrl+Shift+S**) creates, opens and saves. **Save As Template** writes a `.bmkt` to `~/Music/Beat Maker/Templates`; New Session offers those alongside the built-in Empty, Beat Making, Songwriter and Podcast templates. Sessions with a file autosave to `Session File Backups` inside the bundle every few minutes (interval and count in Preferences > Operation); after a crash the newest backup is offered on the next launch.
+**File...** (or **Ctrl+N**, **Ctrl+O**, **Ctrl+S**, **Ctrl+Shift+S**) creates, opens and saves. In the Open browser a session bundle (`Name.bmk`) opens on a double-click, Return or the Open button; other folders still step inside. **Save As Template** writes a `.bmkt` to `~/Music/Beat Maker/Templates`; New Session offers those alongside the built-in Empty, Beat Making, Songwriter and Podcast templates. Sessions with a file autosave to `Session File Backups` inside the bundle every few minutes (interval and count in Preferences > Operation); after a crash the newest backup is offered on the next launch.
 
 ## Bounce to Disk
 
