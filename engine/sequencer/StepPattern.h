@@ -19,6 +19,8 @@ struct StepPattern
 
     // 0 = off, 1..127 = velocity
     std::array<std::array<std::uint8_t, maxSteps>, maxPads> velocity {};
+    // Steps a hit is held for: 0 or 1 = one step (a one-shot that rings out); 2+ = a gate that cuts the sample at its end
+    std::array<std::array<std::uint8_t, maxSteps>, maxPads> length {};
 
     std::uint8_t get (int pad, int step) const noexcept
     {
@@ -30,6 +32,18 @@ struct StepPattern
     {
         if (juce::isPositiveAndBelow (pad, maxPads) && juce::isPositiveAndBelow (step, maxSteps))
             velocity[(size_t) pad][(size_t) step] = v;
+    }
+
+    int getLength (int pad, int step) const noexcept
+    {
+        return juce::isPositiveAndBelow (pad, maxPads) && juce::isPositiveAndBelow (step, maxSteps)
+                 ? juce::jmax (1, (int) length[(size_t) pad][(size_t) step]) : 1;
+    }
+
+    void setLength (int pad, int step, int steps) noexcept
+    {
+        if (juce::isPositiveAndBelow (pad, maxPads) && juce::isPositiveAndBelow (step, maxSteps))
+            length[(size_t) pad][(size_t) step] = (std::uint8_t) juce::jlimit (1, 255, steps);
     }
 
     double getLengthBeats() const noexcept { return (double) numSteps / stepsPerBeat; }

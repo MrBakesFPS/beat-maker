@@ -28,9 +28,14 @@ std::vector<NoteKey> NoteEdits::keysOf (const Seq& s, const Indices& idx)
 
 NoteEdits::Indices NoteEdits::resolve (const Seq& s, const std::vector<NoteKey>& keys)
 {
+    // One note per key: notes stacked on the same pitch and beat (a note moved onto another) are not all
+    // taken by one key, so dragging one of them away leaves the other in place
     Indices v;
-    for (int i = 0; i < (int) s.notes.size(); ++i)
-        for (const auto& k : keys) if (k.matches (s.notes[(size_t) i])) { v.push_back (i); break; }
+    std::vector<bool> taken (s.notes.size(), false);
+    for (const auto& k : keys)
+        for (int i = 0; i < (int) s.notes.size(); ++i)
+            if (! taken[(size_t) i] && k.matches (s.notes[(size_t) i])) { taken[(size_t) i] = true; v.push_back (i); break; }
+    std::sort (v.begin(), v.end());
     return v;
 }
 

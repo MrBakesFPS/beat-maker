@@ -69,3 +69,38 @@ TEST_CASE ("StepEdits: copy, paste, duplicate, unroll, resize")
     const auto smaller = StepEdits::resize (p, 8);
     CHECK (smaller.numSteps == 8);
 }
+
+TEST_CASE ("StepEdits: held hits (lengths) stretch up to the next hit, and move, copy and unroll with the hit")
+{
+    auto p = makePattern();   // pad 0 hits at 0 and 8; pad 4 at 2 and 6
+    CHECK (p.getLength (0, 0) == 1);
+    CHECK (StepEdits::maxLength (p, { 0, 0 }) == 8);      // room before the hit at 8
+    CHECK (StepEdits::maxLength (p, { 0, 8 }) == 8);      // room before the end
+    CHECK (StepEdits::maxLength (p, { 4, 2 }) == 4);
+    const auto held = StepEdits::setLength (p, { { 0, 0 }, { 4, 2 }, { 4, 7 } }, 6);
+    CHECK (held.getLength (0, 0) == 6); CHECK (held.getLength (4, 2) == 4); CHECK (held.getLength (4, 7) == 1);   // capped; silent cell untouched
+    const auto longer = StepEdits::stretch (held, { { 0, 0 } }, 5);
+    CHECK (longer.getLength (0, 0) == 8);
+    const auto shorter = StepEdits::stretch (held, { { 0, 0 } }, -10);
+    CHECK (shorter.getLength (0, 0) == 1);
+    // The span covers its steps: the hit at 0 held for 6 covers step 5, not 6
+    CHECK (StepEdits::hitCovering (held, 0, 5).step == 0);
+    CHECK (StepEdits::hitCovering (held, 0, 6).step == -1);
+    CHECK (StepEdits::hitCovering (held, 0, 8).step == 8);
+    CHECK (StepEdits::hitCovering (held, 3, 0).step == -1);
+    // Move keeps the length, cut at the pattern's end; clear resets it
+    StepEdits::Cells moved;
+    const auto shifted = StepEdits::shift (held, { { 0, 0 } }, 12, 0, &moved);
+    CHECK (shifted.getLength (0, 12) == 4); CHECK (shifted.getLength (0, 0) == 1);
+    CHECK (StepEdits::clear (held, { { 0, 0 } }).getLength (0, 0) == 1);
+    // Copy, paste and duplicate carry it
+    const auto hits = StepEdits::copy (held, { { 0, 0 } });
+    REQUIRE (hits.size() == 1); CHECK (hits[0].length == 6);
+    const auto pasted = StepEdits::paste (held, hits, 9);
+    CHECK (pasted.getLength (0, 9) == 6);
+    // Unroll repeats the length; a shrink cuts it
+    const auto un = StepEdits::unroll (held, 32);
+    CHECK (un.getLength (0, 16) == 6);
+    CHECK (StepEdits::resize (held, 4).getLength (0, 0) == 4);
+    CHECK (StepEdits::resize (held, 32).getLength (0, 0) == 6);
+}

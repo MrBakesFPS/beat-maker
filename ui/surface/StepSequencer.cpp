@@ -167,6 +167,24 @@ juce::Rectangle<float> StepSequencer::cellRect (int ci, int pad, int step, int r
     const double t0 = repeatStartBeats (ci, repeat) + step * stepBeats (ci);
     return { xForBeat (t0), g.getY() + pad * rh, xForBeat (t0 + stepBeats (ci)) - xForBeat (t0), rh };
 }
+juce::Rectangle<float> StepSequencer::hitRect (int ci, int pad, int step, int repeat) const
+{
+    auto* p = patternOf (ci);
+    const int held = p != nullptr ? juce::jmin (p->getLength (pad, step), juce::jmax (1, p->numSteps - step)) : 1;
+    auto r = cellRect (ci, pad, step, repeat);
+    r.setWidth (xForBeat (repeatStartBeats (ci, repeat) + (step + held) * stepBeats (ci)) - r.getX());
+    const float clipRight = xForBeat (clipStartBeats (ci) + clipLengthBeats (ci));
+    if (r.getRight() > clipRight) r.setRight (clipRight);
+    return r;
+}
+StepSequencer::Cell StepSequencer::hitAt (juce::Point<int> pt) const
+{
+    auto c = cellAt (pt);
+    if (c.step < 0) return c;
+    auto* p = patternOf (c.clip);
+    c.step = p != nullptr ? StepEdits::hitCovering (*p, c.pad, c.step).step : -1;
+    return c;
+}
 int StepSequencer::insertionStep() const
 {
     auto* clip = getClip();
@@ -324,7 +342,12 @@ juce::String StepSequencer::describeSelection() const
     for (const auto& c : selection) { s0 = juce::jmin (s0, c.step); s1 = juce::jmax (s1, c.step); p0 = juce::jmin (p0, c.pad); p1 = juce::jmax (p1, c.pad); }
     const double base = repeatStartBeats (firstRepeat());
     juce::String pads = t != nullptr && t->drumKit != nullptr ? t->drumKit->pads[(size_t) p0].name + (p1 != p0 ? " to " + t->drumKit->pads[(size_t) p1].name : juce::String()) : juce::String();
-    if (selection.size() == 1) return pads + "  velocity " + juce::String ((int) p->get (selection[0].pad, selection[0].step)) + "  at " + barBeatTick (base + s0 * stepBeats());
+    if (selection.size() == 1)
+    {
+        const int held = p->getLength (selection[0].pad, selection[0].step);
+        return pads + "  velocity " + juce::String ((int) p->get (selection[0].pad, selection[0].step)) + "  at " + barBeatTick (base + s0 * stepBeats())
+               + (held > 1 ? "  held " + juce::String (held) + " steps" : juce::String());
+    }
     return juce::String (selection.size()) + " hits  " + pads + "  " + barBeatTick (base + s0 * stepBeats()) + " to " + barBeatTick (base + (s1 + 1) * stepBeats());
 }
 
@@ -460,12 +483,13 @@ void StepSequencer::paint (juce::Graphics& g)
             const double t0 = repeatStartBeats (ci, k) + st * stepBeats (ci);
             if (t0 < cStart - 1.0e-9 || t0 >= cEnd - 1.0e-9) continue;
             const float x0 = xForBeat (t0);
-            if (x0 + cStepPx < (float) clipArea.getX() || x0 > (float) clipArea.getRight()) continue;
+            if (x0 > (float) clipArea.getRight()) continue;
             for (int pad = 0; pad < engine::DrumKit::numPads; ++pad)
             {
                 const auto v = cpat->get (pad, st);
                 if (v == 0) continue;
-                const auto cell = cellRect (ci, pad, st, k).reduced (cStepPx > 8.0f ? 1.5f : 0.5f, 1.5f);
+                const auto cell = hitRect (ci, pad, st, k).reduced (cStepPx > 8.0f ? 1.5f : 0.5f, 1.5f);   // a held hit spans its steps
+                if (cell.getRight() < (float) clipArea.getX()) continue;
                 const bool sel = active && StepEdits::contains (selection, { pad, st });
                 const float alpha = (0.35f + 0.65f * (float) v / 127.0f) * (ghost ? 0.4f : 1.0f) * (active ? 1.0f : 0.7f);
                 g.setColour (sel ? theme::accent.withAlpha (ghost ? 0.5f : 1.0f) : track->colour.withAlpha (alpha));
@@ -616,23 +640,31 @@ void StepSequencer::mouseDown (const juce::MouseEvent& e)
     if (cell.step < 0 || cell.clip != clipIndex) return;
     if (t == Tool::selector) { if (! e.mods.isShiftDown() && ! e.mods.isCtrlDown()) clearSelection(); drag = Drag::band; return; }
     if (unrollIfGhost (cell.repeat)) { cell = cellAt (e.getPosition()); pattern = getPattern(); if (cell.step < 0 || pattern == nullptr) return; }
-    const bool lit = pattern->get (cell.pad, cell.step) > 0;
-    if (e.mods.isPopupMenu()) { if (lit) commit (StepEdits::clear (*pattern, { { cell.pad, cell.step } }), "Clear Step"); return; }
-    if (e.mods.isCtrlDown() && lit)
+    const auto hit = StepEdits::hitCovering (*pattern, cell.pad, cell.step);   // a held hit covers steps past its start
+    const bool onHit = hit.step >= 0;
+    const model::StepCell start { hit.pad, hit.step };
+    if (e.mods.isPopupMenu()) { if (onHit) commit (StepEdits::clear (*pattern, { start }), "Clear Step"); return; }
+    if (e.mods.isCtrlDown() && onHit)
     {
-        auto it = std::find (selection.begin(), selection.end(), model::StepCell { cell.pad, cell.step });
-        if (it != selection.end()) selection.erase (it); else selection.push_back ({ cell.pad, cell.step });
+        auto it = std::find (selection.begin(), selection.end(), start);
+        if (it != selection.end()) selection.erase (it); else selection.push_back (start);
         repaint();
         return;
     }
-    if (t == Tool::grabber && lit)
+    if (onHit)
     {
-        if (! StepEdits::contains (selection, { cell.pad, cell.step })) selection = { { cell.pad, cell.step } };
-        dragBase = *pattern; dragCells = selection; dragAnchor = cell; drag = Drag::move;
+        // On a hit: drag moves it (with the rest of the selection), its right edge holds it over more steps; a plain
+        // click (no drag) toggles it off with the Smart Tool and Pencil, decided on mouse up
+        if (! StepEdits::contains (selection, start)) { if (! e.mods.isShiftDown()) selection.clear(); selection.push_back (start); }
+        const auto r = hitRect (clipIndex, hit.pad, hit.step, cell.repeat);
+        const bool nearEnd = (r.getRight() - (float) e.x) < (float) edgeGrab && r.getWidth() > 2.0f * (float) edgeGrab;
+        dragBase = *pattern; dragCells = selection; dragAnchor = { hit.pad, hit.step, cell.repeat, clipIndex }; dragAnchorLength = pattern->getLength (hit.pad, hit.step);
+        drag = (t == Tool::trimmer || nearEnd) ? Drag::resize : Drag::pendingMove;
+        repaint();
         return;
     }
-    // Toggle and paint (Smart, Pencil, Grabber on empty, Trimmer)
-    paintValue = lit ? (std::uint8_t) 0 : (e.mods.isShiftDown() ? softVelocity : fullVelocity);
+    // Empty step: switch it on and paint (Smart, Pencil, Grabber, Trimmer)
+    paintValue = e.mods.isShiftDown() ? softVelocity : fullVelocity;
     dragBase = *pattern; drag = Drag::paint; lastPaintPad = lastPaintStep = -1;
     selection.clear();
     mouseDrag (e);
@@ -667,6 +699,25 @@ void StepSequencer::mouseDrag (const juce::MouseEvent& e)
         liveCommit (StepEdits::setVelocity (dragBase, dragCells, v), "Change Velocity");
         return;
     }
+    if (drag == Drag::pendingMove)
+    {
+        const auto cell = cellAt (e.getPosition());
+        if (cell.step < 0 || cell.clip != clipIndex) return;
+        if (cell.pad == dragAnchor.pad && cell.step + cell.repeat * pattern->numSteps == dragAnchor.step + dragAnchor.repeat * pattern->numSteps) return;   // still on the same step
+        drag = Drag::move;
+    }
+    if (drag == Drag::resize)
+    {
+        const auto cell = cellAt (e.getPosition());
+        if (cell.step < 0 || cell.clip != clipIndex) return;
+        const int wanted = (cell.step + cell.repeat * pattern->numSteps) - (dragAnchor.step + dragAnchor.repeat * pattern->numSteps) + 1;   // steps from the hit's start to the mouse
+        const int delta = juce::jmax (1, wanted) - dragAnchorLength;
+        if (delta == 0) { if (dragChanged) { session.undo(); dragChanged = false; repaint(); } return; }
+        liveCommit (StepEdits::stretch (dragBase, dragCells, delta), "Hold Steps");
+        const int now = getPattern() != nullptr ? getPattern()->getLength (dragAnchor.pad, dragAnchor.step) : 1;
+        status (now > 1 ? "Held for " + juce::String (now) + " steps: the hit is cut off at the end (a gate)" : "One step: the hit rings out");
+        return;
+    }
     if (drag == Drag::move)
     {
         const auto cell = cellAt (e.getPosition());
@@ -688,6 +739,13 @@ void StepSequencer::mouseUp (const juce::MouseEvent& e)
     strokeCells.clear();
     auto* pattern = getPattern();
     if (pattern == nullptr) return;
+    if (d == Drag::pendingMove && ! dragChanged)
+    {
+        // A click on a hit that never moved: the Smart Tool and Pencil toggle it off; the Grabber and Trimmer just select it
+        const auto t = tool();
+        if ((t == Tool::smart || t == Tool::pencil) && ! e.mods.isShiftDown()) { selection.clear(); commit (StepEdits::clear (*pattern, { { dragAnchor.pad, dragAnchor.step } }), "Clear Step"); }
+        return;
+    }
     if (d == Drag::band)
     {
         const auto r = juce::Rectangle<int> (dragStart, dragCurrent);
@@ -718,6 +776,13 @@ void StepSequencer::mouseMove (const juce::MouseEvent& e)
     const auto t = tool();
     if (t == Tool::zoomer) { setMouseCursor (juce::MouseCursor::CrosshairCursor); return; }
     if (velocityBounds().contains (e.getPosition())) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); return; }
+    if (const auto hit = hitAt (e.getPosition()); hit.step >= 0 && hit.clip == clipIndex && t != Tool::selector)
+    {
+        const auto r = hitRect (clipIndex, hit.pad, hit.step, hit.repeat);
+        const bool nearEnd = (r.getRight() - (float) e.x) < (float) edgeGrab && r.getWidth() > 2.0f * (float) edgeGrab;
+        setMouseCursor (t == Tool::trimmer || nearEnd ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::DraggingHandCursor);
+        return;
+    }
     setMouseCursor (t == Tool::selector ? juce::MouseCursor::IBeamCursor : t == Tool::grabber ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor);
 }
 

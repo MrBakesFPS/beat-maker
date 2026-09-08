@@ -379,7 +379,11 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
             {
                 const auto v = rp.pattern->velocity[(size_t) pad][(size_t) step];
                 if (v > 0)
-                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay, rp.strip);
+                {
+                    const int held = rp.pattern->getLength (pad, step);   // a hit stretched over steps is gated at its end
+                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay, rp.strip,
+                                   held > 1 ? (int) std::llround (held * stepDur) : 0);
+                }
             }
         }
     }

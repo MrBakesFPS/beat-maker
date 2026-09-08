@@ -186,6 +186,58 @@ TEST_CASE ("Re-triggering a pad chokes the previous voice")
     CHECK (dm.getNumActiveVoices() == 1);
 }
 
+TEST_CASE ("A held step gates the voice at its end; a one-step hit rings out")
+{
+    auto kit = makeTestKit();
+    DrumMachine dm;
+    juce::AudioBuffer<float> out (1, 600); out.clear();
+    float* ptr = out.getWritePointer (0);
+    dm.trigger (kit.get(), 1, 1.0f, 1.0f, 0, 0, 200);   // the 1000-sample DC pad, gated after 200 samples
+    dm.render (&ptr, 1, 600);
+    CHECK_THAT (out.getSample (0, 100), WithinAbs (1.0, 1e-6));
+    CHECK_THAT (out.getSample (0, 199), WithinAbs (1.0, 1e-6));
+    CHECK (out.getSample (0, 201) < 1.0f);                                             // fading (the fade starts at full scale)
+    CHECK_THAT (out.getSample (0, 200 + DrumMachine::retriggerFadeSamples + 1), WithinAbs (0.0, 1e-6));
+    CHECK (dm.getNumActiveVoices() == 0);
+    out.clear();
+    dm.trigger (kit.get(), 1, 1.0f, 1.0f, 0, 0, 0);     // no gate: still sounding after 600 samples
+    dm.render (&ptr, 1, 600);
+    CHECK_THAT (out.getSample (0, 599), WithinAbs (1.0, 1e-6));
+    CHECK (dm.getNumActiveVoices() == 1);
+
+    // Through the graph: the pad-1 hit at step 0 is held for two sixteenths (12000 samples at 120 BPM) and gated
+    // there; the one at step 8 rings for the sample's full 1000 samples
+    Renderer r;
+    r.transport.setSampleRate (48000.0);
+    r.transport.setBpm (120.0);
+    auto pattern = std::make_shared<StepPattern>();
+    pattern->numSteps = 16; pattern->stepsPerBeat = 4;
+    pattern->set (1, 0, 127); pattern->setLength (1, 0, 2);
+    pattern->set (1, 8, 127);
+    auto snap = std::make_unique<RenderSnapshot>();
+    snap->patterns.push_back (RenderPattern { pattern, kit, 0, 96000, 1.0f });
+    r.graph.setSnapshot (std::move (snap));
+    r.transport.play();
+    r.renderAll (60000, 512);
+    CHECK_THAT (r.out.getSample (0, 500), WithinAbs (1.0, 1e-6));
+    CHECK_THAT (r.out.getSample (0, 48000 + 999), WithinAbs (1.0, 1e-6));   // step 8: the whole sample
+    CHECK_THAT (r.out.getSample (0, 48000 + 1000), WithinAbs (0.0, 1e-6));
+
+    // A held step longer than the sample changes nothing: the sample simply ends
+    Renderer r2;
+    r2.transport.setSampleRate (48000.0);
+    r2.transport.setBpm (120.0);
+    auto pattern2 = std::make_shared<StepPattern>();
+    pattern2->numSteps = 16; pattern2->stepsPerBeat = 4;
+    pattern2->set (1, 0, 127); pattern2->setLength (1, 0, 4);       // 24000 samples, sample is 1000
+    auto snap2 = std::make_unique<RenderSnapshot>();
+    snap2->patterns.push_back (RenderPattern { pattern2, kit, 0, 96000, 1.0f });
+    r2.graph.setSnapshot (std::move (snap2));
+    r2.transport.play();
+    r2.renderAll (30000, 512);
+    CHECK (r2.nonZeroIndices().size() == 1000);
+}
+
 TEST_CASE ("Delayed trigger starts mid-block and voices finish")
 {
     DrumMachine dm;

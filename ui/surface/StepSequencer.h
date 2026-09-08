@@ -69,7 +69,7 @@ public:
     juce::String describeSelection() const override;
     juce::String keyHint() const override
     {
-        return "DRUMS: click toggles (Shift soft), drag paints   Selector: band   Up/Down other pad   Ctrl+Up/Down velocity   Left/Right nudge   Ctrl+D duplicate   Del clear";
+        return "DRUMS: click toggles (Shift soft), drag empty paints, drag a hit moves it, its right edge holds it (a gate)   Selector: band   Up/Down other pad   Ctrl+Up/Down velocity   Left/Right nudge   Ctrl+D duplicate   Del clear";
     }
 
     void paint (juce::Graphics&) override;
@@ -96,7 +96,9 @@ private:
     static constexpr std::uint8_t fullVelocity = 100;
     static constexpr std::uint8_t softVelocity = 55;
 
-    enum class Drag { none, paint, band, move, velocity, zoomBand };
+    static constexpr int edgeGrab       = 6;
+
+    enum class Drag { none, paint, band, pendingMove, move, resize, velocity, zoomBand };
     struct Cell { int pad = -1, step = -1, repeat = 0, clip = -1; };   // a drawn cell: clip, pattern step and loop repeat
 
     void timerCallback() override;
@@ -142,6 +144,8 @@ private:
     Cell cellAt (juce::Point<int>) const;                    // step within the clip, even where no hit
     juce::Rectangle<float> cellRect (int ci, int pad, int step, int repeat) const;
     juce::Rectangle<float> cellRect (int pad, int step, int repeat) const { return cellRect (clipIndex, pad, step, repeat); }
+    juce::Rectangle<float> hitRect (int ci, int pad, int step, int repeat) const;   // the hit's held span, cut at the clip's end
+    Cell hitAt (juce::Point<int>) const;                     // the start cell of the hit whose span covers the point (step -1 when silent)
     int stepAtTimelineBeat (double beat, int& repeat) const;
     int insertionStep() const;
 
@@ -173,6 +177,7 @@ private:
     engine::StepPattern dragBase;
     model::StepEdits::Cells dragCells;
     Cell dragAnchor;
+    int dragAnchorLength = 1;
     bool dragChanged = false;
     std::uint8_t paintValue = 0;
     int lastPaintPad = -1, lastPaintStep = -1;

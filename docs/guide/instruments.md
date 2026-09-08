@@ -8,8 +8,9 @@ A Drum Machine track has a synthesised 16-pad kit and a one-bar pattern clip wit
 
 The step sequencer in the editor panel works like the [note editor](#note-editor): it is drawn on the session timeline, follows the tracks' view while **Link** is on (the same time and zoom as the clips; scrolling or zooming either view moves both), shows every repeat of a looping pattern with the later ones as ghosts, and **Unroll** (or the first edit inside a repeat) writes the loop out so each bar of the clip is its own. The header reads out the selection.
 
-- **Steps**: click to toggle, Shift-click for a soft hit, drag to paint (one undo step per stroke), right-click to clear. Painting past the clip's end extends the clip to the next bar.
-- **Tools**: the Selector rubber-bands hits, the Grabber drags them to other steps and pads, the Zoomer zooms; the Smart Tool and Pencil toggle and paint. Ctrl-click adds a hit to the selection, Ctrl+A selects all, Escape clears.
+- **Steps**: click an empty step to switch it on (Shift for a soft hit), drag across empty steps to paint (one undo step per stroke), click a hit to switch it off, right-click to clear. Painting past the clip's end extends the clip to the next bar.
+- **Moving and holding**: drag a hit to another step or pad (the whole selection comes along, like notes in the note editor). Drag a hit's right edge to hold it over more steps: a held hit is cut off at its end, a gate, which is how you shorten an open hat or a long sample; a one-step hit rings out as before. A hold stops at the next hit on the pad. Held hits keep their length when moved, copied, duplicated or unrolled, and are saved with the session.
+- **Tools**: the Selector rubber-bands hits, the Grabber drags them (a click only selects), the Trimmer holds them, the Zoomer zooms; the Smart Tool and Pencil do all of it by where you grab. Ctrl-click adds a hit to the selection, Ctrl+A selects all, Escape clears.
 - **Velocity lane** along the bottom shows the hits of the pad you last clicked; drag a bar to set its velocity (the whole selection follows when the bar is selected).
 - **Keys**, with the drum editor focused: Up/Down move the selected hits to the pad above or below, Ctrl+Up/Down velocity by 10 (Ctrl+Shift by 1), Left/Right or , . nudge by a step, Delete clears, Ctrl+C/X/V copy, cut and paste at the insertion (the playhead when it is inside the clip), Ctrl+D duplicates after the selection, Alt+Z fits the clip.
 - Click a pad name to audition it; drop an audio file on a pad row to replace its sample.
@@ -41,7 +42,7 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 
 The piano roll in the editor panel is drawn on the session timeline. With **Link** on (the default) it follows the tracks' view: the same ruler start and zoom, and scrolling or zooming in either view moves both. The editor always spans the whole panel, keyboard at the left, linked or not. Link off gives the note editor a view of its own (Ctrl+wheel zooms, Shift+wheel scrolls, Alt+Z fits the clip).
 
-A looping clip (the default two-bar arpeggio in a four-bar clip, say) shows every repeat of its sequence; the repeats after the first are drawn as ghosts with a loop line between them. Editing a ghost note, or pressing **Unroll**, writes the loop out so that each bar of the clip is its own notes; a note added past the clip's end extends the clip. The header reads out the selection and the loop length.
+A looping clip (the default two-bar arpeggio in a four-bar clip, say) shows every repeat of its sequence; the repeats after the first are drawn as ghosts with a loop line between them. Editing a ghost note, or pressing **Unroll**, writes the loop out so that each bar of the clip is its own notes; a note added past the clip's end extends the clip. The header reads out the selection and the loop length. A note dragged onto another note of the same pitch and start does not replace it: both stay (the stack is drawn with a second, inset outline), and dragging one of them away takes only that note.
 
 The editor shares the edit window's settings, so the toolbar means the same thing in both places:
 

@@ -27,7 +27,7 @@ public:
     // Notes overlapping the beat range [b0, b1) and the pitch range [p0, p1] (either order).
     static Indices inRegion (const Seq&, double b0, double b1, int p0, int p1);
     static std::vector<NoteKey> keysOf (const Seq&, const Indices&);
-    static Indices resolve (const Seq&, const std::vector<NoteKey>&);
+    static Indices resolve (const Seq&, const std::vector<NoteKey>&);   // one note per key (stacked notes stay apart)
 
     static Seq quantize (const Seq&, const Indices&, double gridBeats, float strength = 1.0f, bool alsoLengths = false);
     static Seq transpose (const Seq&, const Indices&, int semitones);

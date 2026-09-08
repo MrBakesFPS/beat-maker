@@ -85,3 +85,17 @@ TEST_CASE ("NoteEdits: remove, copy, paste, duplicate, legato")
     CHECK_THAT (l.notes[3].lengthBeats, WithinAbs (3.7, 1e-9));   // last note runs to the end
     CHECK_THAT (NoteEdits::snap (1.1, 0.25), WithinAbs (1.0, 1e-9));
 }
+
+TEST_CASE ("NoteEdits: a key resolves to one note, so notes stacked on the same pitch and beat stay separate")
+{
+    engine::MidiSequence s; s.lengthBeats = 4.0;
+    s.notes = { { 60, 100, 0.0, 1.0 }, { 60, 90, 0.0, 0.5 }, { 64, 100, 2.0, 1.0 } };   // two notes at C4 beat 0
+    CHECK (NoteEdits::resolve (s, { { 60, 0.0 } }) == std::vector<int> { 0 });            // one key: one note
+    CHECK (NoteEdits::resolve (s, { { 60, 0.0 }, { 60, 0.0 } }) == std::vector<int> { 0, 1 });   // two keys: both
+    CHECK (NoteEdits::resolve (s, { { 60, 0.0 }, { 64, 2.0 } }) == std::vector<int> { 0, 2 });
+    // Moving the one resolved note away leaves the other where it was
+    const auto moved = NoteEdits::nudge (s, NoteEdits::resolve (s, { { 60, 0.0 } }), 1.0);
+    int atZero = 0, atOne = 0;
+    for (const auto& n : moved.notes) { if (n.pitch == 60 && n.startBeat == 0.0) ++atZero; if (n.pitch == 60 && n.startBeat == 1.0) ++atOne; }
+    CHECK (atZero == 1); CHECK (atOne == 1);
+}

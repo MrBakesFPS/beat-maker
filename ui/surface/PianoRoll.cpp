@@ -578,6 +578,10 @@ void PianoRoll::paint (juce::Graphics& g)
             g.fillRoundedRectangle (r, 2.5f);
             g.setColour (active && i == hoverNote ? theme::text : sel ? theme::text.withAlpha (0.7f) : track->colour.brighter (0.4f).withAlpha (ghost ? 0.4f : active ? 1.0f : 0.6f));
             g.drawRoundedRectangle (r, 2.5f, 1.0f);
+            // Notes stacked on the same pitch and beat (sorted, so neighbours) get a second, inset outline so the stack shows
+            const bool stacked = (i > 0 && model::NoteKey { n.pitch, n.startBeat }.matches (cseq->notes[(size_t) i - 1]))
+                              || (i + 1 < (int) cseq->notes.size() && model::NoteKey { n.pitch, n.startBeat }.matches (cseq->notes[(size_t) i + 1]));
+            if (stacked && r.getWidth() > 6.0f && r.getHeight() > 6.0f) g.drawRoundedRectangle (r.reduced (2.5f), 1.5f, 1.0f);
             if (r.getWidth() > 28.0f && rowHeight >= 12 && ! ghost)
             {
                 g.setColour (sel ? theme::background : theme::text.withAlpha (0.8f));

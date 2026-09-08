@@ -167,6 +167,19 @@ namespace
                 push (rows, row);
             }
             set (p, "rows", rows);
+            bool anyHeld = false;
+            for (int pad = 0; pad < engine::StepPattern::maxPads && ! anyHeld; ++pad) for (int s = 0; s < c.pattern->numSteps; ++s) if (c.pattern->get (pad, s) > 0 && c.pattern->getLength (pad, s) > 1) { anyHeld = true; break; }
+            if (anyHeld)   // held hits (a gate over several steps), same hex rows as the velocities
+            {
+                auto lengths = arr();
+                for (int pad = 0; pad < engine::StepPattern::maxPads; ++pad)
+                {
+                    juce::String row;
+                    for (int s = 0; s < c.pattern->numSteps; ++s) row += juce::String::toHexString (c.pattern->get (pad, s) > 0 ? c.pattern->getLength (pad, s) : 0).paddedLeft ('0', 2);
+                    push (lengths, row);
+                }
+                set (p, "lengths", lengths);
+            }
             set (o, "pattern", p);
         }
         return o;
@@ -187,6 +200,13 @@ namespace
             const auto row = rows[pad].toString();
             for (int s = 0; s < pattern->numSteps && s * 2 + 1 < row.length(); ++s)
                 pattern->velocity[(size_t) pad][(size_t) s] = (std::uint8_t) row.substring (s * 2, s * 2 + 2).getHexValue32();
+        }
+        const auto lengths = get (p, "lengths");
+        for (int pad = 0; pad < juce::jmin (engine::StepPattern::maxPads, count (lengths)); ++pad)
+        {
+            const auto row = lengths[pad].toString();
+            for (int s = 0; s < pattern->numSteps && s * 2 + 1 < row.length(); ++s)
+                if (pattern->get (pad, s) > 0) pattern->setLength (pad, s, row.substring (s * 2, s * 2 + 2).getHexValue32());
         }
         c.pattern = pattern;
         return c;

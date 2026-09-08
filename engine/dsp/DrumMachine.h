@@ -18,7 +18,8 @@ public:
 
     // Start `pad` of `kit` after `delaySamples` within the next render call.
     // Re-triggering a pad that is still sounding fades the old voice out.
-    void trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip = 0) noexcept;
+    // gateSamples > 0 fades the voice out after that many played samples (a held step); 0 lets it ring out.
+    void trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip = 0, int gateSamples = 0) noexcept;
 
     // Mix active voices into the outputs (additive). strip < 0 renders every
     // voice; otherwise only voices belonging to that channel strip.

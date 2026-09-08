@@ -3,7 +3,7 @@
 namespace beatmaker::engine
 {
 
-void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip) noexcept
+void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip, int gateSamples) noexcept
 {
     if (kit == nullptr || ! juce::isPositiveAndBelow (pad, DrumKit::numPads))
         return;
@@ -36,6 +36,7 @@ void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float ga
     target->delay  = juce::jmax (0, delaySamples);
     target->gain   = velocity * sample.gain * gain;
     target->strip  = strip;
+    if (gateSamples > 0) target->fadePending = gateSamples;   // the gate ends the way a choke does: a short fade
     target->active = true;
 }
 

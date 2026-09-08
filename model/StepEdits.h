@@ -11,7 +11,7 @@ namespace beatmaker::model
 {
 
 struct StepCell { int pad = 0, step = 0; bool operator== (const StepCell& o) const noexcept { return pad == o.pad && step == o.step; } };
-struct StepHit { int pad = 0, step = 0; std::uint8_t velocity = 0; };
+struct StepHit { int pad = 0, step = 0; std::uint8_t velocity = 0; int length = 1; };
 
 class StepEdits
 {
@@ -26,6 +26,12 @@ public:
     static Pattern clear (const Pattern&, const Cells&);
     static Pattern setVelocity (const Pattern&, const Cells&, int velocity);
     static Pattern changeVelocity (const Pattern&, const Cells&, int delta);
+    // Holds each hit for `steps` (1 = a one-shot), capped at the pattern's end and at the next hit on the pad.
+    static Pattern setLength (const Pattern&, const Cells&, int steps);
+    static Pattern stretch (const Pattern&, const Cells&, int deltaSteps);       // each hit's length + delta, capped the same way
+    static int maxLength (const Pattern&, StepCell) noexcept;                     // room before the next hit on the pad (or the end)
+    // The hit whose span covers (pad, step): its start cell, or step -1 when the step is silent.
+    static StepCell hitCovering (const Pattern&, int pad, int step) noexcept;
     // Moves the cells by steps and pads (clamped so the group stays inside); returns the moved cells.
     static Pattern shift (const Pattern&, const Cells&, int stepDelta, int padDelta, Cells* moved = nullptr);
     static std::vector<StepHit> copy (const Pattern&, const Cells&);             // steps relative to the earliest

@@ -1267,8 +1267,11 @@ void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, 
 
             for (int pad = 0; pad < engine::DrumKit::numPads; ++pad)
                 if (pattern.get (pad, step) > 0)
+                {
+                    const int held = juce::jmin (pattern.getLength (pad, step), pattern.numSteps - step, shownSteps - k);   // a held hit spans its steps
                     g.fillRect (x + 0.5f, dotArea.getY() + pad * rowHeight + 0.5f,
-                                juce::jmax (1.0f, stepWidth - 1.0f), juce::jmax (1.0f, rowHeight - 1.0f));
+                                juce::jmax (1.0f, held * stepWidth - 1.0f), juce::jmax (1.0f, rowHeight - 1.0f));
+                }
         }
     }
 
