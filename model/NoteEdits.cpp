@@ -22,7 +22,7 @@ NoteEdits::Indices NoteEdits::inRegion (const Seq& s, double b0, double b1, int 
 std::vector<NoteKey> NoteEdits::keysOf (const Seq& s, const Indices& idx)
 {
     std::vector<NoteKey> k;
-    for (int i : idx) if (juce::isPositiveAndBelow (i, (int) s.notes.size())) k.push_back ({ s.notes[(size_t) i].pitch, s.notes[(size_t) i].startBeat });
+    for (int i : idx) if (juce::isPositiveAndBelow (i, (int) s.notes.size())) k.push_back (NoteKey::of (s.notes[(size_t) i]));
     return k;
 }
 
@@ -40,6 +40,12 @@ NoteEdits::Indices NoteEdits::resolve (const Seq& s, const std::vector<NoteKey>&
 }
 
 static bool has (const NoteEdits::Indices& idx, int i) { return std::find (idx.begin(), idx.end(), i) != idx.end(); }
+static void collectKeys (const engine::MidiSequence& out, const NoteEdits::Indices& idx, std::vector<NoteKey>* keys)
+{
+    if (keys == nullptr) return;
+    keys->clear();
+    for (int i : idx) if (juce::isPositiveAndBelow (i, (int) out.notes.size())) keys->push_back (NoteKey::of (out.notes[(size_t) i]));
+}
 static void clampNote (engine::NoteEvent& n, double length)
 {
     n.startBeat = juce::jlimit (0.0, juce::jmax (0.0, length - 1.0e-6), n.startBeat);
@@ -48,7 +54,7 @@ static void clampNote (engine::NoteEvent& n, double length)
     n.velocity = juce::jlimit (1, 127, n.velocity);
 }
 
-NoteEdits::Seq NoteEdits::quantize (const Seq& s, const Indices& idx, double grid, float strength, bool alsoLengths)
+NoteEdits::Seq NoteEdits::quantize (const Seq& s, const Indices& idx, double grid, float strength, bool alsoLengths, Keys* keys)
 {
     Seq out = s;
     if (grid <= 0.0) return out;
@@ -60,19 +66,21 @@ NoteEdits::Seq NoteEdits::quantize (const Seq& s, const Indices& idx, double gri
         if (alsoLengths) n.lengthBeats = juce::jmax (grid, snap (n.lengthBeats, grid));
         clampNote (n, out.lengthBeats);
     }
+    collectKeys (out, idx, keys);
     out.sortNotes();
     return out;
 }
 
-NoteEdits::Seq NoteEdits::transpose (const Seq& s, const Indices& idx, int semis)
+NoteEdits::Seq NoteEdits::transpose (const Seq& s, const Indices& idx, int semis, Keys* keys)
 {
     Seq out = s;
     for (int i : idx) if (juce::isPositiveAndBelow (i, (int) out.notes.size())) { out.notes[(size_t) i].pitch += semis; clampNote (out.notes[(size_t) i], out.lengthBeats); }
+    collectKeys (out, idx, keys);
     out.sortNotes();
     return out;
 }
 
-NoteEdits::Seq NoteEdits::nudge (const Seq& s, const Indices& idx, double beats)
+NoteEdits::Seq NoteEdits::nudge (const Seq& s, const Indices& idx, double beats, Keys* keys)
 {
     Seq out = s;
     // Keep the group together: clamp the delta so no note leaves the sequence.
@@ -84,28 +92,32 @@ NoteEdits::Seq NoteEdits::nudge (const Seq& s, const Indices& idx, double beats)
             delta = juce::jlimit (-n.startBeat, juce::jmax (0.0, out.lengthBeats - n.getEndBeat()), delta);
         }
     for (int i : idx) if (juce::isPositiveAndBelow (i, (int) out.notes.size())) { out.notes[(size_t) i].startBeat += delta; clampNote (out.notes[(size_t) i], out.lengthBeats); }
+    collectKeys (out, idx, keys);
     out.sortNotes();
     return out;
 }
 
-NoteEdits::Seq NoteEdits::changeVelocity (const Seq& s, const Indices& idx, int delta)
+NoteEdits::Seq NoteEdits::changeVelocity (const Seq& s, const Indices& idx, int delta, Keys* keys)
 {
     Seq out = s;
     for (int i : idx) if (juce::isPositiveAndBelow (i, (int) out.notes.size())) out.notes[(size_t) i].velocity = juce::jlimit (1, 127, out.notes[(size_t) i].velocity + delta);
+    collectKeys (out, idx, keys);
     return out;
 }
 
-NoteEdits::Seq NoteEdits::setVelocity (const Seq& s, const Indices& idx, int velocity)
+NoteEdits::Seq NoteEdits::setVelocity (const Seq& s, const Indices& idx, int velocity, Keys* keys)
 {
     Seq out = s;
     for (int i : idx) if (juce::isPositiveAndBelow (i, (int) out.notes.size())) out.notes[(size_t) i].velocity = juce::jlimit (1, 127, velocity);
+    collectKeys (out, idx, keys);
     return out;
 }
 
-NoteEdits::Seq NoteEdits::setLength (const Seq& s, const Indices& idx, double beats)
+NoteEdits::Seq NoteEdits::setLength (const Seq& s, const Indices& idx, double beats, Keys* keys)
 {
     Seq out = s;
     for (int i : idx) if (juce::isPositiveAndBelow (i, (int) out.notes.size())) { out.notes[(size_t) i].lengthBeats = beats; clampNote (out.notes[(size_t) i], out.lengthBeats); }
+    collectKeys (out, idx, keys);
     return out;
 }
 
@@ -137,7 +149,7 @@ NoteEdits::Seq NoteEdits::paste (const Seq& s, const std::vector<engine::NoteEve
         if (n.startBeat >= out.lengthBeats) continue;
         clampNote (n, out.lengthBeats);
         out.notes.push_back (n);
-        if (newKeys) newKeys->push_back ({ n.pitch, n.startBeat });
+        if (newKeys) newKeys->push_back (NoteKey::of (n));
     }
     out.sortNotes();
     return out;
@@ -152,7 +164,7 @@ NoteEdits::Seq NoteEdits::duplicate (const Seq& s, const Indices& idx, std::vect
     return paste (s, notes, first + (end - first), newKeys);
 }
 
-NoteEdits::Seq NoteEdits::legato (const Seq& s, const Indices& idx)
+NoteEdits::Seq NoteEdits::legato (const Seq& s, const Indices& idx, Keys* keys)
 {
     Seq out = s;
     out.sortNotes();
@@ -164,6 +176,7 @@ NoteEdits::Seq NoteEdits::legato (const Seq& s, const Indices& idx)
         for (const auto& o : out.notes) if (o.startBeat > n.startBeat + 1.0e-6 && o.startBeat < next) next = o.startBeat;
         n.lengthBeats = juce::jmax (1.0 / 64.0, next - n.startBeat);
     }
+    collectKeys (out, idx, keys);
     return out;
 }
 

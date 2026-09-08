@@ -104,3 +104,33 @@ TEST_CASE ("StepEdits: held hits (lengths) stretch up to the next hit, and move,
     CHECK (StepEdits::resize (held, 4).getLength (0, 0) == 4);
     CHECK (StepEdits::resize (held, 32).getLength (0, 0) == 6);
 }
+
+TEST_CASE ("StepEdits: a hit moved onto another swaps places with it, so nothing is lost")
+{
+    auto p = makePattern();   // pad 0 hits at 0 (110) and 8 (100); pad 1 at 4 and 12; pad 4 at 2 and 6
+    StepEdits::Cells moved;
+    const auto onto = StepEdits::shift (p, { { 0, 0 } }, 8, 0, &moved);
+    CHECK (onto.get (0, 8) == 110); CHECK (onto.get (0, 0) == 100);   // swapped
+    CHECK (moved == std::vector<StepCell> { { 0, 8 } });
+    CHECK (StepEdits::all (onto).size() == 6);
+    // Moving to another pad displaces the hit there back to the vacated cell
+    const auto toPad = StepEdits::shift (p, { { 0, 8 } }, 4, 1, &moved);   // (0,8) -> (1,12), which holds a 90
+    CHECK (toPad.get (1, 12) == 100); CHECK (toPad.get (0, 8) == 90);
+    // A run shuffles: hits at 0, 1, 2 on pad 2; moving {0, 1} right by one puts the hit from 2 at 0
+    engine::StepPattern run; run.numSteps = 16; run.stepsPerBeat = 4;
+    run.set (2, 0, 110); run.set (2, 1, 105); run.set (2, 2, 70);
+    const auto shuffled = StepEdits::shift (run, { { 2, 0 }, { 2, 1 } }, 1, 0, &moved);
+    CHECK (shuffled.get (2, 0) == 70); CHECK (shuffled.get (2, 1) == 110); CHECK (shuffled.get (2, 2) == 105);
+    CHECK (moved == std::vector<StepCell> { { 2, 1 }, { 2, 2 } });
+    // Held hits are cut where they would run into the hit that moved in front of them
+    auto held = StepEdits::setLength (p, { { 0, 0 } }, 6);
+    const auto inFront = StepEdits::shift (held, { { 1, 4 } }, -1, -1, &moved);   // (1,4) -> (0,3)
+    CHECK (inFront.get (0, 3) == 90); CHECK (inFront.getLength (0, 0) == 3);
+    // Arrow-key style: one step at a time down a column passes over a hit and leaves it behind
+    auto walk = run;
+    StepEdits::Cells sel { { 2, 0 } };
+    walk = StepEdits::shift (walk, sel, 1, 0, &sel);   // onto step 1: swap
+    walk = StepEdits::shift (walk, sel, 1, 0, &sel);   // onto step 2: swap
+    CHECK (sel == std::vector<StepCell> { { 2, 2 } });
+    CHECK (walk.get (2, 2) == 110); CHECK (walk.get (2, 0) == 105); CHECK (walk.get (2, 1) == 70);
+}

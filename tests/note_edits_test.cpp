@@ -99,3 +99,31 @@ TEST_CASE ("NoteEdits: a key resolves to one note, so notes stacked on the same 
     for (const auto& n : moved.notes) { if (n.pitch == 60 && n.startBeat == 0.0) ++atZero; if (n.pitch == 60 && n.startBeat == 1.0) ++atOne; }
     CHECK (atZero == 1); CHECK (atOne == 1);
 }
+
+TEST_CASE ("NoteEdits: an edit hands back keys that follow the edited notes past neighbours at the same beat")
+{
+    engine::MidiSequence s; s.lengthBeats = 4.0;
+    s.notes = { { 60, 100, 0.0, 1.0 }, { 62, 90, 0.0, 0.5 }, { 64, 80, 2.0, 1.0 } };   // C4 and D4 both at beat 0
+    // Transpose D4 (index 1) down one: it lands on C4's row and beat, but the key still names the moved note
+    NoteEdits::Keys keys;
+    auto down = NoteEdits::transpose (s, { 1 }, -2, &keys);
+    REQUIRE (keys.size() == 1);
+    const auto idx = NoteEdits::resolve (down, keys);
+    REQUIRE (idx.size() == 1);
+    CHECK (down.notes[(size_t) idx[0]].velocity == 90);            // the note that moved, not the one it landed on
+    CHECK_THAT (down.notes[(size_t) idx[0]].lengthBeats, WithinAbs (0.5, 1e-9));
+    // And once more: it passes on down, the other stays
+    auto again = NoteEdits::transpose (down, idx, -2, &keys);
+    const auto idx2 = NoteEdits::resolve (again, keys);
+    REQUIRE (idx2.size() == 1);
+    CHECK (again.notes[(size_t) idx2[0]].pitch == 58);
+    int c4 = 0; for (const auto& n : again.notes) if (n.pitch == 60 && n.velocity == 100) ++c4;
+    CHECK (c4 == 1);
+    // Velocity edits change the key too, and the returned keys carry the new value
+    auto louder = NoteEdits::changeVelocity (s, { 0 }, 10, &keys);
+    CHECK (keys[0].velocity == 110);
+    CHECK (NoteEdits::resolve (louder, keys) == std::vector<int> { 0 });
+    CHECK (NoteEdits::resolve (louder, NoteEdits::keysOf (s, { 0 })).empty());   // the old key no longer matches
+    // Length and velocity are wildcards when unset, so a bare (pitch, beat) key still finds a note
+    CHECK (NoteEdits::resolve (s, { { 64, 2.0 } }) == std::vector<int> { 2 });
+}

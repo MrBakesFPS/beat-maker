@@ -344,7 +344,7 @@ void PianoRoll::select (const std::vector<int>& indices, bool add)
     auto* seq = getSequence();
     if (seq == nullptr) return;
     if (! add) selection.clear();
-    for (int i : indices) if (! isSelected (i)) selection.push_back ({ seq->notes[(size_t) i].pitch, seq->notes[(size_t) i].startBeat });
+    for (int i : indices) if (! isSelected (i)) selection.push_back (model::NoteKey::of (seq->notes[(size_t) i]));
     repaint();
 }
 
@@ -355,7 +355,7 @@ void PianoRoll::toggle (int index)
     const auto& n = seq->notes[(size_t) index];
     for (size_t k = 0; k < selection.size(); ++k)
         if (selection[k].matches (n)) { selection.erase (selection.begin() + (long) k); repaint(); return; }
-    selection.push_back ({ n.pitch, n.startBeat });
+    selection.push_back (model::NoteKey::of (n));
     repaint();
 }
 
@@ -579,8 +579,8 @@ void PianoRoll::paint (juce::Graphics& g)
             g.setColour (active && i == hoverNote ? theme::text : sel ? theme::text.withAlpha (0.7f) : track->colour.brighter (0.4f).withAlpha (ghost ? 0.4f : active ? 1.0f : 0.6f));
             g.drawRoundedRectangle (r, 2.5f, 1.0f);
             // Notes stacked on the same pitch and beat (sorted, so neighbours) get a second, inset outline so the stack shows
-            const bool stacked = (i > 0 && model::NoteKey { n.pitch, n.startBeat }.matches (cseq->notes[(size_t) i - 1]))
-                              || (i + 1 < (int) cseq->notes.size() && model::NoteKey { n.pitch, n.startBeat }.matches (cseq->notes[(size_t) i + 1]));
+            auto samePlace = [&n] (const engine::NoteEvent& o) { return o.pitch == n.pitch && engine::NoteEvent::sameBeat (o.startBeat, n.startBeat); };
+            const bool stacked = (i > 0 && samePlace (cseq->notes[(size_t) i - 1])) || (i + 1 < (int) cseq->notes.size() && samePlace (cseq->notes[(size_t) i + 1]));
             if (stacked && r.getWidth() > 6.0f && r.getHeight() > 6.0f) g.drawRoundedRectangle (r.reduced (2.5f), 1.5f, 1.0f);
             if (r.getWidth() > 28.0f && rowHeight >= 12 && ! ghost)
             {
@@ -773,7 +773,7 @@ void PianoRoll::addNoteAt (int pitch, double timelineBeat, bool soft, bool start
     auto updated = *seq;
     updated.notes.push_back (n);
     audition (pitch, (float) n.velocity / 127.0f);
-    selection = { { n.pitch, n.startBeat } };
+    selection = { model::NoteKey::of (n) };
     commit (std::move (updated), "Add Note");
     if (startResize)
     {
@@ -796,7 +796,7 @@ void PianoRoll::spotNote (int index)
     w->addTextEditor ("length", juce::String (n.lengthBeats, 3), "Length (beats)");
     w->addButton ("Spot", 1, juce::KeyPress (juce::KeyPress::returnKey));
     w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-    const model::NoteKey key { n.pitch, n.startBeat };
+    const auto key = model::NoteKey::of (n);
     w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w, key] (int result)
     {
         if (result != 1) return;
@@ -820,7 +820,7 @@ void PianoRoll::spotNote (int index)
         const double len = w->getTextEditorContents ("length").getDoubleValue();
         if (len > 0.0) note.lengthBeats = len;
         note.lengthBeats = juce::jlimit (1.0 / 64.0, updated.lengthBeats - note.startBeat, note.lengthBeats);
-        selection = { { note.pitch, note.startBeat } };
+        selection = { model::NoteKey::of (note) };
         apply (std::move (updated), "Spot Note");
     }), true);
 }
@@ -865,21 +865,18 @@ void PianoRoll::quantizeSelection (bool lengthsToo)
     auto* seq = getSequence(); auto idx = selectedIndices();
     if (seq == nullptr) return;
     if (idx.empty()) idx = NoteEdits::all (*seq);
-    auto updated = NoteEdits::quantize (*seq, idx, gridBeats(), 1.0f, lengthsToo);
-    const auto keys = NoteEdits::keysOf (updated, NoteEdits::all (updated));   // re-resolve by the quantized positions
     std::vector<model::NoteKey> keep;
-    for (int i : idx) { auto n = seq->notes[(size_t) i]; n.startBeat = NoteEdits::snap (n.startBeat, gridBeats()); keep.push_back ({ n.pitch, juce::jlimit (0.0, updated.lengthBeats, n.startBeat) }); }
+    auto updated = NoteEdits::quantize (*seq, idx, gridBeats(), 1.0f, lengthsToo, &keep);
     apply (std::move (updated), lengthsToo ? "Quantize Notes and Lengths" : "Quantize Notes", &keep);
     status ("Quantized " + juce::String (idx.size()) + " note(s) to " + juce::String (gridBeats(), 2) + " beats");
-    juce::ignoreUnused (keys);
 }
 void PianoRoll::transposeSelection (int semis)
 {
     auto* seq = getSequence(); const auto idx = selectedIndices();
     if (seq == nullptr || idx.empty()) return;
-    std::vector<model::NoteKey> keep;
-    for (int i : idx) keep.push_back ({ juce::jlimit (0, 127, seq->notes[(size_t) i].pitch + semis), seq->notes[(size_t) i].startBeat });
-    apply (NoteEdits::transpose (*seq, idx, semis), "Transpose Notes", &keep);
+    std::vector<model::NoteKey> keep;   // the same notes, followed through the edit (not whatever sits at the new position)
+    auto updated = NoteEdits::transpose (*seq, idx, semis, &keep);
+    apply (std::move (updated), "Transpose Notes", &keep);
     if (idx.size() == 1) audition (keep[0].pitch, (float) seq->notes[(size_t) idx[0]].velocity / 127.0f);
     if (keep[0].pitch < lowestPitch || keep[0].pitch >= lowestPitch + visibleRows()) scrollToPitch (keep[0].pitch - visibleRows() / 2);
 }
@@ -887,30 +884,26 @@ void PianoRoll::nudgeBeats (double beats)
 {
     auto* seq = getSequence(); const auto idx = selectedIndices();
     if (seq == nullptr || idx.empty()) return;
-    auto updated = NoteEdits::nudge (*seq, idx, beats);
-    // The group moved by one clamped delta: find it from the first note.
-    const double delta = updated.notes.empty() ? 0.0 : [&]
-    {
-        const auto& before = seq->notes[(size_t) idx[0]];
-        for (const auto& n : updated.notes) if (n.pitch == before.pitch && ! engine::NoteEvent::sameBeat (n.startBeat, before.startBeat) && std::abs ((n.startBeat - before.startBeat) - beats) < 1.0e-6 + std::abs (beats)) return n.startBeat - before.startBeat;
-        return 0.0;
-    }();
     std::vector<model::NoteKey> keep;
-    for (int i : idx) keep.push_back ({ seq->notes[(size_t) i].pitch, seq->notes[(size_t) i].startBeat + delta });
+    auto updated = NoteEdits::nudge (*seq, idx, beats, &keep);
     apply (std::move (updated), "Nudge Notes", &keep);
 }
 void PianoRoll::changeVelocity (int delta)
 {
     auto* seq = getSequence(); const auto idx = selectedIndices();
     if (seq == nullptr || idx.empty()) return;
-    apply (NoteEdits::changeVelocity (*seq, idx, delta), "Change Velocity");
+    std::vector<model::NoteKey> keep;
+    auto updated = NoteEdits::changeVelocity (*seq, idx, delta, &keep);
+    apply (std::move (updated), "Change Velocity", &keep);
 }
 void PianoRoll::legatoSelection()
 {
     auto* seq = getSequence(); auto idx = selectedIndices();
     if (seq == nullptr) return;
     if (idx.empty()) idx = NoteEdits::all (*seq);
-    apply (NoteEdits::legato (*seq, idx), "Legato");
+    std::vector<model::NoteKey> keep;
+    auto updated = NoteEdits::legato (*seq, idx, &keep);
+    apply (std::move (updated), "Legato", &keep);
 }
 void PianoRoll::selectNextNote (bool forward)
 {
@@ -1048,7 +1041,10 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
         const int v = juce::jlimit (1, 127, juce::roundToInt (127.0 * (double) (vel.getBottom() - 2 - e.y) / (double) (vel.getHeight() - 6)));
         auto indices = dragIndices;
         if (tool() == Tool::pencil) { const int under = velocityBarAt (e.x); if (under >= 0 && std::find (indices.begin(), indices.end(), under) == indices.end()) indices.push_back (under); }
-        liveCommit (NoteEdits::setVelocity (dragBase, indices, v), "Change Velocity");
+        std::vector<model::NoteKey> keys;
+        auto updated = NoteEdits::setVelocity (dragBase, indices, v, &keys);
+        selection = keys;   // the keys carry the velocity, so they follow the change
+        liveCommit (std::move (updated), "Change Velocity");
         return;
     }
 
@@ -1064,14 +1060,14 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
         double delta = snapDelta (dragAnchor.startBeat, rawDelta);
         int pitchDelta = (dragStart.y - e.y) / rowHeight;
         for (int i : dragIndices) { const auto& n = dragBase.notes[(size_t) i]; delta = juce::jlimit (-n.startBeat, juce::jmax (0.0, length - n.getEndBeat()), delta); pitchDelta = juce::jlimit (-n.pitch, 127 - n.pitch, pitchDelta); }
-        for (int i : dragIndices) { auto& n = updated.notes[(size_t) i]; n.startBeat += delta; n.pitch += pitchDelta; keys.push_back ({ n.pitch, n.startBeat }); }
+        for (int i : dragIndices) { auto& n = updated.notes[(size_t) i]; n.startBeat += delta; n.pitch += pitchDelta; keys.push_back (model::NoteKey::of (n)); }
         if (pitchDelta != 0 && dragAnchor.pitch + pitchDelta != (dragChanged ? seq->notes[(size_t) juce::jmin ((int) seq->notes.size() - 1, dragIndices[0])].pitch : dragAnchor.pitch))
             audition (dragAnchor.pitch + pitchDelta, (float) dragAnchor.velocity / 127.0f);
     }
     else if (drag == Drag::resizeEnd)
     {
         const double delta = snapDelta (dragAnchor.getEndBeat(), rawDelta);
-        for (int i : dragIndices) { auto& n = updated.notes[(size_t) i]; n.lengthBeats = juce::jlimit (snapping() ? gridBeats() : 1.0 / 64.0, length - n.startBeat, n.lengthBeats + delta); keys.push_back ({ n.pitch, n.startBeat }); }
+        for (int i : dragIndices) { auto& n = updated.notes[(size_t) i]; n.lengthBeats = juce::jlimit (snapping() ? gridBeats() : 1.0 / 64.0, length - n.startBeat, n.lengthBeats + delta); keys.push_back (model::NoteKey::of (n)); }
     }
     else if (drag == Drag::resizeStart)
     {
@@ -1082,7 +1078,7 @@ void PianoRoll::mouseDrag (const juce::MouseEvent& e)
             const double end = n.getEndBeat();
             n.startBeat = juce::jlimit (0.0, end - (snapping() ? gridBeats() : 1.0 / 64.0), n.startBeat + delta);
             n.lengthBeats = end - n.startBeat;
-            keys.push_back ({ n.pitch, n.startBeat });
+            keys.push_back (model::NoteKey::of (n));
         }
     }
     bool same = true;
