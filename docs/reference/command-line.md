@@ -44,7 +44,7 @@ Flags are processed in order, so a session or demo flag before an export flag ex
 
 ## Windows and dialogs
 
-`--mixer`, `--io-setup`, `--event-list`, `--sync-window`, `--script-console`, `--prefs-window`, `--palette=<query>`, `--focus`, `--welcome`, `--tour`, `--tutorials`, `--shortcuts`, `--system-usage`, `--bounce-dialog`, `--aaf-dialog`, `--open-dialog[=<bundle>]` (the Open Session browser; with a bundle, selects it and opens it the way a double-click or Return would), `--import-dialog=<bundle>`, `--crash-dialog`.
+`--mixer`, `--io-setup`, `--event-list`, `--sync-window`, `--script-console`, `--prefs-window`, `--palette=<query>`, `--focus`, `--welcome`, `--tour`, `--tutorials`, `--shortcuts`, `--system-usage`, `--bounce-dialog`, `--aaf-dialog`, `--rename=<name>` (renames the open session, as Rename Session... does), `--open-dialog[=<bundle>]` (the Open Session browser; with a bundle, selects it and opens it the way a double-click or Return would), `--import-dialog=<bundle>`, `--crash-dialog`.
 
 ## Demos
 

@@ -277,3 +277,39 @@ TEST_CASE ("Session files round-trip every kind of content")
 
     bundle.deleteRecursively();
 }
+
+TEST_CASE ("Renaming a session bundle moves the folder and keeps the session whole")
+{
+    using namespace beatmaker;
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("bm-rename-" + juce::String (juce::Random::getSystemRandom().nextInt (1 << 30)));
+    dir.createDirectory();
+    const auto bundle = dir.getChildFile ("First.bmk");
+    model::Session s;
+    model::Track t; t.name = "Keys"; t.type = model::Track::Type::instrument; t.instrumentKind = model::Track::InstrumentKind::synth;
+    s.execute (std::make_unique<model::AddTrackCommand> (t));
+    persistence::TransportState ts; ts.bpm = 100.0;
+    REQUIRE (persistence::SessionFile::save (s, ts, bundle).isEmpty());
+    REQUIRE (persistence::SessionFile::isSessionBundle (bundle));
+
+    juce::String error;
+    CHECK (persistence::SessionFile::legalSessionName ("  My / Song?  ") == "My  Song");
+    CHECK (persistence::SessionFile::renameBundle (bundle, "   ", error) == juce::File()); CHECK (error.isNotEmpty());
+    CHECK (persistence::SessionFile::renameBundle (bundle, "First", error) == bundle);   // the same name: nothing to do
+    const auto renamed = persistence::SessionFile::renameBundle (bundle, "Second", error);
+    CHECK (error.isEmpty());
+    CHECK (renamed == dir.getChildFile ("Second.bmk"));
+    CHECK (! bundle.exists());
+    CHECK (persistence::SessionFile::isSessionBundle (renamed));
+    CHECK (persistence::SessionFile::sessionName (renamed) == "Second");
+    // It still opens with its content
+    model::Session again; persistence::TransportState ts2; juce::StringArray warnings;
+    persistence::LoadContext ctx;
+    CHECK (persistence::SessionFile::load (again, ts2, renamed, ctx, warnings).isEmpty());
+    REQUIRE (again.getTracks().size() == 1); CHECK (again.getTracks()[0].name == "Keys"); CHECK (ts2.bpm == 100.0);
+    // A name already taken is refused, the bundle untouched
+    dir.getChildFile ("Third.bmk").createDirectory();
+    CHECK (persistence::SessionFile::renameBundle (renamed, "Third", error) == juce::File()); CHECK (error.contains ("already"));
+    CHECK (renamed.exists());
+    CHECK (persistence::SessionFile::renameBundle (dir.getChildFile ("Third.bmk"), "Fourth", error) == juce::File());   // not a session
+    dir.deleteRecursively();
+}

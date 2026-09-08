@@ -422,6 +422,7 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    bool renameSessionFromCommandLine (const juce::String& name) { return renameSession (name); }   // --rename=<name>
     // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
     // takes the double-click/Return path on it (smoke tests)
     void showOpenDialogFromCommandLine (const juce::File& bundle)
@@ -935,6 +936,7 @@ public:
         add ("file.open", "File", "Open Session or Audio...", juce::KeyPress ('o', M::commandModifier, 0), 0, [this] { openSessionChooser(); });
         add ("file.save", "File", "Save", juce::KeyPress ('s', M::commandModifier, 0), 0, [this] { saveSession (false); });
         add ("file.saveAs", "File", "Save As...", juce::KeyPress ('s', M::commandModifier | M::shiftModifier, 0), 0, [this] { saveSession (true); });
+        add ("file.rename", "File", "Rename Session...", {}, 0, [this] { showRenameSession(); });
         add ("file.saveTemplate", "File", "Save As Template...", {}, 0, [this] { saveAsTemplate(); });
         add ("file.import", "File", "Import Audio Files...", {}, 0, [this] { openFileChooser(); });
         add ("file.bounce", "File", "Bounce to Disk...", juce::KeyPress ('b', M::commandModifier, 0), 0, [this] { showBounceDialogImpl(); });
@@ -2163,7 +2165,7 @@ private:
     {
         ui::CrashReporter::get().setSessionPath (sessionFile.getFullPathName());
         if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
-            window->setName ((sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled")) + " - Beat Maker");
+            window->setName (currentSessionName() + " - Beat Maker");
     }
 
     // Writes the session to `bundle` (a .bmk or .bmkt directory).
@@ -2184,7 +2186,7 @@ private:
     {
         if (sessionFile != juce::File() && ! forceChooser) { writeSession (sessionFile, false); return; }
         sessionsFolder().createDirectory();
-        const auto suggested = sessionsFolder().getChildFile ((sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled")) + ".bmk");
+        const auto suggested = sessionsFolder().getChildFile (currentSessionName() + ".bmk");
         fileChooser = std::make_unique<juce::FileChooser> ("Save Session As", suggested, "*.bmk");
         fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
                                   [this] (const juce::FileChooser& fc)
@@ -2211,6 +2213,45 @@ private:
                 writeSession (templatesFolder().getChildFile (juce::File::createLegalFileName (name) + ".bmkt"), true);
             grabKeyboardFocus();
         }), true);
+    }
+
+    // Rename Session: the name in the title and, for a saved session, the bundle folder on disk. A saved session is
+    // saved first and reopened from its new folder, so every media reference points into the renamed bundle.
+    void showRenameSession()
+    {
+        auto* w = new juce::AlertWindow ("Rename Session",
+                                         sessionFile != juce::File() ? "The session is saved and its folder on disk renamed too:\n" + sessionFile.getParentDirectory().getFullPathName()
+                                                                     : "The name is used in the title and when the session is first saved.",
+                                         juce::MessageBoxIconType::NoIcon);
+        w->addTextEditor ("name", currentSessionName(), "Name");
+        w->addButton ("Rename", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w] (int result)
+        {
+            if (result == 1) renameSession (w->getTextEditorContents ("name"));
+            grabKeyboardFocus();
+        }), true);
+    }
+
+    bool renameSession (const juce::String& newName)
+    {
+        const auto name = persistence::SessionFile::legalSessionName (newName);
+        if (name.isEmpty()) { statusMessage = "A session needs a name"; updateStatus(); return false; }
+        if (sessionFile == juce::File())
+        {
+            untitledName = name; updateWindowTitle();
+            statusMessage = "Session named " + name + " (it is saved under that name)"; updateStatus();
+            return true;
+        }
+        if (name == currentSessionName()) return true;
+        if (! writeSession (sessionFile, false)) return false;
+        juce::String error;
+        const auto target = persistence::SessionFile::renameBundle (sessionFile, name, error);
+        if (target == juce::File()) { statusMessage = "Rename failed: " + error; updateStatus(); return false; }
+        ui::CrashReporter::get().addBreadcrumb ("rename " + sessionFile.getFileName() + " -> " + target.getFileName());
+        if (! openSessionBundle (target)) return false;
+        statusMessage = "Session renamed to " + name; updateStatus();
+        return true;
     }
 
     bool openSessionBundle (const juce::File& bundle)
@@ -2918,7 +2959,7 @@ private:
         stemJob->launchThread();
     }
 
-    juce::String currentSessionName() const { return sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : juce::String ("Untitled"); }
+    juce::String currentSessionName() const { return sessionFile != juce::File() ? persistence::SessionFile::sessionName (sessionFile) : untitledName; }
 
     void exportAaf (const juce::File& file, const persistence::AafExportOptions& options)
     {
@@ -3184,6 +3225,7 @@ private:
         menu.addSeparator();
         menu.addItem (3, "Save  (Ctrl+S)");
         menu.addItem (4, "Save As...  (Ctrl+Shift+S)");
+        menu.addItem (13, "Rename Session...");
         menu.addItem (5, "Save As Template...");
         menu.addSeparator();
         menu.addItem (6, "Import Audio Files...");
@@ -3212,6 +3254,7 @@ private:
                 case 8: chooseSessionToImport(); break;
                 case 9: showStemExport(); break;
                 case 12: showAafExport(); break;
+                case 13: showRenameSession(); break;
                 case 10: showWelcome(); break;
                 case 11: showShortcuts(); break;
                 default:
@@ -3576,6 +3619,7 @@ public:
                 if (parts.size() == 2) main.setPunchRangeFromCommandLine (parts[0].getDoubleValue(), parts[1].getDoubleValue());
             }
             else if (arg.startsWith ("--session=")) main.openSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
+            else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--marker-demo") main.markerDemoFromCommandLine();

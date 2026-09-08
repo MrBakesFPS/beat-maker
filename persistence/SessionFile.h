@@ -57,6 +57,25 @@ public:
         return f.isDirectory() && (f.hasFileExtension ("bmk") || f.hasFileExtension ("bmkt")) && jsonFile (f).existsAsFile();
     }
     static juce::String sessionName (const juce::File& bundle) { return bundle.getFileNameWithoutExtension(); }
+
+    // A session name as it may appear on disk: trimmed, with characters a file name cannot hold dropped.
+    static juce::String legalSessionName (const juce::String& name) { return juce::File::createLegalFileName (name.trim()).trimEnd(); }
+
+    // Renames a bundle folder in place (Name.bmk -> NewName.bmk, same folder, same extension). Everything inside
+    // moves with it; the file records its media relative to the bundle, so the session stays whole. Returns the
+    // new bundle, or an empty File with `error` set (bad name, a session of that name already there, or the move failed).
+    static juce::File renameBundle (const juce::File& bundle, const juce::String& newName, juce::String& error)
+    {
+        error.clear();
+        const auto name = legalSessionName (newName);
+        if (! isSessionBundle (bundle)) { error = "Not a session bundle: " + bundle.getFullPathName(); return {}; }
+        if (name.isEmpty()) { error = "A session needs a name"; return {}; }
+        if (name == sessionName (bundle)) return bundle;
+        const auto target = bundle.getSiblingFile (name + bundle.getFileExtension());
+        if (target.exists()) { error = "There is already a session called " + name + " in that folder"; return {}; }
+        if (! bundle.moveFileTo (target)) { error = "Could not rename the session folder to " + target.getFileName(); return {}; }
+        return target;
+    }
 };
 
 } // namespace beatmaker::persistence
