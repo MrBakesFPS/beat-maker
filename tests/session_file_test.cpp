@@ -175,6 +175,7 @@ TEST_CASE ("Session files round-trip every kind of content")
         s.execute (std::make_unique<AddTrackCommand> (drums));
         PatternClip pc; pc.name = "Beat"; pc.sampleRate = sr; pc.length = 96000; pc.loopOffset = 100;
         auto pattern = std::make_shared<engine::StepPattern> (engine::StepPattern::createDefaultBeat()); pattern->set (3, 7, 77);
+        pattern->setLength (0, 0, 4); pattern->setOffset (3, 7, 2);   // a held hit and a hit half a step late
         pc.pattern = pattern;
         s.execute (std::make_unique<AddPatternClipCommand> (1, pc));
         Track synth; synth.name = "Keys"; synth.type = Track::Type::instrument; synth.instrumentKind = Track::InstrumentKind::synth;
@@ -243,6 +244,8 @@ TEST_CASE ("Session files round-trip every kind of content")
     CHECK (drums.isDrumMachine()); REQUIRE (drums.drumKit != nullptr); CHECK (drums.drumKit->pads[0].audio != nullptr);
     REQUIRE (drums.patternClips.size() == 1); CHECK (drums.patternClips[0].pattern->get (3, 7) == 77); CHECK (drums.patternClips[0].pattern->get (0, 0) == 110);
     CHECK (drums.patternClips[0].loopOffset == 100);
+    CHECK (drums.patternClips[0].pattern->getLength (0, 0) == 4); CHECK (drums.patternClips[0].pattern->getLength (0, 8) == 1);
+    CHECK (drums.patternClips[0].pattern->getOffset (3, 7) == 2); CHECK (drums.patternClips[0].pattern->getOffset (0, 0) == 0);
 
     const auto& keys = loaded.getTracks()[2];
     CHECK (keys.hasInstrument()); CHECK (keys.instrumentType() == engine::InstrumentType::fm);

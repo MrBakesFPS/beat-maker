@@ -155,9 +155,11 @@ StepSequencer::Cell StepSequencer::cellAt (juce::Point<int> pt) const
     if (p == nullptr) return c;
     c.pad = padAt (pt.y);
     const double rel = beat - clipStartBeats (c.clip) + loopOffsetBeats (c.clip);
-    const int absStep = (int) std::floor (rel / stepBeats (c.clip) + 1.0e-9);
+    const double steps = rel / stepBeats (c.clip);
+    const int absStep = (int) std::floor (steps + 1.0e-9);
     c.repeat = (int) std::floor ((double) absStep / p->numSteps);
     c.step = ((absStep % p->numSteps) + p->numSteps) % p->numSteps;
+    c.pos = steps - (double) c.repeat * p->numSteps;
     return c;
 }
 juce::Rectangle<float> StepSequencer::cellRect (int ci, int pad, int step, int repeat) const
@@ -172,7 +174,9 @@ juce::Rectangle<float> StepSequencer::hitRect (int ci, int pad, int step, int re
     auto* p = patternOf (ci);
     const int held = p != nullptr ? juce::jmin (p->getLength (pad, step), juce::jmax (1, p->numSteps - step)) : 1;
     auto r = cellRect (ci, pad, step, repeat);
-    r.setWidth (xForBeat (repeatStartBeats (ci, repeat) + (step + held) * stepBeats (ci)) - r.getX());
+    const double start = repeatStartBeats (ci, repeat) + (p != nullptr ? p->getPosition (pad, step) : (double) step) * stepBeats (ci);
+    r.setX (xForBeat (start));
+    r.setWidth (xForBeat (start + held * stepBeats (ci)) - r.getX());
     const float clipRight = xForBeat (clipStartBeats (ci) + clipLengthBeats (ci));
     if (r.getRight() > clipRight) r.setRight (clipRight);
     return r;
@@ -182,7 +186,7 @@ StepSequencer::Cell StepSequencer::hitAt (juce::Point<int> pt) const
     auto c = cellAt (pt);
     if (c.step < 0) return c;
     auto* p = patternOf (c.clip);
-    c.step = p != nullptr ? StepEdits::hitCovering (*p, c.pad, c.step).step : -1;
+    c.step = p != nullptr ? StepEdits::hitCovering (*p, c.pad, c.pos).step : -1;
     return c;
 }
 int StepSequencer::insertionStep() const
@@ -304,6 +308,16 @@ void StepSequencer::nudgeSelection (int steps)
     selection = moved;
     commit (std::move (updated), "Nudge Steps");
 }
+void StepSequencer::nudgeFine (int quarterSteps)
+{
+    auto* p = getPattern();
+    if (p == nullptr || selection.empty()) return;
+    StepEdits::Cells moved;
+    auto updated = StepEdits::shiftFine (*p, selection, quarterSteps, 0, &moved);
+    selection = moved;
+    commit (std::move (updated), "Nudge Steps");
+    if (selection.size() == 1) if (auto* q = getPattern()) { const int late = q->getOffset (selection[0].pad, selection[0].step); status (late > 0 ? "Hit plays " + juce::String (late) + "/4 step late" : "Hit on the step"); }
+}
 void StepSequencer::transposeSelection (int pads)
 {
     auto* p = getPattern();
@@ -345,7 +359,9 @@ juce::String StepSequencer::describeSelection() const
     if (selection.size() == 1)
     {
         const int held = p->getLength (selection[0].pad, selection[0].step);
-        return pads + "  velocity " + juce::String ((int) p->get (selection[0].pad, selection[0].step)) + "  at " + barBeatTick (base + s0 * stepBeats())
+        const int late = p->getOffset (selection[0].pad, selection[0].step);
+        return pads + "  velocity " + juce::String ((int) p->get (selection[0].pad, selection[0].step)) + "  at " + barBeatTick (base + p->getPosition (selection[0].pad, selection[0].step) * stepBeats())
+               + (late > 0 ? "  +" + juce::String (late) + "/4 step" : juce::String())
                + (held > 1 ? "  held " + juce::String (held) + " steps" : juce::String());
     }
     return juce::String (selection.size()) + " hits  " + pads + "  " + barBeatTick (base + s0 * stepBeats()) + " to " + barBeatTick (base + (s1 + 1) * stepBeats());
@@ -544,7 +560,7 @@ void StepSequencer::paint (juce::Graphics& g)
             const auto v = pattern->get (focusPad, s);
             const double t = repeatStartBeats (k) + s * stepBeats();
             if (v == 0 || t < clipStart || t >= clipEnd) continue;
-            const float x = xForBeat (t) + 1.0f, h = (float) (vel.getHeight() - 6) * (float) v / 127.0f;
+            const float x = xForBeat (t + pattern->getOffset (focusPad, s) * stepBeats() / engine::StepPattern::quarters) + 1.0f, h = (float) (vel.getHeight() - 6) * (float) v / 127.0f;
             const bool sel = StepEdits::contains (selection, { focusPad, s }), ghost = isGhost (k);
             g.setColour ((sel ? theme::accent : track->colour).withAlpha (ghost ? 0.35f : 0.85f));
             g.fillRect (juce::Rectangle<float> (x, (float) vel.getBottom() - 2.0f - h, juce::jmax (3.0f, juce::jmin (6.0f, stepPx - 2.0f)), h));
@@ -640,7 +656,7 @@ void StepSequencer::mouseDown (const juce::MouseEvent& e)
     if (cell.step < 0 || cell.clip != clipIndex) return;
     if (t == Tool::selector) { if (! e.mods.isShiftDown() && ! e.mods.isCtrlDown()) clearSelection(); drag = Drag::band; return; }
     if (unrollIfGhost (cell.repeat)) { cell = cellAt (e.getPosition()); pattern = getPattern(); if (cell.step < 0 || pattern == nullptr) return; }
-    const auto hit = StepEdits::hitCovering (*pattern, cell.pad, cell.step);   // a held hit covers steps past its start
+    const auto hit = StepEdits::hitCovering (*pattern, cell.pad, cell.pos);   // a held hit covers steps past its start
     const bool onHit = hit.step >= 0;
     const model::StepCell start { hit.pad, hit.step };
     if (e.mods.isPopupMenu()) { if (onHit) commit (StepEdits::clear (*pattern, { start }), "Clear Step"); return; }
@@ -726,7 +742,7 @@ void StepSequencer::mouseDrag (const juce::MouseEvent& e)
         const int padDelta = cell.pad - dragAnchor.pad;
         if (stepDelta == 0 && padDelta == 0) { if (dragChanged) { session.undo(); dragChanged = false; selection = dragCells; repaint(); } return; }
         StepEdits::Cells moved;
-        auto updated = StepEdits::shift (dragBase, dragCells, stepDelta, padDelta, &moved);
+        auto updated = StepEdits::shift (dragBase, dragCells, stepDelta, padDelta, &moved, StepEdits::Collide::block);   // over a hit: wait there
         selection = moved;
         liveCommit (std::move (updated), "Move Steps");
     }
@@ -817,6 +833,8 @@ bool StepSequencer::keyPressed (const juce::KeyPress& key)
     if (k (juce::KeyPress::downKey, M::commandModifier | M::shiftModifier)) { changeVelocity (-1); return true; }
     if (k (juce::KeyPress::leftKey) || k (',')) { nudgeSelection (-1); return true; }
     if (k (juce::KeyPress::rightKey) || k ('.')) { nudgeSelection (1); return true; }
+    if (k (juce::KeyPress::leftKey, M::shiftModifier)) { nudgeFine (-1); return true; }
+    if (k (juce::KeyPress::rightKey, M::shiftModifier)) { nudgeFine (1); return true; }
     if (k ('z', M::altModifier)) { zoomToFit(); return true; }
     if (settings != nullptr && settings->commandsFocus && ! key.getModifiers().isAnyModifierKeyDown())
     {

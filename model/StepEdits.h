@@ -11,7 +11,7 @@ namespace beatmaker::model
 {
 
 struct StepCell { int pad = 0, step = 0; bool operator== (const StepCell& o) const noexcept { return pad == o.pad && step == o.step; } };
-struct StepHit { int pad = 0, step = 0; std::uint8_t velocity = 0; int length = 1; };
+struct StepHit { int pad = 0, step = 0; std::uint8_t velocity = 0; int length = 1; int offset = 0; };
 
 class StepEdits
 {
@@ -30,10 +30,18 @@ public:
     static Pattern setLength (const Pattern&, const Cells&, int steps);
     static Pattern stretch (const Pattern&, const Cells&, int deltaSteps);       // each hit's length + delta, capped the same way
     static int maxLength (const Pattern&, StepCell) noexcept;                     // room before the next hit on the pad (or the end)
-    // The hit whose span covers (pad, step): its start cell, or step -1 when the step is silent.
-    static StepCell hitCovering (const Pattern&, int pad, int step) noexcept;
+    // The hit whose span covers (pad, step): its start cell, or step -1 when the step is silent. The double form
+    // takes a position in steps (offsets included), the int form the middle of the step.
+    static StepCell hitCovering (const Pattern&, int pad, double stepPosition) noexcept;
+    static StepCell hitCovering (const Pattern& p, int pad, int step) noexcept { return hitCovering (p, pad, step + 0.5); }
+    // What a move does when a hit lands on a hit outside the group. A moving hit never touches the hits already
+    // there: `skip` carries on in the same direction to the next free place (arrow keys pass over a neighbour),
+    // `block` leaves the group where it is (a drag hovering an occupied cell).
+    enum class Collide { skip, block };
     // Moves the cells by steps and pads (clamped so the group stays inside); returns the moved cells.
-    static Pattern shift (const Pattern&, const Cells&, int stepDelta, int padDelta, Cells* moved = nullptr);
+    static Pattern shift (const Pattern&, const Cells&, int stepDelta, int padDelta, Cells* moved = nullptr, Collide = Collide::skip);
+    // The same in quarter steps: a hit's micro-timing offset carries the fraction (Shift+arrow in the editor).
+    static Pattern shiftFine (const Pattern&, const Cells&, int quarterDelta, int padDelta, Cells* moved = nullptr, Collide = Collide::skip);
     static std::vector<StepHit> copy (const Pattern&, const Cells&);             // steps relative to the earliest
     static Pattern paste (const Pattern&, const std::vector<StepHit>&, int atStep, Cells* pasted = nullptr);
     static Pattern duplicate (const Pattern&, const Cells&, Cells* pasted = nullptr);   // right after the selection's last step

@@ -362,28 +362,28 @@ void AudioGraph::scheduleSequencer (juce::int64 rangeStart, int numSamples)
 
         // Pattern time zero sits `loopOffset` samples before the clip start.
         const juce::int64 origin = rp.timelineStart - rp.loopOffset;
-        juce::int64 k = (juce::int64) std::floor ((double) (from - origin) / stepDur);
+        // A hit may play up to three quarter steps late, so the step before this block's first can still land in it
+        juce::int64 k = (juce::int64) std::floor ((double) (from - origin) / stepDur) - 1;
 
         for (;; ++k)
         {
             const juce::int64 t = origin + (juce::int64) std::llround ((double) k * stepDur);
             if (t >= to) break;
-            if (t < from) continue;
+            if (k < 0) continue;
 
             const int numSteps = rp.pattern->numSteps;
             if (! rp.loop && k >= numSteps) break;   // plays once
             const int step = (int) (((k % numSteps) + numSteps) % numSteps);
-            const int delay = (int) (t - rangeStart);
 
             for (int pad = 0; pad < juce::jmin (DrumKit::numPads, StepPattern::maxPads); ++pad)
             {
                 const auto v = rp.pattern->velocity[(size_t) pad][(size_t) step];
-                if (v > 0)
-                {
-                    const int held = rp.pattern->getLength (pad, step);   // a hit stretched over steps is gated at its end
-                    drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, delay, rp.strip,
-                                   held > 1 ? (int) std::llround (held * stepDur) : 0);
-                }
+                if (v == 0) continue;
+                const juce::int64 at = t + (juce::int64) std::llround (rp.pattern->getOffset (pad, step) * stepDur / StepPattern::quarters);
+                if (at < from || at >= to) continue;
+                const int held = rp.pattern->getLength (pad, step);   // a hit stretched over steps is gated at its end
+                drums.trigger (rp.kit.get(), pad, (float) v / 127.0f, rp.gain * current->masterGain, (int) (at - rangeStart), rp.strip,
+                               held > 1 ? (int) std::llround (held * stepDur) : 0);
             }
         }
     }

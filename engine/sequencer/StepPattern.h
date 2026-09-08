@@ -21,6 +21,9 @@ struct StepPattern
     std::array<std::array<std::uint8_t, maxSteps>, maxPads> velocity {};
     // Steps a hit is held for: 0 or 1 = one step (a one-shot that rings out); 2+ = a gate that cuts the sample at its end
     std::array<std::array<std::uint8_t, maxSteps>, maxPads> length {};
+    // Micro-timing: quarter steps (0..3) the hit plays late, so a hit can sit between steps
+    static constexpr int quarters = 4;
+    std::array<std::array<std::uint8_t, maxSteps>, maxPads> offset {};
 
     std::uint8_t get (int pad, int step) const noexcept
     {
@@ -45,6 +48,20 @@ struct StepPattern
         if (juce::isPositiveAndBelow (pad, maxPads) && juce::isPositiveAndBelow (step, maxSteps))
             length[(size_t) pad][(size_t) step] = (std::uint8_t) juce::jlimit (1, 255, steps);
     }
+
+    int getOffset (int pad, int step) const noexcept
+    {
+        return juce::isPositiveAndBelow (pad, maxPads) && juce::isPositiveAndBelow (step, maxSteps) ? (int) offset[(size_t) pad][(size_t) step] : 0;
+    }
+
+    void setOffset (int pad, int step, int quarterSteps) noexcept
+    {
+        if (juce::isPositiveAndBelow (pad, maxPads) && juce::isPositiveAndBelow (step, maxSteps))
+            offset[(size_t) pad][(size_t) step] = (std::uint8_t) juce::jlimit (0, quarters - 1, quarterSteps);
+    }
+
+    // A hit's position in steps, offset included
+    double getPosition (int pad, int step) const noexcept { return step + (double) getOffset (pad, step) / quarters; }
 
     double getLengthBeats() const noexcept { return (double) numSteps / stepsPerBeat; }
 

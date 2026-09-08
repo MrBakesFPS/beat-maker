@@ -17,11 +17,12 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - Join Selected Clips (Ctrl+J, and in the clip menus): MIDI and pattern clips merge into one with their contents written out (loops included), audio clips heal when adjacent pieces of one file. Split at Playhead is in the clip menus too.
 
 ### Added
+- Drum editor: Shift+Left/Right nudges hits by a quarter step. The fraction is micro-timing kept on the hit (it plays that much late, is drawn between the steps, moves with the hit, and is saved with the session).
 - Drum editor: drag a hit to move it (with the selection) to another step or pad, and drag its right edge to hold it over several steps. A held hit is gated at its end (a fade-out, like a choke), a one-step hit rings out; holds stop at the next hit on the pad and travel with copy, paste, duplicate, unroll and the session file. The Trimmer tool holds, the Grabber moves, the Smart Tool and Pencil do both by where you grab.
 
 ### Fixed
 - Transposing a note with the arrow keys past a neighbour at the same beat handed the selection to the neighbour (the selection named a position, and the neighbour was at it). Selections now name the note itself (pitch, beat, length and velocity), and every edit returns the keys of the notes it changed.
-- In the drum editor, moving a hit onto another (arrow keys or a drag) overwrote it. The hit in the way now swaps into the cell the moved hit left, so passing over a run of hits shuffles them instead of deleting them; held hits are cut where a hit moves in front of them.
+- In the drum editor, moving a hit onto another (arrow keys or a drag) overwrote it. A moving hit now never touches the hits in its way: the arrow keys skip past an occupied step or pad to the next free one, and a drag waits over an occupied step. Held hits are cut where a hit moves in front of them.
 - Moving a note onto another note of the same pitch and beat made them one: the selection matched both by position, so the next drag took both and the other note seemed to vanish. A selection now resolves to one note per position, stacked notes are drawn with an inset outline, and dragging one away leaves the other.
 - The Open Session browser stepped into a session bundle (it is a folder) on a double-click or Return instead of opening it. Bundles now open on double-click, Return or the Open button; other folders still navigate. `--open-dialog[=<bundle>]` flag.
 - With Link on, the note and drum editors kept the tracks' lane offset and left an empty band at the left. The editors now span the whole panel, keyboard or pads at the left, and Link only shares the time and zoom.

@@ -238,6 +238,25 @@ TEST_CASE ("A held step gates the voice at its end; a one-step hit rings out")
     CHECK (r2.nonZeroIndices().size() == 1000);
 }
 
+TEST_CASE ("A hit's micro-timing offset delays it by quarter steps, across block boundaries")
+{
+    Renderer r;
+    r.transport.setSampleRate (48000.0);
+    r.transport.setBpm (120.0);   // a sixteenth is 6000 samples
+    auto pattern = std::make_shared<StepPattern>();
+    pattern->numSteps = 4;
+    pattern->set (0, 0, 127); pattern->setOffset (0, 0, 2);   // half a step late: 3000
+    pattern->set (0, 2, 127); pattern->setOffset (0, 2, 3);   // 12000 + 4500 = 16500
+    auto snap = std::make_unique<RenderSnapshot>();
+    RenderPattern rp { pattern, makeTestKit(), 0, 24000, 1.0f };
+    rp.loop = false;
+    snap->patterns.push_back (rp);
+    r.graph.setSnapshot (std::move (snap));
+    r.transport.play();
+    r.renderAll (24000, 1000);   // block edges at multiples of 1000: 3000 is an edge, 16500 is not
+    CHECK (r.nonZeroIndices() == std::vector<int> { 3000, 16500 });
+}
+
 TEST_CASE ("Delayed trigger starts mid-block and voices finish")
 {
     DrumMachine dm;

@@ -180,6 +180,19 @@ namespace
                 }
                 set (p, "lengths", lengths);
             }
+            bool anyLate = false;
+            for (int pad = 0; pad < engine::StepPattern::maxPads && ! anyLate; ++pad) for (int s = 0; s < c.pattern->numSteps; ++s) if (c.pattern->get (pad, s) > 0 && c.pattern->getOffset (pad, s) > 0) { anyLate = true; break; }
+            if (anyLate)   // micro-timing in quarter steps, one digit per step
+            {
+                auto offsets = arr();
+                for (int pad = 0; pad < engine::StepPattern::maxPads; ++pad)
+                {
+                    juce::String row;
+                    for (int s = 0; s < c.pattern->numSteps; ++s) row += juce::String (c.pattern->get (pad, s) > 0 ? c.pattern->getOffset (pad, s) : 0);
+                    push (offsets, row);
+                }
+                set (p, "offsets", offsets);
+            }
             set (o, "pattern", p);
         }
         return o;
@@ -207,6 +220,13 @@ namespace
             const auto row = lengths[pad].toString();
             for (int s = 0; s < pattern->numSteps && s * 2 + 1 < row.length(); ++s)
                 if (pattern->get (pad, s) > 0) pattern->setLength (pad, s, row.substring (s * 2, s * 2 + 2).getHexValue32());
+        }
+        const auto offsets = get (p, "offsets");
+        for (int pad = 0; pad < juce::jmin (engine::StepPattern::maxPads, count (offsets)); ++pad)
+        {
+            const auto row = offsets[pad].toString();
+            for (int s = 0; s < pattern->numSteps && s < row.length(); ++s)
+                if (pattern->get (pad, s) > 0) pattern->setOffset (pad, s, row.substring (s, s + 1).getIntValue());
         }
         c.pattern = pattern;
         return c;

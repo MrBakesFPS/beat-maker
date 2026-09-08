@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <StepEdits.h>
+#include <cmath>
 
 using namespace beatmaker;
 using model::StepEdits;
@@ -105,32 +106,66 @@ TEST_CASE ("StepEdits: held hits (lengths) stretch up to the next hit, and move,
     CHECK (StepEdits::resize (held, 32).getLength (0, 0) == 6);
 }
 
-TEST_CASE ("StepEdits: a hit moved onto another swaps places with it, so nothing is lost")
+TEST_CASE ("StepEdits: a moving hit never touches the hits in its way: it skips past them (keys) or waits (drags)")
 {
     auto p = makePattern();   // pad 0 hits at 0 (110) and 8 (100); pad 1 at 4 and 12; pad 4 at 2 and 6
     StepEdits::Cells moved;
-    const auto onto = StepEdits::shift (p, { { 0, 0 } }, 8, 0, &moved);
-    CHECK (onto.get (0, 8) == 110); CHECK (onto.get (0, 0) == 100);   // swapped
-    CHECK (moved == std::vector<StepCell> { { 0, 8 } });
-    CHECK (StepEdits::all (onto).size() == 6);
-    // Moving to another pad displaces the hit there back to the vacated cell
-    const auto toPad = StepEdits::shift (p, { { 0, 8 } }, 4, 1, &moved);   // (0,8) -> (1,12), which holds a 90
-    CHECK (toPad.get (1, 12) == 100); CHECK (toPad.get (0, 8) == 90);
-    // A run shuffles: hits at 0, 1, 2 on pad 2; moving {0, 1} right by one puts the hit from 2 at 0
+    // Onto an occupied cell with nowhere further to go: nothing moves
+    const auto stuck = StepEdits::shift (p, { { 0, 0 } }, 8, 0, &moved);
+    CHECK (stuck.get (0, 0) == 110); CHECK (stuck.get (0, 8) == 100);
+    CHECK (moved == std::vector<StepCell> { { 0, 0 } });
+    // A run: hits at 0, 1, 2 on pad 2; moving the first right by one passes the other two and lands on 3
     engine::StepPattern run; run.numSteps = 16; run.stepsPerBeat = 4;
     run.set (2, 0, 110); run.set (2, 1, 105); run.set (2, 2, 70);
-    const auto shuffled = StepEdits::shift (run, { { 2, 0 }, { 2, 1 } }, 1, 0, &moved);
-    CHECK (shuffled.get (2, 0) == 70); CHECK (shuffled.get (2, 1) == 110); CHECK (shuffled.get (2, 2) == 105);
-    CHECK (moved == std::vector<StepCell> { { 2, 1 }, { 2, 2 } });
-    // Held hits are cut where they would run into the hit that moved in front of them
+    const auto passed = StepEdits::shift (run, { { 2, 0 } }, 1, 0, &moved);
+    CHECK (passed.get (2, 0) == 0); CHECK (passed.get (2, 1) == 105); CHECK (passed.get (2, 2) == 70); CHECK (passed.get (2, 3) == 110);
+    CHECK (moved == std::vector<StepCell> { { 2, 3 } });
+    // Down a column of pads: (1,4) -> pad 2 free
+    const auto down = StepEdits::shift (p, { { 1, 4 } }, 0, 1, &moved);
+    CHECK (down.get (2, 4) == 90); CHECK (moved == std::vector<StepCell> { { 2, 4 } });
+    // A drag over an occupied cell waits instead of skipping
+    const auto wait = StepEdits::shift (run, { { 2, 0 } }, 1, 0, &moved, StepEdits::Collide::block);
+    CHECK (wait.get (2, 0) == 110); CHECK (wait.get (2, 1) == 105);
+    CHECK (moved == std::vector<StepCell> { { 2, 0 } });
+    // A group moving together keeps its shape and skips as a whole
+    const auto group = StepEdits::shift (run, { { 2, 0 }, { 2, 1 } }, 1, 0, &moved);   // (1,2) has a hit at 2 -> +2 -> 2,3: 2 taken -> +3 -> 3,4 free
+    CHECK (group.get (2, 2) == 70); CHECK (group.get (2, 3) == 110); CHECK (group.get (2, 4) == 105);
+    CHECK (moved == std::vector<StepCell> { { 2, 3 }, { 2, 4 } });
+    // Held hits are cut where they would run into a hit that moved in front of them
     auto held = StepEdits::setLength (p, { { 0, 0 } }, 6);
     const auto inFront = StepEdits::shift (held, { { 1, 4 } }, -1, -1, &moved);   // (1,4) -> (0,3)
     CHECK (inFront.get (0, 3) == 90); CHECK (inFront.getLength (0, 0) == 3);
-    // Arrow-key style: one step at a time down a column passes over a hit and leaves it behind
-    auto walk = run;
+}
+
+TEST_CASE ("StepEdits: quarter-step nudges set a hit's micro-timing and carry it through the other edits")
+{
+    engine::StepPattern p; p.numSteps = 16; p.stepsPerBeat = 4;
+    p.set (2, 0, 110); p.set (2, 1, 105);
     StepEdits::Cells sel { { 2, 0 } };
-    walk = StepEdits::shift (walk, sel, 1, 0, &sel);   // onto step 1: swap
-    walk = StepEdits::shift (walk, sel, 1, 0, &sel);   // onto step 2: swap
-    CHECK (sel == std::vector<StepCell> { { 2, 2 } });
-    CHECK (walk.get (2, 2) == 110); CHECK (walk.get (2, 0) == 105); CHECK (walk.get (2, 1) == 70);
+    auto a = StepEdits::shiftFine (p, sel, 1, 0, &sel);
+    CHECK (sel == std::vector<StepCell> { { 2, 0 } }); CHECK (a.getOffset (2, 0) == 1);
+    CHECK (std::abs (a.getPosition (2, 0) - 0.25) < 1e-9);
+    a = StepEdits::shiftFine (a, sel, 2, 0, &sel);
+    CHECK (a.getOffset (2, 0) == 3);
+    // One more quarter would land inside step 1, which holds a hit: it skips to step 2 on the beat
+    a = StepEdits::shiftFine (a, sel, 1, 0, &sel);
+    CHECK (sel == std::vector<StepCell> { { 2, 2 } }); CHECK (a.getOffset (2, 2) == 0); CHECK (a.get (2, 1) == 105); CHECK (a.get (2, 0) == 0);
+    // Back a quarter: step 1 is taken, so it goes to the last free quarter before it, 3/4 into step 0
+    a = StepEdits::shiftFine (a, sel, -1, 0, &sel);
+    CHECK (sel == std::vector<StepCell> { { 2, 0 } }); CHECK (a.getOffset (2, 0) == 3);
+    // Cannot go below zero
+    auto b = StepEdits::shiftFine (p, { { 2, 0 } }, -1, 0, &sel);
+    CHECK (b.getOffset (2, 0) == 0); CHECK (sel == std::vector<StepCell> { { 2, 0 } });
+    // The span, hit test, and the other edits know about the fraction
+    const auto late = StepEdits::shiftFine (p, { { 2, 0 } }, 2, 0);   // half a step late
+    CHECK (StepEdits::hitCovering (late, 2, 0.25).step == -1);
+    CHECK (StepEdits::hitCovering (late, 2, 0.75).step == 0);
+    CHECK (StepEdits::maxLength (late, { 2, 0 }) == 1);            // half a step before the hit at 1: rounds down to one
+    const auto hits = StepEdits::copy (late, { { 2, 0 } });
+    REQUIRE (hits.size() == 1); CHECK (hits[0].offset == 2);
+    CHECK (StepEdits::paste (late, hits, 8).getOffset (2, 8) == 2);
+    CHECK (StepEdits::unroll (late, 32).getOffset (2, 16) == 2);
+    CHECK (StepEdits::clear (late, { { 2, 0 } }).getOffset (2, 0) == 0);
+    StepEdits::Cells m;
+    CHECK (StepEdits::shift (late, { { 2, 0 } }, 4, 0, &m).getOffset (2, 4) == 2);   // a whole-step move keeps the fraction
 }

@@ -1,5 +1,6 @@
 #include "StepEdits.h"
 #include <algorithm>
+#include <cmath>
 
 namespace beatmaker::model
 {
@@ -27,15 +28,16 @@ bool StepEdits::contains (const Cells& cells, StepCell cell) noexcept { return s
 StepEdits::Pattern StepEdits::clear (const Pattern& p, const Cells& cells)
 {
     Pattern out = p;
-    for (const auto& c : cells) { out.set (c.pad, c.step, 0); out.setLength (c.pad, c.step, 1); }
+    for (const auto& c : cells) { out.set (c.pad, c.step, 0); out.setLength (c.pad, c.step, 1); out.setOffset (c.pad, c.step, 0); }
     return out;
 }
 
 int StepEdits::maxLength (const Pattern& p, StepCell c) noexcept
 {
-    int room = juce::jmax (1, p.numSteps - c.step);
-    for (int s = c.step + 1; s < p.numSteps; ++s) if (p.get (c.pad, s) > 0) { room = s - c.step; break; }
-    return juce::jmax (1, room);
+    const double start = p.getPosition (c.pad, c.step);
+    double room = p.numSteps - start;
+    for (int s = c.step + 1; s < p.numSteps; ++s) if (p.get (c.pad, s) > 0) { room = p.getPosition (c.pad, s) - start; break; }
+    return juce::jmax (1, (int) std::floor (room + 1.0e-9));
 }
 
 StepEdits::Pattern StepEdits::setLength (const Pattern& p, const Cells& cells, int steps)
@@ -52,11 +54,16 @@ StepEdits::Pattern StepEdits::stretch (const Pattern& p, const Cells& cells, int
     return out;
 }
 
-StepCell StepEdits::hitCovering (const Pattern& p, int pad, int step) noexcept
+StepCell StepEdits::hitCovering (const Pattern& p, int pad, double pos) noexcept
 {
-    if (! juce::isPositiveAndBelow (pad, Pattern::maxPads) || step < 0 || step >= p.numSteps) return { pad, -1 };
-    for (int s = step; s >= 0; --s)
-        if (p.get (pad, s) > 0) return { pad, s + p.getLength (pad, s) > step ? s : -1 };
+    if (! juce::isPositiveAndBelow (pad, Pattern::maxPads) || pos < 0.0 || pos >= (double) p.numSteps) return { pad, -1 };
+    for (int s = juce::jmin (p.numSteps - 1, (int) std::floor (pos)); s >= 0; --s)
+        if (p.get (pad, s) > 0)
+        {
+            const double start = p.getPosition (pad, s);
+            if (pos < start) continue;   // the hit in this step plays later than the position asked about
+            return { pad, start + p.getLength (pad, s) > pos ? s : -1 };
+        }
     return { pad, -1 };
 }
 
@@ -74,36 +81,58 @@ StepEdits::Pattern StepEdits::changeVelocity (const Pattern& p, const Cells& cel
     return out;
 }
 
-StepEdits::Pattern StepEdits::shift (const Pattern& p, const Cells& cellsIn, int stepDelta, int padDelta, Cells* moved)
+StepEdits::Pattern StepEdits::shift (const Pattern& p, const Cells& cells, int stepDelta, int padDelta, Cells* moved, Collide collide)
+{
+    return shiftFine (p, cells, stepDelta * Pattern::quarters, padDelta, moved, collide);
+}
+
+StepEdits::Pattern StepEdits::shiftFine (const Pattern& p, const Cells& cellsIn, int quarterDelta, int padDelta, Cells* moved, Collide collide)
 {
     Pattern out = p;
     const Cells cells = cellsIn;   // `moved` may be the caller's selection, i.e. the same vector as `cellsIn`
+    const auto stay = [&] { if (moved) *moved = cells; return out; };
     if (cells.empty()) { if (moved) moved->clear(); return out; }
+    const int q = Pattern::quarters, lastQ = p.numSteps * q - 1;
     for (const auto& c : cells)
     {
-        stepDelta = juce::jlimit (-c.step, juce::jmax (0, p.numSteps - 1 - c.step), stepDelta);
+        const int at = c.step * q + p.getOffset (c.pad, c.step);
+        quarterDelta = juce::jlimit (-at, juce::jmax (0, lastQ - at), quarterDelta);
         padDelta = juce::jlimit (-c.pad, juce::jmax (0, Pattern::maxPads - 1 - c.pad), padDelta);
     }
-    if (stepDelta == 0 && padDelta == 0) { if (moved) *moved = cells; return out; }
-    Cells dests;
-    for (const auto& c : cells) dests.push_back ({ c.pad + padDelta, c.step + stepDelta });
-    // Hits in the way are not lost: one sitting where the group lands swaps into the cell the group leaves behind.
-    // It walks back along the move (d - delta, d - 2*delta, ...) until it reaches a vacated cell, so a run of hits
-    // shuffles rather than overwrites. Two hits cannot share a cell, so this is the grid's version of passing over.
-    std::vector<StepHit> group, displaced;
-    for (const auto& c : cells) if (p.get (c.pad, c.step) > 0) group.push_back ({ c.pad + padDelta, c.step + stepDelta, p.get (c.pad, c.step), p.getLength (c.pad, c.step) });
-    for (const auto& d : dests)
+    if (quarterDelta == 0 && padDelta == 0) return stay();
+    std::vector<StepHit> group;
+    for (const auto& c : cells) if (p.get (c.pad, c.step) > 0) group.push_back ({ c.pad, c.step, p.get (c.pad, c.step), p.getLength (c.pad, c.step), p.getOffset (c.pad, c.step) });
+    // The hits already there are never touched: the group lands only where every cell is free (or its own).
+    // With `skip` it keeps going in the same direction until that is so; with `block` it stays put.
+    for (int mult = 1; ; ++mult)
     {
-        if (contains (cells, d) || p.get (d.pad, d.step) == 0) continue;
-        StepCell home = d;
-        do home = { home.pad - padDelta, home.step - stepDelta }; while (contains (dests, home));
-        displaced.push_back ({ home.pad, home.step, p.get (d.pad, d.step), p.getLength (d.pad, d.step) });
+        const int dq = quarterDelta * mult, dp = padDelta * mult;
+        bool inRange = true, free = true;
+        Cells dests;
+        for (const auto& h : group)
+        {
+            const int at = h.step * q + h.offset + dq, pad = h.pad + dp;
+            if (at < 0 || at > lastQ || pad < 0 || pad >= Pattern::maxPads) { inRange = false; break; }
+            const StepCell d { pad, at / q };
+            if ((! contains (cells, d) && p.get (d.pad, d.step) > 0) || contains (dests, d)) free = false;   // taken by a hit outside the group, or by two of ours
+            dests.push_back (d);
+        }
+        if (! inRange) return stay();
+        if (free)
+        {
+            for (const auto& c : cells) { out.set (c.pad, c.step, 0); out.setLength (c.pad, c.step, 1); out.setOffset (c.pad, c.step, 0); }
+            for (size_t i = 0; i < group.size(); ++i)
+            {
+                const auto& h = group[i]; const auto& d = dests[i];
+                out.set (d.pad, d.step, h.velocity);
+                out.setOffset (d.pad, d.step, (h.step * q + h.offset + dq) % q);
+                out.setLength (d.pad, d.step, juce::jmin (h.length, out.numSteps - d.step));
+            }
+            if (moved) *moved = dests;
+            break;
+        }
+        if (collide == Collide::block) return stay();
     }
-    for (const auto& c : cells) { out.set (c.pad, c.step, 0); out.setLength (c.pad, c.step, 1); }
-    for (const auto& d : dests) { out.set (d.pad, d.step, 0); out.setLength (d.pad, d.step, 1); }
-    for (const auto& h : group) { out.set (h.pad, h.step, h.velocity); out.setLength (h.pad, h.step, h.length); }
-    for (const auto& h : displaced) { out.set (h.pad, h.step, h.velocity); out.setLength (h.pad, h.step, h.length); }
-    if (moved) *moved = dests;
     // Held hits never run into the next hit on their pad
     for (int pad = 0; pad < Pattern::maxPads; ++pad)
         for (int st = 0; st < out.numSteps; ++st)
@@ -115,7 +144,7 @@ std::vector<StepHit> StepEdits::copy (const Pattern& p, const Cells& cells)
 {
     std::vector<StepHit> hits;
     int first = -1;
-    for (const auto& c : cells) if (p.get (c.pad, c.step) > 0) { hits.push_back ({ c.pad, c.step, p.get (c.pad, c.step), p.getLength (c.pad, c.step) }); first = first < 0 ? c.step : juce::jmin (first, c.step); }
+    for (const auto& c : cells) if (p.get (c.pad, c.step) > 0) { hits.push_back ({ c.pad, c.step, p.get (c.pad, c.step), p.getLength (c.pad, c.step), p.getOffset (c.pad, c.step) }); first = first < 0 ? c.step : juce::jmin (first, c.step); }
     for (auto& h : hits) h.step -= juce::jmax (0, first);
     std::sort (hits.begin(), hits.end(), [] (const StepHit& a, const StepHit& b) { return a.step < b.step || (a.step == b.step && a.pad < b.pad); });
     return hits;
@@ -131,6 +160,7 @@ StepEdits::Pattern StepEdits::paste (const Pattern& p, const std::vector<StepHit
         if (s < 0 || s >= out.numSteps) continue;
         out.set (h.pad, s, h.velocity);
         out.setLength (h.pad, s, juce::jmin (juce::jmax (1, h.length), out.numSteps - s));
+        out.setOffset (h.pad, s, h.offset);
         if (pasted) pasted->push_back ({ h.pad, s });
     }
     return out;
@@ -151,7 +181,7 @@ StepEdits::Pattern StepEdits::unroll (const Pattern& p, int totalSteps)
     const int oldN = juce::jmax (1, p.numSteps);
     out.numSteps = juce::jlimit (1, Pattern::maxSteps, totalSteps);
     for (int pad = 0; pad < Pattern::maxPads; ++pad)
-        for (int s = 0; s < out.numSteps; ++s) { out.set (pad, s, p.get (pad, s % oldN)); out.setLength (pad, s, p.get (pad, s % oldN) > 0 ? juce::jmin (p.getLength (pad, s % oldN), out.numSteps - s) : 1); }
+        for (int s = 0; s < out.numSteps; ++s) { out.set (pad, s, p.get (pad, s % oldN)); out.setLength (pad, s, p.get (pad, s % oldN) > 0 ? juce::jmin (p.getLength (pad, s % oldN), out.numSteps - s) : 1); out.setOffset (pad, s, p.getOffset (pad, s % oldN)); }
     return out;
 }
 
@@ -161,7 +191,7 @@ StepEdits::Pattern StepEdits::resize (const Pattern& p, int numSteps)
     out.numSteps = juce::jlimit (1, Pattern::maxSteps, numSteps);
     for (int pad = 0; pad < Pattern::maxPads; ++pad)
     {
-        for (int s = p.numSteps; s < out.numSteps; ++s) { out.set (pad, s, 0); out.setLength (pad, s, 1); }
+        for (int s = p.numSteps; s < out.numSteps; ++s) { out.set (pad, s, 0); out.setLength (pad, s, 1); out.setOffset (pad, s, 0); }
         for (int s = 0; s < juce::jmin (p.numSteps, out.numSteps); ++s) if (out.get (pad, s) > 0) out.setLength (pad, s, juce::jmin (p.getLength (pad, s), out.numSteps - s));   // a shrink cuts held hits
     }
     return out;

@@ -57,6 +57,7 @@ public:
     void pasteAtInsertion() override;
     void duplicateSelection() override;
     void nudgeSelection (int steps) override;
+    void nudgeFine (int quarterSteps);                // Shift+Left/Right: a quarter step, as micro-timing
     void transposeSelection (int pads) override;      // moves the cells to other pads
     void changeVelocity (int delta) override;
     void quantizeSelection (bool) override {}
@@ -69,7 +70,7 @@ public:
     juce::String describeSelection() const override;
     juce::String keyHint() const override
     {
-        return "DRUMS: click toggles (Shift soft), drag empty paints, drag a hit moves it, its right edge holds it (a gate)   Selector: band   Up/Down other pad   Ctrl+Up/Down velocity   Left/Right nudge   Ctrl+D duplicate   Del clear";
+        return "DRUMS: click toggles (Shift soft), drag empty paints, drag a hit moves it, its right edge holds it (a gate)   Selector: band   Up/Down other pad   Ctrl+Up/Down velocity   Left/Right nudge (Shift: a quarter step)   Ctrl+D duplicate   Del clear";
     }
 
     void paint (juce::Graphics&) override;
@@ -99,7 +100,7 @@ private:
     static constexpr int edgeGrab       = 6;
 
     enum class Drag { none, paint, band, pendingMove, move, resize, velocity, zoomBand };
-    struct Cell { int pad = -1, step = -1, repeat = 0, clip = -1; };   // a drawn cell: clip, pattern step and loop repeat
+    struct Cell { int pad = -1, step = -1, repeat = 0, clip = -1; double pos = 0.0; };   // a drawn cell: clip, pattern step, loop repeat, and the exact position in steps
 
     void timerCallback() override;
     const model::Track* getTrack() const;
