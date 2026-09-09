@@ -11,7 +11,7 @@ Flags are processed in order, so a session or demo flag before an export flag ex
 | `--save=<bundle>` | save (a `.bmkt` path saves a template) |
 | `--sample-project=<name>` | open Lo-fi Beat, Synth Sketch or Podcast Intro |
 | `--drums`, `--synth` | add a Drum Machine track with the starter beat, or a Synth track with an arpeggio |
-| `--instrument=<name>[,<preset>]` | add an instrument track: synth, fmsynth, wavetable, stack, chip, vox, sampler, piano, electricpiano, organ, mallets, pluck, strings, brass, flute, bass |
+| `--instrument=<name>[,<preset>]` | add an instrument track by name (case and spaces ignored): synth, fmsynth, wavetable, stack, chip, vox, pad, lead, pulse, sync, texture, sampler, granular, vinylsampler, piano, electricpiano, organ, harpsichord, clavinet, celesta, accordion, melodica, mallets, steeldrum, handpan, tubularbells, gamelan, pluck, strings, harp, guitar, solostrings, brass, solobrass, bigband, flute, clarinet, oboe, sax, harmonica, bass, subbass, slapbass, uprightbass |
 | `--sample=<file>` | load a file into the last Sampler track |
 | `--loop=<file>` | add a loop, tempo-conformed, at the playhead |
 | `--fades=in_ms,out_ms[,gain_dB]` | apply to every audio clip |

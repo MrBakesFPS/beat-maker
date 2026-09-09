@@ -209,7 +209,7 @@ void InstrumentChooser::playPreview (engine::InstrumentType type, const juce::St
     size_t index = type == engine::InstrumentType::subtractive && all.size() > 1 ? 1 : 0;
     for (size_t i = 0; i < all.size(); ++i) if (preset.isNotEmpty() && all[i].presetName == preset) index = i;
     if (! all.empty()) params = all[index];
-    if (type == engine::InstrumentType::sampler && params.sample == nullptr)
+    if (engine::Instrument::usesSample (type) && params.sample == nullptr)
     {
         // The Sampler has nothing to play until a file is dropped on its track: a short sine stands in for one
         auto tone = std::make_shared<juce::AudioBuffer<float>> (1, 24000);

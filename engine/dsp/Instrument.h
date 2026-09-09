@@ -15,7 +15,13 @@ namespace beatmaker::engine
 
 // Session files store the type as its number: new instruments go at the end.
 enum class InstrumentType { none, subtractive, fm, wavetable, sampler, electricPiano, bass, pluck, organ, stack, chip, vox,
-                            piano, strings, mallets, brass, flute };
+                            piano, strings, mallets, brass, flute,
+                            pad, lead, pulse, texture, sync, granular, vinyl,
+                            harpsichord, clavinet, celesta, accordion, melodica,
+                            steelDrum, handpan, tubularBells, gamelan,
+                            harp, guitar, soloStrings, soloBrass, bigBand,
+                            clarinet, oboe, sax, harmonica,
+                            subBass, slapBass, uprightBass };
 
 struct InstrumentParams
 {
@@ -63,6 +69,7 @@ public:
     static const std::vector<UserPreset>& userPresets();
     static bool isUserPreset (InstrumentType, const juce::String& name);
     static InstrumentType typeNamed (const juce::String& name);            // by typeName (case-insensitive, spaces ignored); none when unknown
+    static bool usesSample (InstrumentType);                                // plays a loaded audio file (Sampler, Granular, Vinyl Sampler)
     static const char* typeName (InstrumentType);
     // Where an instrument sits in the chooser (Synths, Keys, Bass, Samplers, ...) and a line about what it is for
     static const char* typeCategory (InstrumentType);
@@ -97,5 +104,18 @@ struct StringsParams       { enum { ensemble, movement, vibrato, vibratoRate, bo
 struct MalletParams        { enum { instrument, hardness, decay, tremoloRate, tremoloDepth, strike, release, level }; };
 struct BrassParams         { enum { detune, blat, blatTime, cutoff, resonance, dip, vibrato, vibratoRate, attack, release, level }; };
 struct FluteParams         { enum { breath, air, chiff, overblow, vibrato, vibratoRate, vibratoDelay, attack, release, level }; };
+// Shared by the instruments built on one engine
+struct PartialParams       { enum { bright, decay, strike, tone, spread, release, level }; };                        // Harpsichord, Clavinet, Celesta, Steel Drum, Handpan, Tubular Bells, Gamelan
+struct ReedParams          { enum { breath, tone, growl, vibrato, vibratoRate, vibratoDelay, attack, release, level }; };   // Clarinet, Oboe, Sax, Harmonica, Accordion, Melodica
+struct MonoLeadParams      { enum { wave, pwm, sub, glide, cutoff, resonance, filterEnv, attack, decay, sustain, release, vibrato, drive, level }; };
+struct SoloParams          { enum { bow, vibrato, vibratoRate, vibratoDelay, glide, attack, release, brightness, level }; };   // Solo Strings, Solo Brass
+struct PadParams           { enum { detune, cutoff, resonance, sweep, sweepRate, noise, attack, decay, sustain, release, level }; };
+struct PwmParams           { enum { width, pwmDepth, pwmRate, sub, cutoff, resonance, filterEnv, attack, decay, sustain, release, level }; };
+struct TextureParams       { enum { colour, resonance, motion, motionRate, grit, attack, release, level }; };
+struct SyncParams          { enum { sync, syncEnv, syncDecay, cutoff, resonance, attack, decay, sustain, release, level }; };
+struct GranularParams      { enum { tune, grain, density, spray, position, attack, release, level }; };
+struct VinylParams         { enum { tune, loop, bits, cutoff, wow, hiss, attack, release, level }; };
+struct BigBandParams       { enum { layers, stagger, detune, blat, cutoff, vibrato, attack, release, level }; };
+struct SubBassParams       { enum { drop, dropTime, drive, click, decay, release, level }; };
 
 } // namespace beatmaker::engine

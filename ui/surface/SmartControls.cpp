@@ -283,7 +283,7 @@ void SmartControls::paint (juce::Graphics& g)
               : track->isDrumMachine() ? "Drum Machine" : track->isVca() ? "VCA Master" : track->isAux() ? "Aux Input" : "Audio",
                 title.removeFromTop (16), juce::Justification::centredLeft, true);
     if (waveBox == nullptr)
-        g.drawText (track->instrumentType() == engine::InstrumentType::sampler
+        g.drawText (engine::Instrument::usesSample (track->instrumentType())
                         ? (track->instrumentParams->sample != nullptr ? track->instrumentParams->sampleName : juce::String ("Drop an audio file here"))
                         : juce::String ("Smart Controls"),
                     title.removeFromTop (16), juce::Justification::centredLeft, true);

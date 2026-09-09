@@ -249,7 +249,7 @@ public:
         trackArea.onFilesDropped = [this] (const juce::StringArray& files, int trackIndex, double seconds)
         {
             // Dropping onto a Sampler track loads the file as its sound.
-            if (auto* t = session.getTrack (trackIndex); t != nullptr && t->instrumentType() == engine::InstrumentType::sampler && ! files.isEmpty())
+            if (auto* t = session.getTrack (trackIndex); t != nullptr && engine::Instrument::usesSample (t->instrumentType()) && ! files.isEmpty())
             {
                 loadSamplerSample (trackIndex, juce::File (files[0]));
                 return;
@@ -584,7 +584,7 @@ public:
     {
         int index = -1;
         for (int i = session.getNumTracks(); --i >= 0;)
-            if (session.getTracks()[(size_t) i].instrumentType() == engine::InstrumentType::sampler) { index = i; break; }
+            if (engine::Instrument::usesSample (session.getTracks()[(size_t) i].instrumentType())) { index = i; break; }
         if (index < 0) { addInstrumentTrack (engine::InstrumentType::sampler); index = trackArea.getSelectedTrack(); }
         loadSamplerSample (index, file);
     }
@@ -2066,9 +2066,9 @@ private:
         updateSequencerTarget();
         setEditorVisible (true);
 
-        if (type == engine::InstrumentType::sampler)
+        if (engine::Instrument::usesSample (type))
         {
-            statusMessage = "Sampler: drop an audio file onto the track to load it";
+            statusMessage = juce::String (engine::Instrument::typeName (type)) + ": drop an audio file onto the track to load it";
             updateStatus();
         }
     }
@@ -2076,7 +2076,7 @@ private:
     void loadSamplerSample (int trackIndex, const juce::File& file)
     {
         auto* track = session.getTrack (trackIndex);
-        if (track == nullptr || ! track->hasInstrument() || track->instrumentType() != engine::InstrumentType::sampler) return;
+        if (track == nullptr || ! track->hasInstrument() || ! engine::Instrument::usesSample (track->instrumentType())) return;
 
         juce::String error;
         const auto loaded = loader.load (file, engine.getSampleRate(), error);

@@ -175,7 +175,7 @@ void PresetBuilder::pushAudition (bool recreate)
 {
     if (graph == nullptr) return;
     auto p = params();
-    if (currentType == engine::InstrumentType::sampler && p.sample == nullptr)
+    if (engine::Instrument::usesSample (currentType) && p.sample == nullptr)
     {
         auto tone = std::make_shared<juce::AudioBuffer<float>> (1, 24000);
         for (int i = 0; i < 24000; ++i) tone->setSample (0, i, (float) (std::sin (juce::MathConstants<double>::twoPi * 261.63 * i / 48000.0) * (1.0 - i / 24000.0)));

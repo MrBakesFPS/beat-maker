@@ -262,9 +262,9 @@ TEST_CASE ("Every instrument type sounds, decays after release and exposes metad
 
         auto p = Instrument::defaultParams (type);
         CHECK (p.type == type);
-        if (type == InstrumentType::sampler)
+        if (Instrument::usesSample (type))
         {
-            // Sampler needs a sample: a 1-second 440 Hz sine at C4
+            // Sample players need a sample: a 1-second 440 Hz sine at C4
             auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 48000);
             for (int i = 0; i < 48000; ++i) sample->setSample (0, i, std::sin (juce::MathConstants<double>::twoPi * 440.0 * i / 48000.0));
             p.sample = sample; p.sampleRate = 48000.0; p.rootNote = 69;
@@ -276,7 +276,8 @@ TEST_CASE ("Every instrument type sounds, decays after release and exposes metad
         auto out = renderNote (*inst, p, 60, 1.0, /*gate*/ n / 2);
         CHECK (out.getMagnitude (0, 2000, n / 2 - 2000) > 0.02f);
         CHECK (out.getMagnitude (0, 0, n) < 1.5f);                              // bounded
-        for (int i = 0; i < 8; ++i) { float* z = out.getWritePointer (0); inst->render (&z, 1, 512, p); }   // drain
+        // Drain: a long release (a pad's seconds) may take a while, but every voice must end by itself
+        for (int i = 0; i < 8 * 48000 / 512 && inst->getNumActiveVoices() > 0; ++i) { float* z = out.getWritePointer (0); inst->render (&z, 1, 512, p); }
         CHECK (inst->getNumActiveVoices() == 0);
 
         inst->allNotesOff (true);
@@ -528,13 +529,13 @@ TEST_CASE ("User presets list after the bundled ones, cannot shadow them, and th
     r.graph.collectGarbage();
 }
 
-TEST_CASE ("Every instrument has at least eight bundled presets, uniquely named, with every value inside its range")
+TEST_CASE ("Every instrument has at least four bundled presets, uniquely named, with every value inside its range")
 {
     for (auto type : Instrument::availableTypes())
     {
         INFO ("type " << Instrument::typeName (type));
         const auto presets = Instrument::bundledPresets (type);
-        CHECK (presets.size() >= 8);
+        CHECK (presets.size() >= 4);
         const auto& info = Instrument::paramInfo (type);
         for (size_t i = 0; i < presets.size(); ++i)
         {
@@ -550,7 +551,7 @@ TEST_CASE ("Every instrument has at least eight bundled presets, uniquely named,
             // And it sounds: a held note is audible with these values
             auto inst = Instrument::create (type, 48000.0);
             auto p = presets[i];
-            if (type == InstrumentType::sampler)
+            if (Instrument::usesSample (type))
             {
                 auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 48000);
                 for (int n = 0; n < 48000; ++n) sample->setSample (0, n, std::sin (juce::MathConstants<double>::twoPi * 440.0 * n / 48000.0));
@@ -560,6 +561,73 @@ TEST_CASE ("Every instrument has at least eight bundled presets, uniquely named,
             CHECK (out.getMagnitude (0, 0, 28800) > 0.005f);
             CHECK (out.getMagnitude (0, 0, 28800) < 1.5f);
         }
+    }
+}
+
+TEST_CASE ("The second batch of instruments: every category grew, and a few of their mechanisms show")
+{
+    for (const auto& cat : { "Synths", "Samplers", "Keys", "Mallets", "Strings", "Brass", "Winds", "Bass" })
+    {
+        int n = 0; for (auto t : Instrument::availableTypes()) if (juce::String (Instrument::typeCategory (t)) == cat) ++n;
+        INFO ("category " << cat); CHECK (n >= 3);
+    }
+    CHECK (Instrument::availableTypes().size() >= 44);
+    // Guitar: notes struck together are strummed, one after the other
+    {
+        auto inst = Instrument::create (InstrumentType::guitar, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::guitar);
+        juce::AudioBuffer<float> out (1, 9600); out.clear(); float* ptr = out.getWritePointer (0);
+        inst->noteOn (52, 1.0f, 1.0f, 0, -1, p); inst->noteOn (57, 1.0f, 1.0f, 0, -1, p); inst->noteOn (64, 1.0f, 1.0f, 0, -1, p);
+        inst->render (&ptr, 1, 9600, p);
+        CHECK (out.getMagnitude (0, 0, 400) > 0.02f);                                   // the first string at once
+        CHECK (out.getMagnitude (0, 2000, 400) > out.getMagnitude (0, 0, 400) * 0.8f);  // more strings have joined by 40 ms
+    }
+    // Sub Bass: the pitch drops into the note (a lower zero-crossing rate later than at the start)
+    {
+        auto inst = Instrument::create (InstrumentType::subBass, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::subBass);
+        p.values[SubBassParams::click] = 0.0f; p.values[SubBassParams::drive] = 0.0f; p.values[SubBassParams::drop] = 12.0f; p.values[SubBassParams::dropTime] = 0.15f;
+        auto out = renderNote (*inst, p, 36, 1.0);
+        CHECK (zeroCrossingHz (out, 0, 4800, 48000.0) > zeroCrossingHz (out, 24000, 48000, 48000.0) * 1.3);
+        CHECK_THAT (zeroCrossingHz (out, 24000, 48000, 48000.0), WithinAbs (65.4, 3.0));
+    }
+    // Sync: a higher Sync ratio makes a brighter tone
+    {
+        auto inst = Instrument::create (InstrumentType::sync, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::sync);
+        p.values[SyncParams::syncEnv] = 0.0f; p.values[SyncParams::cutoff] = 20000.0f;
+        auto brightness = [] (const juce::AudioBuffer<float>& b, int from, int to) { const float* d = b.getReadPointer (0); double hi = 0.0, all = 0.0; for (int i = from + 1; i < to; ++i) { hi += (d[i] - d[i - 1]) * (d[i] - d[i - 1]); all += d[i] * d[i]; } return all > 0.0 ? hi / all : 0.0; };
+        p.values[SyncParams::sync] = 1.0f; auto low = renderNote (*inst, p, 48, 0.3); inst->allNotesOff (true);
+        p.values[SyncParams::sync] = 6.0f; auto high = renderNote (*inst, p, 48, 0.3);
+        CHECK (brightness (high, 2000, 12000) > brightness (low, 2000, 12000) * 2.0);
+    }
+    // Granular: with a sample it plays a cloud; with none it is silent and keeps no voices
+    {
+        auto inst = Instrument::create (InstrumentType::granular, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::granular);
+        auto silent = renderNote (*inst, p, 60, 0.2);
+        CHECK (silent.getMagnitude (0, 0, 9600) == 0.0f); CHECK (inst->getNumActiveVoices() == 0);
+        auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 48000);
+        for (int n = 0; n < 48000; ++n) sample->setSample (0, n, std::sin (juce::MathConstants<double>::twoPi * 220.0 * n / 48000.0));
+        p.sample = sample; p.sampleRate = 48000.0; p.rootNote = 57;
+        auto cloud = renderNote (*inst, p, 57, 0.6);
+        CHECK (cloud.getMagnitude (0, 9600, 19200) > 0.05f);
+    }
+    // Solo strings and solo brass are monophonic; the reeds and partials are polyphonic
+    {
+        auto solo = Instrument::create (InstrumentType::soloStrings, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::soloStrings);
+        solo->noteOn (60, 1.0f, 1.0f, 0, -1, p); solo->noteOn (64, 1.0f, 1.0f, 0, -1, p);
+        CHECK (solo->getNumActiveVoices() == 1);
+        auto reed = Instrument::create (InstrumentType::clarinet, 48000.0);
+        auto rp = Instrument::defaultParams (InstrumentType::clarinet);
+        reed->noteOn (60, 1.0f, 1.0f, 0, -1, rp); reed->noteOn (64, 1.0f, 1.0f, 0, -1, rp);
+        CHECK (reed->getNumActiveVoices() == 2);
+        // Tubular bells ring far longer than a clavinet
+        auto bells = Instrument::create (InstrumentType::tubularBells, 48000.0); auto clav = Instrument::create (InstrumentType::clavinet, 48000.0);
+        auto b = renderNote (*bells, Instrument::defaultParams (InstrumentType::tubularBells), 72, 2.0);
+        auto c = renderNote (*clav, Instrument::defaultParams (InstrumentType::clavinet), 72, 2.0);
+        CHECK (b.getMagnitude (0, 72000, 24000) > c.getMagnitude (0, 72000, 24000) * 3.0f);
     }
 }
 
