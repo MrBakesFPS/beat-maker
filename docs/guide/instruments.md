@@ -43,7 +43,7 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 - **Organ**: nine drawbars (16' to 1'), each a sine at its harmonic, percussion on the second harmonic, key click and vibrato. Jazz, full, church, flute and rock presets.
 - **Pluck**: a physically modelled plucked string (Karplus-Strong): Bright and Position shape the pick, Damping and Decay the ring, Body adds resonance. Nylon and steel guitars, harp, koto, muted plucks.
 
-In the chooser (Instrument Track > Other...), selecting an instrument or preset plays a short phrase on it (C, E, G, then the chord) so you can hear it before adding the track; **Audition** plays it again and **Play on select** switches the automatic preview off. The preview plays straight to the main outputs, outside the mixer.
+In the chooser (Instrument Track > Other...), every instrument and preset row has a small play button at its right: it plays a short phrase (C, E, G, then the chord) on that sound so you can hear it before adding the track, and turns into a stop button while it plays. Selecting a row does not play it. The preview plays straight to the main outputs, outside the mixer.
 
 ### Note editor
 

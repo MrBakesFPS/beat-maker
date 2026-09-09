@@ -22,7 +22,11 @@ public:
     explicit InstrumentChooser (engine::AudioGraph* graph = nullptr);
     ~InstrumentChooser() override;
 
-    void audition();                                       // play the phrase on the selected instrument and preset
+    // Preview: a short phrase (C, E, G, then the chord) on an instrument with a preset (empty = its starting preset).
+    // Each row's play button calls this; playing another row or pressing the button again stops it.
+    void playPreview (engine::InstrumentType, const juce::String& presetName);
+    void stopPreview();
+    bool isPreviewing (engine::InstrumentType, const juce::String& presetName) const;
 
     // The instrument and preset chosen (presetName empty = the instrument's usual starting preset)
     std::function<void (engine::InstrumentType, const juce::String& presetName)> onAdd;
@@ -37,17 +41,18 @@ public:
     static constexpr int preferredWidth = 720, preferredHeight = 460;
 
 private:
-    struct CategoryList; struct InstrumentList; struct PresetList;
+    struct CategoryList; struct InstrumentList; struct PresetList; struct Row;
     void rebuildInstruments();
     void rebuildPresets();
     void add();
     void timerCallback() override;
-    void loadAudition();                                   // hand the selected instrument and preset to the graph
+    void refreshPlayButtons();
 
     engine::AudioGraph* graph = nullptr;
     int phraseStep = -1;
-    engine::InstrumentType auditionType = engine::InstrumentType::none;
-    juce::String auditionPreset;
+    engine::InstrumentType previewType = engine::InstrumentType::none;   // what is playing (none = nothing)
+    juce::String previewPreset;
+    bool previewIsPreset = false;                          // started from a preset row (else an instrument row)
 
     std::vector<juce::String> categoryNames;                 // "All" first
     std::vector<engine::InstrumentType> shown;               // instruments of the chosen category
@@ -58,8 +63,7 @@ private:
     juce::ListBox categories, instruments, presetBox;
     juce::Label categoryLabel { {}, "Category" }, instrumentLabel { {}, "Instrument" }, presetLabel { {}, "Start from" };
     juce::TextEditor description;
-    juce::TextButton addButton { "Add Track" }, cancelButton { "Cancel" }, auditionButton { "Audition" };
-    juce::ToggleButton autoAudition { "Play on select" };
+    juce::TextButton addButton { "Add Track" }, cancelButton { "Cancel" };
 };
 
 } // namespace beatmaker::ui

@@ -18,7 +18,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 
 ### Added
 - Five new synths: Stack (a stereo supersaw), Chip (an 8-bit sound chip with bit depth and the chip arpeggio), Vox (a formant synth morphing between vowels), Organ (nine drawbars with percussion, click and vibrato) and Pluck (a Karplus-Strong plucked string). Each has four or five presets.
-- Instrument previews: selecting an instrument or preset in the chooser plays a short phrase on it before any track exists (an audition instrument the audio graph plays straight to the outputs), with an Audition button and a Play on select toggle.
+- Instrument previews: each instrument and preset row in the chooser has a play/stop button that plays a short phrase on that sound before any track exists (an audition instrument the audio graph plays straight to the outputs). Selecting a row does not play it.
 - Instrument chooser: Add Track > Instrument Track > Other... (Ctrl+Shift+I) lists every bundled instrument by category with a description and the presets it can start from; the instrument registry now carries a category and a description per instrument, so new instruments appear there by themselves. `--instrument=<name>[,<preset>]` and `--instrument-chooser` flags.
 - Rename Session... in the File menu: an unsaved session takes the name for its title and first save; a saved one is saved, its `.bmk` folder renamed on disk and reopened from there. The name given in New Session now shows in the title. `--rename=<name>` flag.
 - Drum editor: Shift+Left/Right nudges hits by a quarter step. The fraction is micro-timing kept on the hit (it plays that much late, is drawn between the steps, moves with the hit, and is saved with the session).

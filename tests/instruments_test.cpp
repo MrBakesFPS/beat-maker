@@ -306,6 +306,15 @@ TEST_CASE ("The audition instrument plays without a snapshot and is retired when
     CHECK (r.loudBetween (1, 512));
     r.graph.collectGarbage();
 
+    // Stop releases what is playing: a held note is silent well within the release time
+    r.graph.setAuditionInstrument (Instrument::create (InstrumentType::subtractive, 48000.0), testParams());
+    r.graph.triggerAuditionNote (60, 1.0f, 2.0);
+    r.renderAll (512, 512);
+    CHECK (r.loudBetween (1, 512));
+    r.graph.stopAuditionNotes();
+    r.renderAll (2048, 512);   // the test patch releases in 240 samples
+    CHECK (r.silentBetween (1024, 2048));
+
     // Cleared: silence, even with a note queued
     r.graph.setAuditionInstrument (nullptr, nullptr);
     CHECK (! r.graph.hasAuditionInstrument());

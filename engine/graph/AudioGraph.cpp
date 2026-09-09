@@ -88,6 +88,13 @@ void AudioGraph::triggerAuditionNote (int pitch, float velocity, double seconds)
     }
 }
 
+void AudioGraph::stopAuditionNotes()
+{
+    const auto scope = previewFifo.write (1);
+    const int index = scope.blockSize1 == 1 ? scope.startIndex1 : scope.blockSize2 == 1 ? scope.startIndex2 : -1;
+    if (index >= 0) { PreviewEvent e; e.audition = true; e.stop = true; previewEvents[(size_t) index] = e; }
+}
+
 void AudioGraph::swapInPendingAudition() noexcept
 {
     auto* next = incomingAudition.exchange (nullptr, std::memory_order_acq_rel);
@@ -298,8 +305,9 @@ void AudioGraph::processPreviewEvents()
             const auto& e = previewEvents[(size_t) (start + i)];
             if (e.audition)
             {
-                if (audition != nullptr && audition->instance != nullptr && audition->params != nullptr)
-                    audition->instance->noteOn (e.pitch, e.velocity, 1.0f, 0, juce::jmax (1, e.gateSamples), *audition->params);
+                if (audition == nullptr || audition->instance == nullptr || audition->params == nullptr) continue;
+                if (e.stop) audition->instance->allNotesOff (false);
+                else audition->instance->noteOn (e.pitch, e.velocity, 1.0f, 0, juce::jmax (1, e.gateSamples), *audition->params);
             }
             else if (current == nullptr) continue;
             else if (e.kit != nullptr)

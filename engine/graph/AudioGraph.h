@@ -53,6 +53,7 @@ public:
     // plays it straight to the main outputs, and retires the previous one. Null clears it.
     void setAuditionInstrument (std::unique_ptr<Instrument>, std::shared_ptr<const InstrumentParams>);
     void triggerAuditionNote (int pitch, float velocity, double seconds = 0.3);
+    void stopAuditionNotes();   // release what the audition instrument is playing
     bool hasAuditionInstrument() const noexcept { return auditionSet.load (std::memory_order_relaxed); }
 
     // Scrubbing (message thread): the audio of `strip` (-1 = every strip) is
@@ -195,6 +196,7 @@ private:
         const DrumKit* kit = nullptr;   // pad preview when non-null
         int pad = 0;
         bool audition = false;          // note on the audition instrument
+        bool stop = false;              // with audition: release its notes instead
         int instrumentId = -1;          // note preview when >= 0
         int pitch = 60;
         int gateSamples = 0;
