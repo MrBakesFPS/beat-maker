@@ -1,4 +1,5 @@
 #include "Instrument.h"
+#include <algorithm>
 #include "VoiceHelpers.h"
 #include <array>
 #include <cmath>
@@ -31,6 +32,47 @@ const char* Instrument::typeName (InstrumentType t)
         case InstrumentType::bass:          return "Bass";
     }
     return "";
+}
+
+const char* Instrument::typeCategory (InstrumentType t)
+{
+    switch (t)
+    {
+        case InstrumentType::none:          return "";
+        case InstrumentType::subtractive:   return "Synths";
+        case InstrumentType::fm:            return "Synths";
+        case InstrumentType::wavetable:     return "Synths";
+        case InstrumentType::sampler:       return "Samplers";
+        case InstrumentType::electricPiano: return "Keys";
+        case InstrumentType::bass:          return "Bass";
+    }
+    return "";
+}
+
+const char* Instrument::typeDescription (InstrumentType t)
+{
+    switch (t)
+    {
+        case InstrumentType::none:          return "";
+        case InstrumentType::subtractive:   return "Polyphonic subtractive synth: saw, square, triangle or sine, a detuned second oscillator, a resonant low-pass with its own envelope, ADSR. Leads, pads, plucks and chords.";
+        case InstrumentType::fm:            return "Two-operator FM with a decaying modulation index and feedback. Bells, electric keys, metallic plucks and punchy basses.";
+        case InstrumentType::wavetable:     return "Two detuned oscillators morphing across band-limited wavetables, with a filter envelope. Evolving pads, digital leads and textures.";
+        case InstrumentType::sampler:       return "Plays an audio file across the keyboard, pitched around C3: tune, one-shot or loop, ADSR and a filter. Drop a file onto the track to load it.";
+        case InstrumentType::electricPiano: return "A tine electric piano: velocity-dependent brightness, an inharmonic bell partial, per-note decay and tremolo.";
+        case InstrumentType::bass:          return "Monophonic bass with last-note priority, legato, glide, a sub oscillator, a filter envelope and drive.";
+    }
+    return "";
+}
+
+std::vector<juce::String> Instrument::categories()
+{
+    std::vector<juce::String> out;
+    for (auto type : availableTypes())
+    {
+        const juce::String c (typeCategory (type));
+        if (c.isNotEmpty() && std::find (out.begin(), out.end(), c) == out.end()) out.push_back (c);
+    }
+    return out;
 }
 
 const std::vector<ParamInfo>& Instrument::paramInfo (InstrumentType t)

@@ -11,7 +11,7 @@ Flags are processed in order, so a session or demo flag before an export flag ex
 | `--save=<bundle>` | save (a `.bmkt` path saves a template) |
 | `--sample-project=<name>` | open Lo-fi Beat, Synth Sketch or Podcast Intro |
 | `--drums`, `--synth` | add a Drum Machine track with the starter beat, or a Synth track with an arpeggio |
-| `--instrument=<name>` | add an instrument track: synth, fmsynth, wavetable, sampler, electricpiano, bass |
+| `--instrument=<name>[,<preset>]` | add an instrument track: synth, fmsynth, wavetable, sampler, electricpiano, bass |
 | `--sample=<file>` | load a file into the last Sampler track |
 | `--loop=<file>` | add a loop, tempo-conformed, at the playhead |
 | `--fades=in_ms,out_ms[,gain_dB]` | apply to every audio clip |
@@ -44,7 +44,7 @@ Flags are processed in order, so a session or demo flag before an export flag ex
 
 ## Windows and dialogs
 
-`--mixer`, `--io-setup`, `--event-list`, `--sync-window`, `--script-console`, `--prefs-window`, `--palette=<query>`, `--focus`, `--welcome`, `--tour`, `--tutorials`, `--shortcuts`, `--system-usage`, `--bounce-dialog`, `--aaf-dialog`, `--rename=<name>` (renames the open session, as Rename Session... does), `--open-dialog[=<bundle>]` (the Open Session browser; with a bundle, selects it and opens it the way a double-click or Return would), `--import-dialog=<bundle>`, `--crash-dialog`.
+`--mixer`, `--io-setup`, `--event-list`, `--sync-window`, `--script-console`, `--prefs-window`, `--palette=<query>`, `--focus`, `--welcome`, `--tour`, `--tutorials`, `--shortcuts`, `--system-usage`, `--bounce-dialog`, `--aaf-dialog`, `--rename=<name>` (renames the open session, as Rename Session... does), `--instrument-chooser` (the Add Instrument Track chooser), `--open-dialog[=<bundle>]` (the Open Session browser; with a bundle, selects it and opens it the way a double-click or Return would), `--import-dialog=<bundle>`, `--crash-dialog`.
 
 ## Demos
 

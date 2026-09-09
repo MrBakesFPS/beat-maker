@@ -24,6 +24,7 @@ target_sources(BeatMaker PRIVATE
     depth/BeatDetectiveDialog.cpp
     depth/MemoryLocationsWindow.cpp
     depth/NewSessionDialog.cpp
+    depth/InstrumentChooser.cpp
     depth/CommandPalette.cpp
     depth/PreferencesWindow.cpp
     depth/MidiEventList.cpp

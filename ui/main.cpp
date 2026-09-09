@@ -21,6 +21,7 @@
 #include "depth/CrashReportWindow.h"
 #include "shared/CrashReporter.h"
 #include "shared/SessionChooser.h"
+#include "depth/InstrumentChooser.h"
 #include "shared/UiProfiler.h"
 #include <cstdlib>
 #include <AafExport.h>
@@ -261,6 +262,7 @@ public:
             else if (kind == model::Track::InstrumentKind::synth)             addInstrumentTrack (instrument);
             else                                                              addDrumMachineTrack();
         };
+        trackArea.onChooseInstrument = [this] { showInstrumentChooser(); };
         trackArea.onSelectionChanged = [this] (int i) { updateSequencerTarget(); if (eventListContent != nullptr) eventListContent->setTrack (i); };
         midiSync.onTransportChanged = [this] { updateStatus(); };
 
@@ -422,6 +424,7 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    void showInstrumentChooserFromCommandLine() { showInstrumentChooser(); }   // --instrument-chooser
     bool renameSessionFromCommandLine (const juce::String& name) { return renameSession (name); }   // --rename=<name>
     // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
     // takes the double-click/Return path on it (smoke tests)
@@ -540,11 +543,12 @@ public:
         updateStatus();
     }
     void beatDetectiveDemoFromCommandLine() { beatDetectiveDemo(); }
-    void addInstrumentTrackFromCommandLine (const juce::String& name)
+    void addInstrumentTrackFromCommandLine (const juce::String& spec)   // <name>[,<preset>]
     {
+        const auto name = spec.upToFirstOccurrenceOf (",", false, false), preset = spec.fromFirstOccurrenceOf (",", false, false);
         for (auto type : engine::Instrument::availableTypes())
             if (juce::String (engine::Instrument::typeName (type)).removeCharacters (" ").equalsIgnoreCase (name.removeCharacters (" -_")))
-            { addInstrumentTrack (type); return; }
+            { addInstrumentTrack (type, preset); return; }
         statusMessage = "Unknown instrument: " + name;
         updateStatus();
     }
@@ -1011,6 +1015,7 @@ public:
         add ("track.addAudio", "Track", "New Audio Track", juce::KeyPress ('n', M::commandModifier | M::shiftModifier, 0), 0, [this] { addTrack ("Audio " + juce::String (countTracks (model::Track::Type::audio) + 1)); });
         add ("track.addDrums", "Track", "New Drum Machine Track", juce::KeyPress ('d', M::commandModifier | M::shiftModifier, 0), 0, [this] { addDrumMachineTrack(); });
         add ("track.addSynth", "Track", "New Synth Track", juce::KeyPress ('i', M::commandModifier, 0), 0, [this] { addInstrumentTrack (engine::InstrumentType::subtractive); });
+        add ("track.addInstrument", "Track", "New Instrument Track (choose)...", juce::KeyPress ('i', M::commandModifier | M::shiftModifier, 0), 0, [this] { showInstrumentChooser(); });
         for (auto type : engine::Instrument::availableTypes())
             add (("track.add." + juce::String (engine::Instrument::typeName (type)).removeCharacters (" ")).toRawUTF8(), "Track", ("New " + juce::String (engine::Instrument::typeName (type)) + " Track").toRawUTF8(), {}, 0, [this, type] { addInstrumentTrack (type); });
         add ("track.addAux", "Track", "New Aux Input", {}, 0, [this] { addAuxTrack(); });
@@ -1976,11 +1981,12 @@ private:
         setEditorVisible (true);
     }
 
-    void addInstrumentTrack (engine::InstrumentType type)
+    void addInstrumentTrack (engine::InstrumentType type, const juce::String& presetName = {})
     {
         if (type == engine::InstrumentType::none) type = engine::InstrumentType::subtractive;
         const auto presets = engine::Instrument::presets (type);
-        const size_t startPreset = type == engine::InstrumentType::subtractive && presets.size() > 1 ? 1 : 0;   // Pluck
+        size_t startPreset = type == engine::InstrumentType::subtractive && presets.size() > 1 ? 1 : 0;   // Pluck
+        for (size_t i = 0; i < presets.size(); ++i) if (presetName.isNotEmpty() && presets[i].presetName == presetName) startPreset = i;
 
         int count = 0;
         for (const auto& t : session.getTracks()) count += t.instrumentType() == type ? 1 : 0;
@@ -3197,6 +3203,28 @@ private:
         syncWindow = options.launchAsync();
     }
 
+    // Instrument Track > Other...: the chooser, with every bundled instrument by category
+    void showInstrumentChooser (engine::InstrumentType preselect = engine::InstrumentType::none)
+    {
+        auto* chooser = new ui::InstrumentChooser();
+        if (preselect != engine::InstrumentType::none) chooser->selectType (preselect);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (chooser);
+        options.dialogTitle = "Add Instrument Track";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        chooser->onCancel = [window] { window->setVisible (false); };
+        chooser->onAdd = [this, window] (engine::InstrumentType type, const juce::String& preset)
+        {
+            window->setVisible (false);
+            addInstrumentTrack (type, preset);
+            grabKeyboardFocus();
+        };
+    }
+
     void showNewSessionDialog()
     {
         auto* dialog = new ui::NewSessionDialog (templateChoices(), "Untitled");
@@ -3631,6 +3659,7 @@ public:
             else if (arg.startsWith ("--freeze=")) main.freezeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue());
             else if (arg.startsWith ("--import-session=")) main.importSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--welcome") main.showWelcomeFromCommandLine();
+            else if (arg == "--instrument-chooser") juce::Timer::callAfterDelay (300, [&main] { main.showInstrumentChooserFromCommandLine(); });
             else if (arg == "--tour") main.startTourFromCommandLine();
             else if (arg == "--tutorials") main.showTutorialsFromCommandLine();
             else if (arg == "--shortcuts") main.showShortcutsFromCommandLine();

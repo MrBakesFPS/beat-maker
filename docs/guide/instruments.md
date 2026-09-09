@@ -29,7 +29,7 @@ A pattern or MIDI clip plays its content once until you choose **Loop** for it: 
 
 ## Instruments
 
-Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track driven by MIDI clips. New instrument tracks start with a two-bar arpeggio clip that plays once. The Sound menu lists each instrument's presets; Smart Controls show one knob per parameter the instrument describes.
+Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track driven by MIDI clips. The submenu lists the bundled instruments; **Other...** at its bottom (also **Ctrl+Shift+I**, or "New Instrument Track (choose)..." in the command palette) opens the instrument chooser: every instrument by category (Synths, Keys, Bass, Samplers), a description of what each is for, and the presets it can start from. Double-click an instrument or a preset, or press Add Track. New instrument tracks start with a two-bar arpeggio clip that plays once. The Sound menu lists each instrument's presets; Smart Controls show one knob per parameter the instrument describes.
 
 - **Synth**: polyphonic subtractive synth (PolyBLEP saw, square, triangle and sine, a detuned second oscillator, state-variable low-pass with envelope, ADSR).
 - **FM Synth**: two-operator FM with ratio, decaying index and feedback, for bells, keys and basses.

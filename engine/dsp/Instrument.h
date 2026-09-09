@@ -53,7 +53,11 @@ public:
     static std::vector<InstrumentParams> presets (InstrumentType);
     static InstrumentParams defaultParams (InstrumentType);
     static const char* typeName (InstrumentType);
+    // Where an instrument sits in the chooser (Synths, Keys, Bass, Samplers, ...) and a line about what it is for
+    static const char* typeCategory (InstrumentType);
+    static const char* typeDescription (InstrumentType);
     static const std::vector<InstrumentType>& availableTypes();
+    static std::vector<juce::String> categories();   // in display order, each with at least one instrument
 
 protected:
     virtual void prepareImpl() {}

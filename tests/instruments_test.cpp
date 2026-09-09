@@ -242,6 +242,9 @@ TEST_CASE ("Every instrument type sounds, decays after release and exposes metad
         CHECK (Instrument::paramInfo (type).size() <= 24);
         CHECK (! Instrument::presets (type).empty());
         CHECK (juce::String (Instrument::typeName (type)).isNotEmpty());
+        CHECK (juce::String (Instrument::typeCategory (type)).isNotEmpty());      // the chooser files it under a category
+        CHECK (juce::String (Instrument::typeDescription (type)).length() > 30);  // and says what it is for
+        for (const auto& preset : Instrument::presets (type)) CHECK (preset.presetName.isNotEmpty());
 
         auto p = Instrument::defaultParams (type);
         CHECK (p.type == type);
@@ -385,4 +388,19 @@ TEST_CASE ("Instrument params apply to already-sounding voices (copy-on-write sw
     synth->render (&ptr, 1, 4800, quiet);
     CHECK (out.getMagnitude (0, 0, 4800) < 0.12f);
     CHECK (out.getMagnitude (0, 0, 4800) > 0.05f);
+}
+
+TEST_CASE ("Instrument categories are listed in display order and each holds an instrument")
+{
+    const auto cats = Instrument::categories();
+    REQUIRE (! cats.empty());
+    CHECK (cats.front() == "Synths");
+    for (const auto& c : cats)
+    {
+        int n = 0;
+        for (auto type : Instrument::availableTypes()) if (c == Instrument::typeCategory (type)) ++n;
+        CHECK (n >= 1);
+    }
+    for (size_t i = 0; i < cats.size(); ++i) for (size_t j = i + 1; j < cats.size(); ++j) CHECK (cats[i] != cats[j]);
+    CHECK (juce::String (Instrument::typeCategory (InstrumentType::none)).isEmpty());
 }

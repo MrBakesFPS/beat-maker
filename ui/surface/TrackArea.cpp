@@ -32,6 +32,8 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
         const auto& types = engine::Instrument::availableTypes();
         for (int i = 0; i < (int) types.size(); ++i)
             instruments.addItem (100 + i, engine::Instrument::typeName (types[(size_t) i]));
+        instruments.addSeparator();
+        instruments.addItem (99, "Other...");   // the chooser: every instrument by category, with descriptions and presets
         menu.addSubMenu ("Instrument Track", instruments);
         menu.addItem (4, "Aux Input");
         menu.addItem (5, "VCA Master");
@@ -46,6 +48,7 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
                                 else if (result == 4) onAddTrack (T::aux, K::none, engine::InstrumentType::none);
                                 else if (result == 1) onAddTrack (T::audio, K::none, engine::InstrumentType::none);
                                 else if (result == 2) onAddTrack (T::instrument, K::drumMachine, engine::InstrumentType::none);
+                                else if (result == 99) { if (onChooseInstrument) onChooseInstrument(); }
                                 else if (result >= 100 && result < 100 + (int) all.size())
                                     onAddTrack (T::instrument, K::synth, all[(size_t) (result - 100)]);
                             });
