@@ -528,6 +528,41 @@ TEST_CASE ("User presets list after the bundled ones, cannot shadow them, and th
     r.graph.collectGarbage();
 }
 
+TEST_CASE ("Every instrument has at least eight bundled presets, uniquely named, with every value inside its range")
+{
+    for (auto type : Instrument::availableTypes())
+    {
+        INFO ("type " << Instrument::typeName (type));
+        const auto presets = Instrument::bundledPresets (type);
+        CHECK (presets.size() >= 8);
+        const auto& info = Instrument::paramInfo (type);
+        for (size_t i = 0; i < presets.size(); ++i)
+        {
+            INFO ("preset " << presets[i].presetName);
+            CHECK (presets[i].presetName.isNotEmpty());
+            for (size_t j = i + 1; j < presets.size(); ++j) CHECK (presets[i].presetName != presets[j].presetName);
+            for (size_t k = 0; k < info.size(); ++k)
+            {
+                INFO ("param " << info[k].name);
+                CHECK (presets[i].values[k] >= info[k].min - 1.0e-6f);
+                CHECK (presets[i].values[k] <= info[k].max + 1.0e-6f);
+            }
+            // And it sounds: a held note is audible with these values
+            auto inst = Instrument::create (type, 48000.0);
+            auto p = presets[i];
+            if (type == InstrumentType::sampler)
+            {
+                auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 48000);
+                for (int n = 0; n < 48000; ++n) sample->setSample (0, n, std::sin (juce::MathConstants<double>::twoPi * 440.0 * n / 48000.0));
+                p.sample = sample; p.sampleRate = 48000.0; p.rootNote = 69;
+            }
+            auto out = renderNote (*inst, p, 60, 0.6);
+            CHECK (out.getMagnitude (0, 0, 28800) > 0.005f);
+            CHECK (out.getMagnitude (0, 0, 28800) < 1.5f);
+        }
+    }
+}
+
 TEST_CASE ("Sampler plays the sample at its root pitch and transposes by semitones")
 {
     auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 96000);

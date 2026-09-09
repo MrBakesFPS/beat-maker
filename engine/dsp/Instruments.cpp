@@ -389,33 +389,66 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Sub Bass",    { { SubtractiveParams::wave, 3.0f }, { SubtractiveParams::osc2, 0.0f }, { SubtractiveParams::cutoff, 800.0f },
                                   { SubtractiveParams::attack, 0.003f }, { SubtractiveParams::decay, 0.3f }, { SubtractiveParams::sustain, 0.8f },
                                   { SubtractiveParams::release, 0.1f }, { SubtractiveParams::level, 0.7f } });
+            add ("Brass Stab",  { { SubtractiveParams::detune, 12.0f }, { SubtractiveParams::cutoff, 1500.0f }, { SubtractiveParams::resonance, 0.2f }, { SubtractiveParams::filterEnv, 2.5f }, { SubtractiveParams::attack, 0.02f }, { SubtractiveParams::decay, 0.3f }, { SubtractiveParams::sustain, 0.5f }, { SubtractiveParams::release, 0.2f } });
+            add ("Warm Keys",   { { SubtractiveParams::wave, 2.0f }, { SubtractiveParams::detune, 4.0f }, { SubtractiveParams::cutoff, 3000.0f }, { SubtractiveParams::attack, 0.01f }, { SubtractiveParams::decay, 0.6f }, { SubtractiveParams::sustain, 0.5f }, { SubtractiveParams::release, 0.4f }, { SubtractiveParams::level, 0.45f } });
+            add ("Deep Pad",    { { SubtractiveParams::detune, 18.0f }, { SubtractiveParams::cutoff, 900.0f }, { SubtractiveParams::resonance, 0.3f }, { SubtractiveParams::filterEnv, 1.5f }, { SubtractiveParams::attack, 1.2f }, { SubtractiveParams::decay, 1.0f }, { SubtractiveParams::sustain, 0.9f }, { SubtractiveParams::release, 2.5f }, { SubtractiveParams::level, 0.3f } });
+            add ("Acid Line",   { { SubtractiveParams::osc2, 0.0f }, { SubtractiveParams::cutoff, 400.0f }, { SubtractiveParams::resonance, 0.8f }, { SubtractiveParams::filterEnv, 4.0f }, { SubtractiveParams::attack, 0.001f }, { SubtractiveParams::decay, 0.18f }, { SubtractiveParams::sustain, 0.0f }, { SubtractiveParams::release, 0.1f }, { SubtractiveParams::level, 0.45f } });
+            add ("Sine Bell",   { { SubtractiveParams::wave, 3.0f }, { SubtractiveParams::osc2, 0.0f }, { SubtractiveParams::cutoff, 20000.0f }, { SubtractiveParams::attack, 0.001f }, { SubtractiveParams::decay, 1.5f }, { SubtractiveParams::sustain, 0.0f }, { SubtractiveParams::release, 1.0f }, { SubtractiveParams::level, 0.5f } });
+            add ("Hoover",      { { SubtractiveParams::detune, 30.0f }, { SubtractiveParams::cutoff, 4000.0f }, { SubtractiveParams::filterEnv, 1.0f }, { SubtractiveParams::attack, 0.05f }, { SubtractiveParams::sustain, 0.9f }, { SubtractiveParams::release, 0.5f }, { SubtractiveParams::level, 0.3f } });
             break;
         case InstrumentType::fm:
             add ("FM Bell",  { { FmParams::ratio, 3.5f }, { FmParams::index, 4.0f }, { FmParams::indexDecay, 1.2f }, { FmParams::decay, 2.0f }, { FmParams::sustain, 0.0f }, { FmParams::release, 1.5f }, { FmParams::level, 0.22f } });
             add ("FM Bass",  { { FmParams::ratio, 1.0f }, { FmParams::index, 5.0f }, { FmParams::indexDecay, 0.15f }, { FmParams::decay, 0.3f }, { FmParams::sustain, 0.5f }, { FmParams::release, 0.1f }, { FmParams::level, 0.6f } });
             add ("FM Keys",  { { FmParams::ratio, 2.0f }, { FmParams::index, 2.0f }, { FmParams::indexDecay, 0.6f }, { FmParams::feedback, 0.2f }, { FmParams::decay, 1.0f }, { FmParams::sustain, 0.2f } });
             add ("FM Glass", { { FmParams::ratio, 7.0f }, { FmParams::index, 1.5f }, { FmParams::indexDecay, 2.0f }, { FmParams::attack, 0.3f }, { FmParams::sustain, 0.6f }, { FmParams::release, 2.0f } });
+            add ("FM Organ",  { { FmParams::ratio, 2.0f }, { FmParams::index, 1.0f }, { FmParams::indexDecay, 4.0f }, { FmParams::attack, 0.005f }, { FmParams::decay, 0.2f }, { FmParams::sustain, 1.0f }, { FmParams::release, 0.05f } });
+            add ("FM Pluck",  { { FmParams::ratio, 3.0f }, { FmParams::index, 6.0f }, { FmParams::indexDecay, 0.12f }, { FmParams::attack, 0.001f }, { FmParams::decay, 0.4f }, { FmParams::sustain, 0.0f }, { FmParams::release, 0.3f }, { FmParams::level, 0.35f } });
+            add ("FM Marimba", { { FmParams::ratio, 4.0f }, { FmParams::index, 2.5f }, { FmParams::indexDecay, 0.08f }, { FmParams::decay, 0.35f }, { FmParams::sustain, 0.0f }, { FmParams::release, 0.2f }, { FmParams::level, 0.4f } });
+            add ("FM Brass",  { { FmParams::ratio, 1.0f }, { FmParams::index, 3.0f }, { FmParams::indexDecay, 0.8f }, { FmParams::feedback, 0.3f }, { FmParams::attack, 0.04f }, { FmParams::decay, 0.4f }, { FmParams::sustain, 0.7f }, { FmParams::release, 0.3f }, { FmParams::cutoff, 8000.0f } });
+            add ("FM Pad",    { { FmParams::ratio, 2.0f }, { FmParams::index, 1.5f }, { FmParams::indexDecay, 4.0f }, { FmParams::attack, 0.8f }, { FmParams::decay, 1.0f }, { FmParams::sustain, 0.8f }, { FmParams::release, 2.5f }, { FmParams::cutoff, 6000.0f }, { FmParams::level, 0.25f } });
+            add ("FM Sub",    { { FmParams::ratio, 0.5f }, { FmParams::index, 1.0f }, { FmParams::indexDecay, 0.3f }, { FmParams::decay, 0.3f }, { FmParams::sustain, 0.9f }, { FmParams::release, 0.1f }, { FmParams::level, 0.6f } });
             break;
         case InstrumentType::wavetable:
             add ("WT Saw Sweep", {});
             add ("WT Hollow",    { { WavetableParams::position, 0.75f }, { WavetableParams::cutoff, 3000.0f }, { WavetableParams::detune, 14.0f } });
             add ("WT Pluck",     { { WavetableParams::position, 0.15f }, { WavetableParams::cutoff, 700.0f }, { WavetableParams::filterEnv, 3.0f }, { WavetableParams::decay, 0.25f }, { WavetableParams::sustain, 0.0f } });
             add ("WT Pad",       { { WavetableParams::position, 0.5f }, { WavetableParams::attack, 0.6f }, { WavetableParams::sustain, 0.9f }, { WavetableParams::release, 1.5f }, { WavetableParams::cutoff, 2500.0f } });
+            add ("WT Bass",    { { WavetableParams::position, 0.2f }, { WavetableParams::detune, 3.0f }, { WavetableParams::cutoff, 900.0f }, { WavetableParams::resonance, 0.3f }, { WavetableParams::filterEnv, 2.5f }, { WavetableParams::attack, 0.002f }, { WavetableParams::decay, 0.3f }, { WavetableParams::sustain, 0.4f }, { WavetableParams::release, 0.15f }, { WavetableParams::level, 0.5f } });
+            add ("WT Lead",    { { WavetableParams::position, 0.6f }, { WavetableParams::detune, 8.0f }, { WavetableParams::cutoff, 9000.0f }, { WavetableParams::resonance, 0.2f }, { WavetableParams::attack, 0.005f }, { WavetableParams::sustain, 0.9f }, { WavetableParams::release, 0.2f }, { WavetableParams::level, 0.3f } });
+            add ("WT Bells",   { { WavetableParams::position, 0.9f }, { WavetableParams::cutoff, 12000.0f }, { WavetableParams::filterEnv, 0.0f }, { WavetableParams::decay, 1.8f }, { WavetableParams::sustain, 0.0f }, { WavetableParams::release, 1.5f }, { WavetableParams::level, 0.3f } });
+            add ("WT Strings", { { WavetableParams::position, 0.35f }, { WavetableParams::detune, 16.0f }, { WavetableParams::cutoff, 3500.0f }, { WavetableParams::attack, 0.5f }, { WavetableParams::sustain, 1.0f }, { WavetableParams::release, 1.2f }, { WavetableParams::level, 0.3f } });
+            add ("WT Keys",    { { WavetableParams::position, 0.45f }, { WavetableParams::detune, 5.0f }, { WavetableParams::cutoff, 4500.0f }, { WavetableParams::filterEnv, 1.5f }, { WavetableParams::decay, 0.8f }, { WavetableParams::sustain, 0.3f }, { WavetableParams::release, 0.5f } });
             break;
         case InstrumentType::sampler:
             add ("One Shot", {});
             add ("Looped",   { { SamplerParams::loop, 1.0f } });
             add ("Pad",      { { SamplerParams::loop, 1.0f }, { SamplerParams::attack, 0.3f }, { SamplerParams::release, 1.0f }, { SamplerParams::cutoff, 4000.0f } });
+            add ("Short Hit",     { { SamplerParams::decay, 0.4f }, { SamplerParams::sustain, 0.0f }, { SamplerParams::release, 0.1f } });
+            add ("Octave Down",   { { SamplerParams::tune, -12.0f }, { SamplerParams::loop, 1.0f } });
+            add ("Filtered Loop", { { SamplerParams::loop, 1.0f }, { SamplerParams::cutoff, 1200.0f }, { SamplerParams::attack, 0.05f }, { SamplerParams::release, 0.4f } });
+            add ("Drum Chop",     { { SamplerParams::decay, 0.25f }, { SamplerParams::sustain, 0.0f }, { SamplerParams::release, 0.05f }, { SamplerParams::level, 0.9f } });
+            add ("Slow Swell",    { { SamplerParams::loop, 1.0f }, { SamplerParams::attack, 1.5f }, { SamplerParams::release, 2.0f }, { SamplerParams::cutoff, 6000.0f } });
             break;
         case InstrumentType::electricPiano:
             add ("Tine Piano", {});
             add ("Bright EP",  { { ElectricPianoParams::tone, 0.85f }, { ElectricPianoParams::bell, 0.6f } });
             add ("Warm EP",    { { ElectricPianoParams::tone, 0.25f }, { ElectricPianoParams::tremoloDepth, 0.5f }, { ElectricPianoParams::decay, 6.0f } });
+            add ("Suitcase",    { { ElectricPianoParams::tone, 0.45f }, { ElectricPianoParams::decay, 5.0f }, { ElectricPianoParams::release, 0.2f }, { ElectricPianoParams::tremoloRate, 6.5f }, { ElectricPianoParams::tremoloDepth, 0.55f }, { ElectricPianoParams::bell, 0.25f } });
+            add ("Dyno",        { { ElectricPianoParams::tone, 0.9f }, { ElectricPianoParams::decay, 4.5f }, { ElectricPianoParams::bell, 0.8f }, { ElectricPianoParams::tremoloDepth, 0.1f } });
+            add ("Soft Rhodes", { { ElectricPianoParams::tone, 0.2f }, { ElectricPianoParams::decay, 7.0f }, { ElectricPianoParams::tremoloDepth, 0.2f }, { ElectricPianoParams::bell, 0.1f }, { ElectricPianoParams::level, 0.55f } });
+            add ("Wurly",       { { ElectricPianoParams::tone, 0.65f }, { ElectricPianoParams::decay, 3.0f }, { ElectricPianoParams::tremoloRate, 5.0f }, { ElectricPianoParams::tremoloDepth, 0.4f }, { ElectricPianoParams::bell, 0.45f } });
+            add ("EP Bell",     { { ElectricPianoParams::tone, 1.0f }, { ElectricPianoParams::decay, 8.0f }, { ElectricPianoParams::bell, 1.0f }, { ElectricPianoParams::tremoloDepth, 0.0f }, { ElectricPianoParams::level, 0.5f } });
             break;
         case InstrumentType::bass:
             add ("Acid Bass",   {});
             add ("Deep Sub",    { { BassParams::wave, 0.0f }, { BassParams::sub, 1.0f }, { BassParams::cutoff, 300.0f }, { BassParams::filterEnv, 1.0f }, { BassParams::drive, 0.0f } });
             add ("Square Bass", { { BassParams::wave, 1.0f }, { BassParams::cutoff, 1200.0f }, { BassParams::resonance, 0.5f }, { BassParams::drive, 12.0f } });
+            add ("Moog Bass",   { { BassParams::sub, 0.7f }, { BassParams::glide, 0.02f }, { BassParams::cutoff, 500.0f }, { BassParams::resonance, 0.2f }, { BassParams::filterEnv, 3.0f }, { BassParams::decay, 0.5f }, { BassParams::drive, 3.0f }, { BassParams::level, 0.65f } });
+            add ("Reese",       { { BassParams::sub, 0.3f }, { BassParams::glide, 0.08f }, { BassParams::cutoff, 1500.0f }, { BassParams::resonance, 0.1f }, { BassParams::filterEnv, 0.5f }, { BassParams::decay, 1.0f }, { BassParams::drive, 9.0f }, { BassParams::level, 0.55f } });
+            add ("Rubber Bass", { { BassParams::wave, 1.0f }, { BassParams::sub, 0.5f }, { BassParams::glide, 0.03f }, { BassParams::cutoff, 700.0f }, { BassParams::resonance, 0.6f }, { BassParams::filterEnv, 3.5f }, { BassParams::decay, 0.2f }, { BassParams::drive, 4.0f } });
+            add ("Slap Synth",  { { BassParams::sub, 0.2f }, { BassParams::glide, 0.0f }, { BassParams::cutoff, 2500.0f }, { BassParams::resonance, 0.5f }, { BassParams::filterEnv, 5.0f }, { BassParams::decay, 0.12f }, { BassParams::drive, 8.0f }, { BassParams::level, 0.55f } });
+            add ("Wobble Bass", { { BassParams::wave, 1.0f }, { BassParams::sub, 0.8f }, { BassParams::glide, 0.1f }, { BassParams::cutoff, 300.0f }, { BassParams::resonance, 0.7f }, { BassParams::filterEnv, 4.0f }, { BassParams::decay, 1.5f }, { BassParams::drive, 14.0f }, { BassParams::level, 0.55f } });
+            add ("Fretless",    { { BassParams::sub, 0.4f }, { BassParams::glide, 0.15f }, { BassParams::cutoff, 1800.0f }, { BassParams::resonance, 0.15f }, { BassParams::filterEnv, 1.2f }, { BassParams::decay, 0.6f }, { BassParams::drive, 2.0f } });
             break;
         case InstrumentType::pluck:
             add ("Nylon Guitar", {});
@@ -423,6 +456,12 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Harp",         { { PluckParams::brightness, 0.6f }, { PluckParams::damping, 0.2f }, { PluckParams::decay, 5.0f }, { PluckParams::position, 0.4f }, { PluckParams::body, 0.5f } });
             add ("Koto",         { { PluckParams::brightness, 1.0f }, { PluckParams::damping, 0.5f }, { PluckParams::decay, 1.2f }, { PluckParams::position, 0.08f }, { PluckParams::body, 0.1f } });
             add ("Muted Pluck",  { { PluckParams::brightness, 0.4f }, { PluckParams::damping, 0.8f }, { PluckParams::decay, 0.4f }, { PluckParams::release, 0.1f }, { PluckParams::level, 0.8f } });
+            add ("Banjo",       { { PluckParams::brightness, 1.0f }, { PluckParams::damping, 0.35f }, { PluckParams::decay, 1.0f }, { PluckParams::position, 0.1f }, { PluckParams::body, 0.1f }, { PluckParams::release, 0.1f }, { PluckParams::level, 0.55f } });
+            add ("Sitar",       { { PluckParams::brightness, 0.9f }, { PluckParams::damping, 0.15f }, { PluckParams::decay, 6.0f }, { PluckParams::position, 0.05f }, { PluckParams::body, 0.6f }, { PluckParams::level, 0.5f } });
+            add ("Bass Guitar", { { PluckParams::brightness, 0.5f }, { PluckParams::damping, 0.3f }, { PluckParams::decay, 3.0f }, { PluckParams::position, 0.25f }, { PluckParams::body, 0.4f }, { PluckParams::level, 0.7f } });
+            add ("Mandolin",    { { PluckParams::brightness, 0.95f }, { PluckParams::damping, 0.25f }, { PluckParams::decay, 1.5f }, { PluckParams::position, 0.12f }, { PluckParams::body, 0.2f }, { PluckParams::level, 0.5f } });
+            add ("Dulcimer",    { { PluckParams::brightness, 0.8f }, { PluckParams::damping, 0.1f }, { PluckParams::decay, 5.0f }, { PluckParams::position, 0.3f }, { PluckParams::body, 0.35f }, { PluckParams::level, 0.5f } });
+            add ("Ukulele",     { { PluckParams::brightness, 0.6f }, { PluckParams::damping, 0.4f }, { PluckParams::decay, 1.6f }, { PluckParams::position, 0.3f }, { PluckParams::body, 0.25f } });
             break;
         case InstrumentType::organ:
             add ("Jazz Organ",   { { OrganParams::percussion, 0.6f }, { OrganParams::vibrato, 0.35f } });
@@ -430,12 +469,22 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Church",       { { OrganParams::bar16, 8.0f }, { OrganParams::bar8, 8.0f }, { OrganParams::bar4, 6.0f }, { OrganParams::bar2, 6.0f }, { OrganParams::bar1, 4.0f }, { OrganParams::click, 0.0f }, { OrganParams::vibrato, 0.0f }, { OrganParams::level, 0.22f } });
             add ("Soft Flute",   { { OrganParams::bar16, 0.0f }, { OrganParams::bar8, 8.0f }, { OrganParams::bar4, 2.0f }, { OrganParams::click, 0.05f }, { OrganParams::vibrato, 0.5f }, { OrganParams::vibratoRate, 5.0f } });
             add ("Rock Organ",   { { OrganParams::bar5, 8.0f }, { OrganParams::bar2b3, 8.0f }, { OrganParams::click, 0.5f }, { OrganParams::vibrato, 0.6f }, { OrganParams::vibratoRate, 7.0f }, { OrganParams::level, 0.25f } });
+            add ("Percussive Jazz", { { OrganParams::bar4, 0.0f }, { OrganParams::percussion, 1.0f }, { OrganParams::percDecay, 0.18f }, { OrganParams::click, 0.35f }, { OrganParams::vibrato, 0.3f } });
+            add ("Gospel",       { { OrganParams::bar5, 8.0f }, { OrganParams::bar2b3, 6.0f }, { OrganParams::bar2, 6.0f }, { OrganParams::bar1b3b5, 4.0f }, { OrganParams::bar1b1b3, 4.0f }, { OrganParams::bar1, 4.0f }, { OrganParams::percussion, 0.2f }, { OrganParams::click, 0.3f }, { OrganParams::vibrato, 0.5f }, { OrganParams::vibratoRate, 6.5f }, { OrganParams::level, 0.18f } });
+            add ("Cathedral",    { { OrganParams::bar5, 4.0f }, { OrganParams::bar4, 6.0f }, { OrganParams::bar2b3, 4.0f }, { OrganParams::bar2, 6.0f }, { OrganParams::bar1b3b5, 3.0f }, { OrganParams::bar1b1b3, 2.0f }, { OrganParams::bar1, 4.0f }, { OrganParams::click, 0.0f }, { OrganParams::vibrato, 0.0f }, { OrganParams::level, 0.18f } });
+            add ("Cheesy Combo", { { OrganParams::bar16, 0.0f }, { OrganParams::bar2, 8.0f }, { OrganParams::bar1, 8.0f }, { OrganParams::click, 0.1f }, { OrganParams::vibrato, 0.7f }, { OrganParams::vibratoRate, 6.0f }, { OrganParams::level, 0.25f } });
+            add ("Reed Organ",   { { OrganParams::bar16, 0.0f }, { OrganParams::bar4, 4.0f }, { OrganParams::bar2b3, 3.0f }, { OrganParams::bar1b3b5, 2.0f }, { OrganParams::click, 0.05f }, { OrganParams::vibrato, 0.2f }, { OrganParams::vibratoRate, 5.0f } });
             break;
         case InstrumentType::stack:
             add ("Trance Saw", {});
             add ("Wide Pad",     { { StackParams::detune, 40.0f }, { StackParams::width, 1.0f }, { StackParams::cutoff, 3000.0f }, { StackParams::attack, 0.6f }, { StackParams::sustain, 1.0f }, { StackParams::release, 1.5f }, { StackParams::level, 0.25f } });
             add ("Unison Lead",  { { StackParams::voices, 3.0f }, { StackParams::detune, 12.0f }, { StackParams::width, 0.3f }, { StackParams::cutoff, 12000.0f }, { StackParams::resonance, 0.25f }, { StackParams::sustain, 0.9f }, { StackParams::release, 0.1f } });
             add ("Stack Pluck",  { { StackParams::cutoff, 600.0f }, { StackParams::filterEnv, 4.0f }, { StackParams::decay, 0.35f }, { StackParams::sustain, 0.0f }, { StackParams::release, 0.25f }, { StackParams::level, 0.4f } });
+            add ("Anthem Lead",   { { StackParams::detune, 18.0f }, { StackParams::width, 0.6f }, { StackParams::mix, 0.8f }, { StackParams::cutoff, 14000.0f }, { StackParams::resonance, 0.15f }, { StackParams::sustain, 1.0f }, { StackParams::release, 0.25f }, { StackParams::level, 0.28f } });
+            add ("Detuned Bass",  { { StackParams::voices, 5.0f }, { StackParams::detune, 10.0f }, { StackParams::width, 0.2f }, { StackParams::mix, 0.6f }, { StackParams::cutoff, 700.0f }, { StackParams::resonance, 0.3f }, { StackParams::filterEnv, 2.0f }, { StackParams::attack, 0.002f }, { StackParams::decay, 0.3f }, { StackParams::sustain, 0.5f }, { StackParams::release, 0.15f }, { StackParams::level, 0.4f } });
+            add ("Hyper Saw",     { { StackParams::detune, 60.0f }, { StackParams::width, 1.0f }, { StackParams::mix, 1.0f }, { StackParams::cutoff, 9000.0f }, { StackParams::attack, 0.05f }, { StackParams::sustain, 0.9f }, { StackParams::release, 0.4f }, { StackParams::level, 0.25f } });
+            add ("Stack Strings", { { StackParams::detune, 22.0f }, { StackParams::width, 0.9f }, { StackParams::mix, 0.7f }, { StackParams::cutoff, 2500.0f }, { StackParams::attack, 0.9f }, { StackParams::sustain, 1.0f }, { StackParams::release, 1.8f }, { StackParams::level, 0.25f } });
+            add ("Tight Pluck",   { { StackParams::voices, 3.0f }, { StackParams::detune, 6.0f }, { StackParams::width, 0.3f }, { StackParams::cutoff, 1200.0f }, { StackParams::resonance, 0.4f }, { StackParams::filterEnv, 5.0f }, { StackParams::decay, 0.2f }, { StackParams::sustain, 0.0f }, { StackParams::release, 0.2f }, { StackParams::level, 0.4f } });
             break;
         case InstrumentType::chip:
             add ("Pulse Lead", {});
@@ -443,12 +492,24 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Arp Chord",    { { ChipParams::arp, 2.0f }, { ChipParams::arpRate, 15.0f }, { ChipParams::sustain, 0.8f } });
             add ("Tri Bass",     { { ChipParams::wave, 3.0f }, { ChipParams::bits, 4.0f }, { ChipParams::vibratoDepth, 0.0f }, { ChipParams::sustain, 0.9f }, { ChipParams::level, 0.4f } });
             add ("Noise Hit",    { { ChipParams::wave, 4.0f }, { ChipParams::decay, 0.12f }, { ChipParams::sustain, 0.0f }, { ChipParams::vibratoDepth, 0.0f } });
+            add ("Triangle Lead", { { ChipParams::wave, 3.0f }, { ChipParams::bits, 4.0f }, { ChipParams::vibratoDepth, 0.2f }, { ChipParams::decay, 0.3f }, { ChipParams::sustain, 0.8f }, { ChipParams::level, 0.35f } });
+            add ("Arp Minor",     { { ChipParams::arp, 3.0f }, { ChipParams::arpRate, 12.0f }, { ChipParams::sustain, 0.8f } });
+            add ("Arp Octaves",   { { ChipParams::wave, 2.0f }, { ChipParams::arp, 1.0f }, { ChipParams::arpRate, 25.0f }, { ChipParams::sustain, 0.9f } });
+            add ("Power Chord",   { { ChipParams::wave, 2.0f }, { ChipParams::arp, 4.0f }, { ChipParams::arpRate, 30.0f }, { ChipParams::sustain, 1.0f }, { ChipParams::vibratoDepth, 0.0f }, { ChipParams::level, 0.3f } });
+            add ("Chip Pad",      { { ChipParams::wave, 0.0f }, { ChipParams::bits, 6.0f }, { ChipParams::vibratoRate, 4.0f }, { ChipParams::vibratoDepth, 0.15f }, { ChipParams::attack, 0.3f }, { ChipParams::decay, 0.5f }, { ChipParams::sustain, 0.8f }, { ChipParams::release, 0.6f }, { ChipParams::level, 0.2f } });
+            add ("Laser Zap",     { { ChipParams::wave, 2.0f }, { ChipParams::vibratoRate, 12.0f }, { ChipParams::vibratoDepth, 1.0f }, { ChipParams::decay, 0.12f }, { ChipParams::sustain, 0.0f }, { ChipParams::release, 0.02f } });
             break;
         case InstrumentType::vox:
             add ("Choir Ahh", {});
             add ("Ooh Pad",      { { VoxParams::vowel, 3.0f }, { VoxParams::drift, 0.15f }, { VoxParams::attack, 0.5f }, { VoxParams::release, 1.2f }, { VoxParams::tone, 0.3f } });
             add ("Talking Lead", { { VoxParams::drift, 1.0f }, { VoxParams::driftRate, 1.5f }, { VoxParams::attack, 0.01f }, { VoxParams::sustain, 0.9f }, { VoxParams::release, 0.1f }, { VoxParams::breath, 0.05f } });
             add ("Whisper",      { { VoxParams::vowel, 2.0f }, { VoxParams::breath, 0.8f }, { VoxParams::tone, 0.8f }, { VoxParams::attack, 0.3f }, { VoxParams::level, 0.8f } });
+            add ("Big Choir",    { { VoxParams::drift, 0.2f }, { VoxParams::width, 14.0f }, { VoxParams::breath, 0.1f }, { VoxParams::attack, 0.6f }, { VoxParams::sustain, 1.0f }, { VoxParams::release, 2.0f }, { VoxParams::level, 0.55f } });
+            add ("Ooo Bass",     { { VoxParams::vowel, 3.0f }, { VoxParams::width, 4.0f }, { VoxParams::tone, 0.2f }, { VoxParams::attack, 0.05f }, { VoxParams::sustain, 0.9f }, { VoxParams::release, 0.3f }, { VoxParams::level, 0.7f } });
+            add ("Eee Lead",     { { VoxParams::vowel, 1.0f }, { VoxParams::drift, 0.1f }, { VoxParams::breath, 0.05f }, { VoxParams::attack, 0.01f }, { VoxParams::sustain, 0.9f }, { VoxParams::release, 0.15f }, { VoxParams::tone, 0.9f }, { VoxParams::level, 0.5f } });
+            add ("Vowel Sweep",  { { VoxParams::drift, 1.0f }, { VoxParams::driftRate, 0.15f }, { VoxParams::attack, 0.3f }, { VoxParams::release, 1.5f } });
+            add ("Robot Voice",  { { VoxParams::vowel, 2.0f }, { VoxParams::drift, 0.8f }, { VoxParams::driftRate, 4.0f }, { VoxParams::width, 0.0f }, { VoxParams::breath, 0.0f }, { VoxParams::tone, 1.0f }, { VoxParams::attack, 0.005f }, { VoxParams::sustain, 1.0f }, { VoxParams::release, 0.05f }, { VoxParams::level, 0.5f } });
+            add ("Breathy Pad",  { { VoxParams::vowel, 4.0f }, { VoxParams::breath, 0.5f }, { VoxParams::attack, 1.0f }, { VoxParams::sustain, 1.0f }, { VoxParams::release, 2.5f }, { VoxParams::tone, 0.4f } });
             break;
         case InstrumentType::piano:
             add ("Grand Piano", {});
@@ -456,6 +517,11 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Upright",      { { PianoParams::hardness, 0.5f }, { PianoParams::stiffness, 0.6f }, { PianoParams::detune, 1.6f }, { PianoParams::decay, 3.5f }, { PianoParams::thump, 0.6f } });
             add ("Felt Piano",   { { PianoParams::hardness, 0.2f }, { PianoParams::tone, 0.2f }, { PianoParams::thump, 0.7f }, { PianoParams::decay, 4.0f }, { PianoParams::level, 0.7f } });
             add ("Honky Tonk",   { { PianoParams::detune, 3.5f }, { PianoParams::hardness, 0.8f }, { PianoParams::stiffness, 0.7f }, { PianoParams::decay, 2.5f } });
+            add ("Concert Grand", { { PianoParams::hardness, 0.55f }, { PianoParams::stiffness, 0.3f }, { PianoParams::decay, 7.0f }, { PianoParams::detune, 0.6f }, { PianoParams::thump, 0.35f }, { PianoParams::tone, 0.55f }, { PianoParams::release, 0.3f } });
+            add ("Soft Ballad",   { { PianoParams::hardness, 0.3f }, { PianoParams::decay, 6.0f }, { PianoParams::thump, 0.3f }, { PianoParams::tone, 0.35f }, { PianoParams::level, 0.6f } });
+            add ("Toy Piano",     { { PianoParams::hardness, 1.0f }, { PianoParams::stiffness, 1.0f }, { PianoParams::decay, 1.2f }, { PianoParams::detune, 2.0f }, { PianoParams::thump, 0.2f }, { PianoParams::tone, 1.0f }, { PianoParams::release, 0.1f }, { PianoParams::level, 0.5f } });
+            add ("Electric Grand", { { PianoParams::hardness, 0.7f }, { PianoParams::stiffness, 0.2f }, { PianoParams::decay, 4.0f }, { PianoParams::detune, 0.3f }, { PianoParams::thump, 0.1f }, { PianoParams::tone, 0.9f } });
+            add ("Dark Piano",    { { PianoParams::hardness, 0.15f }, { PianoParams::stiffness, 0.5f }, { PianoParams::decay, 5.0f }, { PianoParams::detune, 0.9f }, { PianoParams::thump, 0.8f }, { PianoParams::tone, 0.1f }, { PianoParams::release, 0.5f }, { PianoParams::level, 0.7f } });
             break;
         case InstrumentType::strings:
             add ("String Ensemble", {});
@@ -463,6 +529,11 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Cellos",       { { StringsParams::ensemble, 8.0f }, { StringsParams::bow, 1800.0f }, { StringsParams::vibrato, 0.35f }, { StringsParams::vibratoRate, 4.5f }, { StringsParams::attack, 0.25f }, { StringsParams::level, 0.45f } });
             add ("Pizzicato",    { { StringsParams::ensemble, 4.0f }, { StringsParams::movement, 0.0f }, { StringsParams::vibrato, 0.0f }, { StringsParams::bow, 2500.0f }, { StringsParams::attack, 0.002f }, { StringsParams::decay, 0.25f }, { StringsParams::sustain, 0.0f }, { StringsParams::release, 0.15f }, { StringsParams::level, 0.6f } });
             add ("Slow Pad",     { { StringsParams::ensemble, 20.0f }, { StringsParams::movement, 0.8f }, { StringsParams::bow, 2200.0f }, { StringsParams::attack, 1.2f }, { StringsParams::release, 2.0f }, { StringsParams::level, 0.3f } });
+            add ("Violas",       { { StringsParams::ensemble, 10.0f }, { StringsParams::bow, 2800.0f }, { StringsParams::vibrato, 0.35f }, { StringsParams::vibratoRate, 5.0f }, { StringsParams::attack, 0.3f }, { StringsParams::level, 0.4f } });
+            add ("Bass Section", { { StringsParams::ensemble, 6.0f }, { StringsParams::bow, 1200.0f }, { StringsParams::vibrato, 0.25f }, { StringsParams::vibratoRate, 4.0f }, { StringsParams::attack, 0.35f }, { StringsParams::level, 0.5f } });
+            add ("Staccato",     { { StringsParams::attack, 0.01f }, { StringsParams::decay, 0.3f }, { StringsParams::sustain, 0.3f }, { StringsParams::release, 0.1f }, { StringsParams::bow, 4000.0f }, { StringsParams::level, 0.45f } });
+            add ("Chamber",      { { StringsParams::ensemble, 6.0f }, { StringsParams::movement, 0.3f }, { StringsParams::vibrato, 0.4f }, { StringsParams::bow, 4500.0f }, { StringsParams::attack, 0.2f }, { StringsParams::level, 0.4f } });
+            add ("Synth Strings", { { StringsParams::ensemble, 25.0f }, { StringsParams::movement, 0.9f }, { StringsParams::vibrato, 0.1f }, { StringsParams::bow, 2000.0f }, { StringsParams::attack, 0.6f }, { StringsParams::release, 1.5f }, { StringsParams::level, 0.3f } });
             break;
         case InstrumentType::mallets:
             add ("Marimba", {});
@@ -470,6 +541,12 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("Glockenspiel", { { MalletParams::instrument, 2.0f }, { MalletParams::hardness, 0.8f }, { MalletParams::level, 0.25f } });
             add ("Kalimba",      { { MalletParams::instrument, 3.0f }, { MalletParams::hardness, 0.3f }, { MalletParams::strike, 0.6f } });
             add ("Soft Marimba", { { MalletParams::hardness, 0.15f }, { MalletParams::decay, 1.4f }, { MalletParams::strike, 0.2f } });
+            add ("Xylophone",    { { MalletParams::hardness, 1.0f }, { MalletParams::decay, 0.5f }, { MalletParams::strike, 0.7f }, { MalletParams::level, 0.4f } });
+            add ("Vibes Motor",  { { MalletParams::instrument, 1.0f }, { MalletParams::hardness, 0.5f }, { MalletParams::decay, 1.2f }, { MalletParams::tremoloRate, 6.0f }, { MalletParams::tremoloDepth, 0.8f } });
+            add ("Music Box",    { { MalletParams::instrument, 2.0f }, { MalletParams::hardness, 0.3f }, { MalletParams::decay, 1.5f }, { MalletParams::strike, 0.1f }, { MalletParams::level, 0.3f } });
+            add ("Kalimba Soft", { { MalletParams::instrument, 3.0f }, { MalletParams::hardness, 0.1f }, { MalletParams::decay, 1.5f }, { MalletParams::strike, 0.3f } });
+            add ("Marimba Bass", { { MalletParams::hardness, 0.3f }, { MalletParams::decay, 1.8f }, { MalletParams::strike, 0.3f }, { MalletParams::level, 0.4f } });
+            add ("Long Bells",   { { MalletParams::instrument, 2.0f }, { MalletParams::hardness, 0.6f }, { MalletParams::decay, 3.0f }, { MalletParams::level, 0.25f } });
             break;
         case InstrumentType::brass:
             add ("Brass Section", {});
@@ -477,12 +554,22 @@ std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
             add ("French Horn",  { { BrassParams::detune, 3.0f }, { BrassParams::blat, 1.2f }, { BrassParams::blatTime, 0.15f }, { BrassParams::cutoff, 900.0f }, { BrassParams::dip, 0.3f }, { BrassParams::vibrato, 0.1f }, { BrassParams::attack, 0.08f } });
             add ("Trombone",     { { BrassParams::detune, 2.0f }, { BrassParams::blat, 1.8f }, { BrassParams::blatTime, 0.1f }, { BrassParams::cutoff, 1200.0f }, { BrassParams::dip, 1.5f }, { BrassParams::vibratoRate, 4.0f } });
             add ("Synth Brass",  { { BrassParams::detune, 14.0f }, { BrassParams::blat, 3.0f }, { BrassParams::blatTime, 0.12f }, { BrassParams::cutoff, 1800.0f }, { BrassParams::resonance, 0.4f }, { BrassParams::dip, 0.0f }, { BrassParams::vibrato, 0.0f }, { BrassParams::release, 0.3f } });
+            add ("Horn Section",  { { BrassParams::detune, 8.0f }, { BrassParams::blat, 2.2f }, { BrassParams::blatTime, 0.07f }, { BrassParams::cutoff, 1700.0f }, { BrassParams::resonance, 0.2f }, { BrassParams::dip, 0.6f }, { BrassParams::vibrato, 0.3f }, { BrassParams::attack, 0.03f }, { BrassParams::release, 0.2f } });
+            add ("Tuba",          { { BrassParams::detune, 0.0f }, { BrassParams::blat, 1.0f }, { BrassParams::blatTime, 0.12f }, { BrassParams::cutoff, 600.0f }, { BrassParams::dip, 1.0f }, { BrassParams::vibrato, 0.1f }, { BrassParams::attack, 0.06f }, { BrassParams::level, 0.5f } });
+            add ("Muted Trumpet", { { BrassParams::detune, 0.0f }, { BrassParams::blat, 3.0f }, { BrassParams::blatTime, 0.04f }, { BrassParams::cutoff, 3500.0f }, { BrassParams::resonance, 0.6f }, { BrassParams::dip, 0.5f }, { BrassParams::vibrato, 0.4f }, { BrassParams::attack, 0.02f }, { BrassParams::level, 0.3f } });
+            add ("Brass Swell",   { { BrassParams::detune, 10.0f }, { BrassParams::blat, 1.5f }, { BrassParams::blatTime, 0.5f }, { BrassParams::cutoff, 1200.0f }, { BrassParams::attack, 0.6f }, { BrassParams::release, 0.5f }, { BrassParams::level, 0.35f } });
+            add ("Stab Brass",    { { BrassParams::detune, 12.0f }, { BrassParams::blat, 3.5f }, { BrassParams::blatTime, 0.03f }, { BrassParams::cutoff, 2500.0f }, { BrassParams::resonance, 0.3f }, { BrassParams::dip, 0.0f }, { BrassParams::vibrato, 0.0f }, { BrassParams::attack, 0.005f }, { BrassParams::release, 0.08f }, { BrassParams::level, 0.45f } });
             break;
         case InstrumentType::flute:
             add ("Flute", {});
             add ("Pan Pipes",    { { FluteParams::breath, 0.6f }, { FluteParams::air, 0.7f }, { FluteParams::chiff, 0.9f }, { FluteParams::overblow, 0.05f }, { FluteParams::vibrato, 0.2f }, { FluteParams::attack, 0.03f } });
             add ("Recorder",     { { FluteParams::breath, 0.15f }, { FluteParams::air, 0.3f }, { FluteParams::chiff, 0.3f }, { FluteParams::overblow, 0.4f }, { FluteParams::vibrato, 0.1f }, { FluteParams::attack, 0.02f } });
             add ("Shakuhachi",   { { FluteParams::breath, 0.8f }, { FluteParams::air, 0.5f }, { FluteParams::chiff, 0.6f }, { FluteParams::vibrato, 0.6f }, { FluteParams::vibratoRate, 3.5f }, { FluteParams::vibratoDelay, 0.8f }, { FluteParams::attack, 0.15f } });
+            add ("Bass Flute",   { { FluteParams::breath, 0.45f }, { FluteParams::air, 0.3f }, { FluteParams::chiff, 0.3f }, { FluteParams::overblow, 0.1f }, { FluteParams::vibrato, 0.3f }, { FluteParams::vibratoRate, 4.5f }, { FluteParams::vibratoDelay, 0.5f }, { FluteParams::attack, 0.1f }, { FluteParams::level, 0.55f } });
+            add ("Ocarina",      { { FluteParams::breath, 0.1f }, { FluteParams::air, 0.2f }, { FluteParams::chiff, 0.2f }, { FluteParams::overblow, 0.05f }, { FluteParams::vibrato, 0.4f }, { FluteParams::vibratoRate, 5.5f }, { FluteParams::attack, 0.03f } });
+            add ("Whistle",      { { FluteParams::breath, 0.05f }, { FluteParams::air, 0.1f }, { FluteParams::chiff, 0.1f }, { FluteParams::overblow, 0.3f }, { FluteParams::vibrato, 0.5f }, { FluteParams::vibratoRate, 6.0f }, { FluteParams::vibratoDelay, 0.2f }, { FluteParams::attack, 0.01f }, { FluteParams::release, 0.1f }, { FluteParams::level, 0.45f } });
+            add ("Breath Pad",   { { FluteParams::breath, 1.0f }, { FluteParams::air, 0.9f }, { FluteParams::chiff, 0.0f }, { FluteParams::overblow, 0.0f }, { FluteParams::vibrato, 0.1f }, { FluteParams::attack, 0.8f }, { FluteParams::release, 1.5f }, { FluteParams::level, 0.7f } });
+            add ("Bamboo Flute", { { FluteParams::breath, 0.6f }, { FluteParams::air, 0.6f }, { FluteParams::chiff, 0.7f }, { FluteParams::overblow, 0.15f }, { FluteParams::vibrato, 0.5f }, { FluteParams::vibratoRate, 4.0f }, { FluteParams::vibratoDelay, 0.6f }, { FluteParams::attack, 0.08f } });
             break;
         case InstrumentType::none:
             break;
