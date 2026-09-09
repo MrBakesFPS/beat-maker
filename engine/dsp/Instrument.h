@@ -52,8 +52,17 @@ public:
 
     static std::unique_ptr<Instrument> create (InstrumentType, double sampleRate);
     static const std::vector<ParamInfo>& paramInfo (InstrumentType);
-    static std::vector<InstrumentParams> presets (InstrumentType);
+    static std::vector<InstrumentParams> presets (InstrumentType);          // the bundled presets, then the user's own
+    static std::vector<InstrumentParams> bundledPresets (InstrumentType);
     static InstrumentParams defaultParams (InstrumentType);
+
+    // Presets of the user's own (persistence/UserPresets): registered here so they list and resolve by name
+    // wherever presets do. A name that a bundled preset of the same instrument already has is refused.
+    struct UserPreset { InstrumentType type = InstrumentType::none; InstrumentParams params; };
+    static void setUserPresets (std::vector<UserPreset>);
+    static const std::vector<UserPreset>& userPresets();
+    static bool isUserPreset (InstrumentType, const juce::String& name);
+    static InstrumentType typeNamed (const juce::String& name);            // by typeName (case-insensitive, spaces ignored); none when unknown
     static const char* typeName (InstrumentType);
     // Where an instrument sits in the chooser (Synths, Keys, Bass, Samplers, ...) and a line about what it is for
     static const char* typeCategory (InstrumentType);

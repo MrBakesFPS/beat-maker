@@ -487,6 +487,47 @@ TEST_CASE ("The acoustic-style instruments each behave like their model")
     }
 }
 
+TEST_CASE ("User presets list after the bundled ones, cannot shadow them, and the audition takes new params in place")
+{
+    const auto bundled = Instrument::bundledPresets (InstrumentType::fm).size();
+    Instrument::UserPreset mine; mine.type = InstrumentType::fm; mine.params = Instrument::defaultParams (InstrumentType::fm);
+    mine.params.presetName = "My Bell"; mine.params.values[FmParams::ratio] = 5.0f;
+    Instrument::UserPreset shadow = mine; shadow.params.presetName = "FM Bell";
+    Instrument::UserPreset blank = mine; blank.params.presetName = "  ";
+    Instrument::setUserPresets ({ mine, shadow, blank, mine });
+    CHECK (Instrument::userPresets().size() == 1);
+    CHECK (Instrument::presets (InstrumentType::fm).size() == bundled + 1);
+    CHECK (Instrument::presets (InstrumentType::fm).back().presetName == "My Bell");
+    CHECK_THAT (Instrument::presets (InstrumentType::fm).back().values[FmParams::ratio], WithinAbs (5.0, 1e-6));
+    CHECK (Instrument::presets (InstrumentType::subtractive).size() == Instrument::bundledPresets (InstrumentType::subtractive).size());
+    CHECK (Instrument::isUserPreset (InstrumentType::fm, "My Bell"));
+    CHECK (! Instrument::isUserPreset (InstrumentType::fm, "FM Bell"));
+    CHECK (Instrument::typeNamed ("fm synth") == InstrumentType::fm);
+    CHECK (Instrument::typeNamed ("electric-piano") == InstrumentType::electricPiano);
+    CHECK (Instrument::typeNamed ("no such") == InstrumentType::none);
+    Instrument::setUserPresets ({});
+    CHECK (Instrument::presets (InstrumentType::fm).size() == bundled);
+
+    // The preset builder turns a knob while the phrase plays: params change, the instrument and its voice stay
+    Renderer r;
+    r.graph.setAuditionInstrument (Instrument::create (InstrumentType::subtractive, 48000.0), testParams());
+    r.graph.triggerAuditionNote (60, 1.0f, 2.0);
+    r.renderAll (512, 512);
+    CHECK (r.loudBetween (1, 512));
+    auto quiet = std::make_shared<InstrumentParams> (*testParams()); quiet->values[SubtractiveParams::level] = 0.0f;
+    r.graph.updateAuditionParams (quiet);
+    r.renderAll (512, 512);
+    CHECK (r.silentBetween (64, 512));                 // same voice, level now zero
+    auto loud = std::make_shared<InstrumentParams> (*testParams());
+    r.graph.updateAuditionParams (loud);
+    r.renderAll (512, 512);
+    CHECK (r.loudBetween (64, 512));                   // and back, without a new note
+    r.graph.collectGarbage();
+    r.graph.setAuditionInstrument (nullptr, nullptr);
+    r.renderAll (512, 512);
+    r.graph.collectGarbage();
+}
+
 TEST_CASE ("Sampler plays the sample at its root pitch and transposes by semitones")
 {
     auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 96000);

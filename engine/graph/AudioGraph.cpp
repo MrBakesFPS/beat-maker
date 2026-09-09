@@ -88,6 +88,12 @@ void AudioGraph::triggerAuditionNote (int pitch, float velocity, double seconds)
     }
 }
 
+void AudioGraph::updateAuditionParams (std::shared_ptr<const InstrumentParams> params)
+{
+    auto* next = new Audition { nullptr, std::move (params), nullptr, true };
+    delete incomingAudition.exchange (next);
+}
+
 void AudioGraph::setAuditionKit (std::shared_ptr<const DrumKit> kit)
 {
     auditionSet.store (kit != nullptr, std::memory_order_relaxed);
@@ -113,6 +119,12 @@ void AudioGraph::swapInPendingAudition() noexcept
 {
     auto* next = incomingAudition.exchange (nullptr, std::memory_order_acq_rel);
     if (next == nullptr) return;
+    if (next->paramsOnly && audition != nullptr)
+    {
+        // Keep the playing instrument, take the new params; the old Audition (holding the old params) is retired
+        next->instance = std::move (audition->instance);
+        next->kit = audition->kit;
+    }
     if (audition != nullptr)
     {
         const auto scope = retiredAuditionFifo.write (1);

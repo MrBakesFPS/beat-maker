@@ -15,6 +15,9 @@ PianoRoll::PianoRoll (model::Session& s, engine::Transport& t, engine::AudioGrap
     presetLabel.setColour (juce::Label::textColourId, theme::textDim);
     presetLabel.setFont (juce::FontOptions (12.0f));
 
+    addAndMakeVisible (savePresetButton);
+    savePresetButton.setTooltip ("Save this track's sound, knobs and all, as a preset of your own (it then lists in every Sound menu)");
+    savePresetButton.onClick = [this] { if (trackIndex >= 0 && onSavePreset) onSavePreset (trackIndex); };
     addAndMakeVisible (presetBox);
     presetBox.onChange = [this]
     {
@@ -120,12 +123,17 @@ void PianoRoll::refreshPresetBox()
     if (track == nullptr || ! track->hasInstrument()) return;
     const auto type = track->instrumentType();
     const auto presets = engine::Instrument::presets (type);
-    if (type != presetType)
+    if (type != presetType || presetBox.getNumItems() != (int) presets.size())
     {
         presetType = type;
         presetBox.clear (juce::dontSendNotification);
         int id = 1;
-        for (const auto& p : presets) presetBox.addItem (p.presetName, id++);
+        bool headed = false;
+        for (const auto& p : presets)
+        {
+            if (! headed && engine::Instrument::isUserPreset (type, p.presetName)) { presetBox.addSectionHeading ("My Presets"); headed = true; }
+            presetBox.addItem (p.presetName, id++);
+        }
     }
     presetBox.setSelectedId (0, juce::dontSendNotification);
     for (int i = 0; i < (int) presets.size(); ++i)
@@ -398,6 +406,8 @@ void PianoRoll::resized()
     auto header = getLocalBounds().removeFromTop (headerHeight).reduced (8, 3);
     presetLabel.setBounds (header.removeFromLeft (44));
     presetBox.setBounds (header.removeFromLeft (160));
+    header.removeFromLeft (4);
+    savePresetButton.setBounds (header.removeFromLeft (54));
     header.removeFromLeft (8);
     linkButton.setBounds (header.removeFromLeft (46));
     header.removeFromLeft (4);

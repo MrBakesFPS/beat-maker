@@ -132,6 +132,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | New Synth Track | `ctrl + I` |  |
 | New Drum Machine Track (choose kit)... |  |  |
 | Build Your Own Drum Kit... |  |  |
+| Build Your Own Preset... |  |  |
+| Save Sound as Preset... |  |  |
 | New Instrument Track (choose)... | `ctrl + shift + I` |  |
 | New Synth Track |  |  |
 | New FM Synth Track |  |  |

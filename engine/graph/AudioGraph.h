@@ -52,6 +52,7 @@ public:
     // Message thread. An instrument that is on no track (the instrument chooser's preview): the graph takes it,
     // plays it straight to the main outputs, and retires the previous one. Null clears it.
     void setAuditionInstrument (std::unique_ptr<Instrument>, std::shared_ptr<const InstrumentParams>);
+    void updateAuditionParams (std::shared_ptr<const InstrumentParams>);   // new params for the instrument already there (a knob turned while it plays)
     void triggerAuditionNote (int pitch, float velocity, double seconds = 0.3);
     void stopAuditionNotes();   // release what the audition instrument or kit is playing
     // The drum-kit counterpart (the kit chooser's preview): a kit on no track, played on a private strip.
@@ -186,7 +187,7 @@ private:
     juce::AbstractFifo retiredFifo { retiredCapacity }; // audio -> message
 
     // The chooser's audition instrument, handed over like a snapshot: message -> incoming -> audio -> retired -> message
-    struct Audition { std::unique_ptr<Instrument> instance; std::shared_ptr<const InstrumentParams> params; std::shared_ptr<const DrumKit> kit; };
+    struct Audition { std::unique_ptr<Instrument> instance; std::shared_ptr<const InstrumentParams> params; std::shared_ptr<const DrumKit> kit; bool paramsOnly = false; };
     Audition* audition = nullptr;                          // owned by the audio thread
     std::atomic<Audition*> incomingAudition { nullptr };   // an Audition with a null instance clears
     static constexpr int auditionCapacity = 8;

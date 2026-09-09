@@ -31,6 +31,9 @@ public:
     // The instrument and preset chosen (presetName empty = the instrument's usual starting preset)
     std::function<void (engine::InstrumentType, const juce::String& presetName)> onAdd;
     std::function<void()> onCancel;
+    std::function<void (engine::InstrumentType, const juce::String& presetName)> onBuild;    // Build Your Own... / Edit... a preset
+    std::function<void (engine::InstrumentType, const juce::String& presetName)> onRemove;   // Remove a preset of the user's own
+    void refreshPresets();                                    // after the user's presets changed
 
     void selectType (engine::InstrumentType);
     engine::InstrumentType selectedType() const;
@@ -44,6 +47,7 @@ private:
     struct CategoryList; struct InstrumentList; struct PresetList; struct Row;
     void rebuildInstruments();
     void rebuildPresets();
+    void refreshButtons();
     void add();
     void timerCallback() override;
     void refreshPlayButtons();
@@ -63,7 +67,7 @@ private:
     juce::ListBox categories, instruments, presetBox;
     juce::Label categoryLabel { {}, "Category" }, instrumentLabel { {}, "Instrument" }, presetLabel { {}, "Start from" };
     juce::TextEditor description;
-    juce::TextButton addButton { "Add Track" }, cancelButton { "Cancel" };
+    juce::TextButton addButton { "Add Track" }, cancelButton { "Cancel" }, buildButton { "Build Your Own..." }, removeButton { "Remove" };
 };
 
 } // namespace beatmaker::ui

@@ -8,6 +8,7 @@
 #include <AudioFileLoader.h>
 #include <dsp/DrumKitFactory.h>
 #include <UserKits.h>
+#include <UserPresets.h>
 
 using namespace beatmaker;
 using namespace beatmaker::model;
@@ -327,6 +328,28 @@ TEST_CASE ("User kits save to and load from their folder, one file each")
     CHECK (loaded[1].pads[0].kit == "909"); CHECK (loaded[1].pads[0].pad == 0); CHECK (loaded[1].pads[5].kit == "Rock Kit"); CHECK (loaded[1].pads[5].pad == 5);
     CHECK (persistence::UserKits::remove (dir, "Punchy Mix"));
     CHECK (persistence::UserKits::load (dir).size() == 1);
+    dir.deleteRecursively();
+}
+
+TEST_CASE ("User presets save to and load from their folder, one file each under the instrument")
+{
+    using namespace beatmaker;
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("bm-presets-" + juce::String (juce::Random::getSystemRandom().nextInt (1 << 30)));
+    auto p = engine::Instrument::defaultParams (engine::InstrumentType::stack);
+    p.presetName = "Huge / Wide?"; p.values[engine::StackParams::detune] = 42.0f; p.values[engine::StackParams::voices] = 5.0f;
+    CHECK (persistence::UserPresets::save (dir, engine::InstrumentType::stack, p).isEmpty());
+    auto sp = engine::Instrument::defaultParams (engine::InstrumentType::sampler);
+    sp.presetName = "My Sample"; sp.samplePath = "/tmp/x.wav"; sp.rootNote = 48;
+    CHECK (persistence::UserPresets::save (dir, engine::InstrumentType::sampler, sp).isEmpty());
+    p.presetName = " "; CHECK (persistence::UserPresets::save (dir, engine::InstrumentType::stack, p).isNotEmpty());
+    CHECK (persistence::UserPresets::save (dir, engine::InstrumentType::none, p).isNotEmpty());
+    auto loaded = persistence::UserPresets::load (dir);
+    REQUIRE (loaded.size() == 2);
+    CHECK (loaded[0].type == engine::InstrumentType::stack); CHECK (loaded[0].params.presetName == "Huge / Wide?");
+    CHECK (loaded[0].params.values[engine::StackParams::detune] == 42.0f); CHECK (loaded[0].params.values[engine::StackParams::voices] == 5.0f);
+    CHECK (loaded[1].type == engine::InstrumentType::sampler); CHECK (loaded[1].params.samplePath == "/tmp/x.wav"); CHECK (loaded[1].params.rootNote == 48);
+    CHECK (persistence::UserPresets::remove (dir, engine::InstrumentType::stack, "Huge / Wide?"));
+    CHECK (persistence::UserPresets::load (dir).size() == 1);
     dir.deleteRecursively();
 }
 

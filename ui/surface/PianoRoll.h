@@ -77,6 +77,8 @@ public:
 
     std::function<void (int trackIndex, int clipIndex, std::shared_ptr<const engine::MidiSequence>, juce::String)> onSequenceChanged;
     std::function<void (int trackIndex, int presetIndex)> onPresetChanged;
+    std::function<void (int trackIndex)> onSavePreset;        // "Save..." next to the Sound menu: the track's sound as a preset of the user's own
+    void refreshPresetBox();                                  // the Sound menu, after the presets changed
     using View = TimelineView;   // viewSource / onViewChanged / onStatus come from EditorPanel
     // A note added past the clip's end: the app extends the clip (samples at the clip's rate).
     std::function<void (int trackIndex, int clipIndex, juce::int64 newLengthSamples)> onClipExtend;
@@ -183,7 +185,6 @@ private:
     bool unrollIfGhost (int repeat);               // returns true when the loop was unrolled
     void spotNote (int index);
     void audition (int pitch, float velocity = 0.8f);
-    void refreshPresetBox();
     void status (const juce::String&);
 
     model::Session& session;
@@ -213,6 +214,7 @@ private:
     int defaultVelocity = 100, softVelocity = 70;
     juce::ComboBox presetBox;
     juce::Label presetLabel { {}, "Sound" };
+    juce::TextButton savePresetButton { "Save..." };
     juce::TextButton linkButton { "Link" }, loopButton { "Loop" }, unrollButton { "Unroll" }, rowsSmaller { "-" }, rowsBigger { "+" };
     juce::ScrollBar pitchScroll { true };
     bool draggingKeyboard = false; int keyboardDragStartPitch = 0;

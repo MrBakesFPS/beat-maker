@@ -115,9 +115,13 @@ struct InstrumentChooser::PresetList final : juce::ListBoxModel
         auto* r = dynamic_cast<Row*> (existing);
         if (r == nullptr) { delete existing; r = new Row (owner, true); }
         if (juce::isPositiveAndBelow (row, getNumRows()))
-            r->update (row, owner.selectedType(), owner.presets[(size_t) row].presetName, owner.presets[(size_t) row].presetName, {}, selected);
+        {
+            const auto& name = owner.presets[(size_t) row].presetName;
+            r->update (row, owner.selectedType(), name, name + (engine::Instrument::isUserPreset (owner.selectedType(), name) ? "   (yours)" : juce::String()), {}, selected);
+        }
         return r;
     }
+    void selectedRowsChanged (int) override { owner.refreshButtons(); }
     void returnKeyPressed (int) override { owner.add(); }
     InstrumentChooser& owner;
 };
@@ -157,9 +161,31 @@ InstrumentChooser::InstrumentChooser (engine::AudioGraph* g) : graph (g)
     cancelButton.onClick = [this] { if (onCancel) onCancel(); };
     addAndMakeVisible (addButton);
     addAndMakeVisible (cancelButton);
+    buildButton.setTooltip ("Build a preset of your own, starting from the selected one (a preset of yours is edited)");
+    buildButton.onClick = [this] { if (onBuild) onBuild (selectedType(), selectedPreset()); };
+    removeButton.setTooltip ("Delete this preset of yours");
+    removeButton.onClick = [this] { if (onRemove) onRemove (selectedType(), selectedPreset()); };
+    addAndMakeVisible (buildButton);
+    addAndMakeVisible (removeButton);
     categories.selectRow (0);
     rebuildInstruments();
     setSize (preferredWidth, preferredHeight);
+}
+
+void InstrumentChooser::refreshPresets()
+{
+    const auto keepType = selectedType(); const auto keepPreset = selectedPreset();
+    rebuildPresets();
+    for (int i = 0; i < (int) presets.size(); ++i) if (presets[(size_t) i].presetName == keepPreset) presetBox.selectRow (i);
+    juce::ignoreUnused (keepType);
+    instruments.repaint();   // preset counts
+}
+
+void InstrumentChooser::refreshButtons()
+{
+    const bool user = engine::Instrument::isUserPreset (selectedType(), selectedPreset());
+    buildButton.setButtonText (user ? "Edit..." : "Build Your Own...");
+    removeButton.setVisible (user);
 }
 
 InstrumentChooser::~InstrumentChooser()
@@ -251,6 +277,7 @@ void InstrumentChooser::rebuildPresets()
     if (! presets.empty()) presetBox.selectRow (type == engine::InstrumentType::subtractive && presets.size() > 1 ? 1 : 0);
     description.setText (type == engine::InstrumentType::none ? juce::String() : juce::String (engine::Instrument::typeDescription (type)), false);
     addButton.setEnabled (type != engine::InstrumentType::none);
+    refreshButtons();
     repaint();
 }
 
@@ -296,6 +323,8 @@ void InstrumentChooser::resized()
     auto buttons = area.removeFromBottom (28);
     cancelButton.setBounds (buttons.removeFromRight (80)); buttons.removeFromRight (6);
     addButton.setBounds (buttons.removeFromRight (110));
+    buildButton.setBounds (buttons.removeFromLeft (130)); buttons.removeFromLeft (8);
+    removeButton.setBounds (buttons.removeFromLeft (80));
     area.removeFromBottom (10);
     auto left = area.removeFromLeft (130); area.removeFromLeft (10);
     categoryLabel.setBounds (left.removeFromTop (16)); categories.setBounds (left);

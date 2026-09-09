@@ -24,6 +24,8 @@
 #include "depth/InstrumentChooser.h"
 #include "depth/DrumKitChooser.h"
 #include "depth/KitBuilder.h"
+#include "depth/PresetBuilder.h"
+#include "../persistence/UserPresets.h"
 #include "../persistence/UserKits.h"
 #include <map>
 #include "shared/UiProfiler.h"
@@ -271,6 +273,8 @@ public:
         trackArea.onChooseKit = [this] { showDrumKitChooser(); };
         trackArea.onBuildKit = [this] { showKitBuilder ({}); };
         engine::DrumKitFactory::setCustomKits (persistence::UserKits::load (persistence::UserKits::defaultFolder()));   // the user's kits, from ~/Music/Beat Maker/Kits
+        engine::Instrument::setUserPresets (persistence::UserPresets::load (persistence::UserPresets::defaultFolder()));   // and presets, from ~/Music/Beat Maker/Presets
+        pianoRoll.onSavePreset = [this] (int track) { savePresetFromTrack (track); };
         trackArea.onSelectionChanged = [this] (int i) { updateSequencerTarget(); if (eventListContent != nullptr) eventListContent->setTrack (i); };
         midiSync.onTransportChanged = [this] { updateStatus(); };
 
@@ -444,6 +448,10 @@ public:
     void showInstrumentChooserFromCommandLine() { showInstrumentChooser(); }   // --instrument-chooser
     void showDrumKitChooserFromCommandLine() { showDrumKitChooser(); }         // --kit-chooser
     void showKitBuilderFromCommandLine (const juce::String& startFrom) { showKitBuilder (startFrom); }   // --kit-builder[=<kit>]
+    void showPresetBuilderFromCommandLine (const juce::String& spec)   // --preset-builder[=<instrument>[,<preset>]]
+    {
+        showPresetBuilder (engine::Instrument::typeNamed (spec.upToFirstOccurrenceOf (",", false, false)), spec.fromFirstOccurrenceOf (",", false, false), nullptr);
+    }
     bool renameSessionFromCommandLine (const juce::String& name) { return renameSession (name); }   // --rename=<name>
     // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
     // takes the double-click/Return path on it (smoke tests)
@@ -1036,6 +1044,14 @@ public:
         add ("track.addSynth", "Track", "New Synth Track", juce::KeyPress ('i', M::commandModifier, 0), 0, [this] { addInstrumentTrack (engine::InstrumentType::subtractive); });
         add ("track.addDrumKit", "Track", "New Drum Machine Track (choose kit)...", {}, 0, [this] { showDrumKitChooser(); });
         add ("track.buildKit", "Track", "Build Your Own Drum Kit...", {}, 0, [this] { showKitBuilder ({}); });
+        add ("track.buildPreset", "Track", "Build Your Own Preset...", {}, 0, [this]
+        {
+            const auto* t = session.getTrack (trackArea.getSelectedTrack());
+            if (t != nullptr && t->hasInstrument()) showPresetBuilder (t->instrumentType(), t->instrumentParams->presetName, t->instrumentParams.get());
+            else showPresetBuilder (engine::InstrumentType::subtractive, {}, nullptr);
+        });
+        add ("track.savePreset", "Track", "Save Sound as Preset...", {}, 0, [this] { savePresetFromTrack (trackArea.getSelectedTrack()); },
+             [this] { const auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->hasInstrument(); });
         add ("track.addInstrument", "Track", "New Instrument Track (choose)...", juce::KeyPress ('i', M::commandModifier | M::shiftModifier, 0), 0, [this] { showInstrumentChooser(); });
         for (auto type : engine::Instrument::availableTypes())
             add (("track.add." + juce::String (engine::Instrument::typeName (type)).removeCharacters (" ")).toRawUTF8(), "Track", ("New " + juce::String (engine::Instrument::typeName (type)) + " Track").toRawUTF8(), {}, 0, [this, type] { addInstrumentTrack (type); });
@@ -3246,6 +3262,7 @@ private:
         options.useNativeTitleBar = true;
         options.resizable = false;
         auto* window = options.launchAsync();
+        instrumentChooser = chooser;
         chooser->onCancel = [window] { window->setVisible (false); };
         chooser->onAdd = [this, window] (engine::InstrumentType type, const juce::String& preset)
         {
@@ -3253,6 +3270,79 @@ private:
             addInstrumentTrack (type, preset);
             grabKeyboardFocus();
         };
+        chooser->onBuild = [this] (engine::InstrumentType type, const juce::String& preset) { showPresetBuilder (type, preset, nullptr); };
+        chooser->onRemove = [this] (engine::InstrumentType type, const juce::String& preset)
+        {
+            if (! engine::Instrument::isUserPreset (type, preset)) return;
+            persistence::UserPresets::remove (persistence::UserPresets::defaultFolder(), type, preset);
+            userPresetsChanged();
+            statusMessage = "Removed preset " + preset + " (tracks using it keep their sound)"; updateStatus();
+        };
+    }
+
+    void userPresetsChanged()
+    {
+        engine::Instrument::setUserPresets (persistence::UserPresets::load (persistence::UserPresets::defaultFolder()));
+        if (auto* c = instrumentChooser.getComponent()) c->refreshPresets();
+        pianoRoll.refreshPresetBox();
+    }
+
+    // Build Your Own preset: an instrument's knobs, a phrase to hear it, saved to ~/Music/Beat Maker/Presets
+    void showPresetBuilder (engine::InstrumentType type, const juce::String& startFrom, const engine::InstrumentParams* initial)
+    {
+        auto* builder = new ui::PresetBuilder (&engine.getGraph(), type, startFrom, initial);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (builder);
+        options.dialogTitle = engine::Instrument::isUserPreset (type, startFrom) ? "Edit Preset" : "Build Your Own Preset";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        builder->onCancel = [window] { window->setVisible (false); };
+        builder->onSave = [this, window] (engine::InstrumentType t, const engine::InstrumentParams& p, bool addTrack)
+        {
+            if (const auto error = persistence::UserPresets::save (persistence::UserPresets::defaultFolder(), t, p); error.isNotEmpty()) { statusMessage = error; updateStatus(); return; }
+            window->setVisible (false);
+            userPresetsChanged();
+            statusMessage = "Saved preset " + p.presetName + " to " + persistence::UserPresets::defaultFolder().getFullPathName(); updateStatus();
+            if (addTrack) addInstrumentTrack (t, p.presetName);
+            else
+                for (int i = 0; i < session.getNumTracks(); ++i)   // tracks on this preset take the new sound
+                    if (const auto* tr = session.getTrack (i); tr != nullptr && tr->hasInstrument() && tr->instrumentType() == t && tr->instrumentParams->presetName == p.presetName)
+                    {
+                        auto np = std::make_shared<engine::InstrumentParams> (p);
+                        np->sample = tr->instrumentParams->sample; np->sampleRate = tr->instrumentParams->sampleRate; np->rootNote = tr->instrumentParams->rootNote; np->sampleName = tr->instrumentParams->sampleName;
+                        session.execute (std::make_unique<model::SetInstrumentParamsCommand> (i, std::move (np), "Update Preset"));
+                    }
+            grabKeyboardFocus();
+        };
+    }
+
+    // "Save..." next to the Sound menu: the track's sound, as it is, under a name of the user's own
+    void savePresetFromTrack (int track)
+    {
+        auto* t = session.getTrack (track);
+        if (t == nullptr || ! t->hasInstrument()) return;
+        auto* w = new juce::AlertWindow ("Save Sound as Preset", "The knobs of " + t->name + " as they are now, under a name of your own. It lists under My Presets in every Sound menu.", juce::MessageBoxIconType::NoIcon);
+        w->addTextEditor ("name", engine::Instrument::isUserPreset (t->instrumentType(), t->instrumentParams->presetName) ? t->instrumentParams->presetName : t->instrumentParams->presetName + " 2", "Name");
+        w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w, track] (int result)
+        {
+            if (result != 1) return;
+            auto* tr = session.getTrack (track);
+            if (tr == nullptr || ! tr->hasInstrument()) return;
+            const auto type = tr->instrumentType();
+            auto p = *tr->instrumentParams;
+            p.presetName = w->getTextEditorContents ("name").trim();
+            for (const auto& b : engine::Instrument::bundledPresets (type)) if (b.presetName == p.presetName) { statusMessage = "That is a bundled preset's name; pick another"; updateStatus(); return; }
+            if (const auto error = persistence::UserPresets::save (persistence::UserPresets::defaultFolder(), type, p); error.isNotEmpty()) { statusMessage = error; updateStatus(); return; }
+            userPresetsChanged();
+            session.execute (std::make_unique<model::SetInstrumentParamsCommand> (track, std::make_shared<engine::InstrumentParams> (p), "Save Preset"));   // the track now shows the name
+            statusMessage = "Saved preset " + p.presetName; updateStatus();
+            grabKeyboardFocus();
+        }), true);
     }
 
     // Drum Machine Track > Other...: the kit chooser
@@ -3633,6 +3723,7 @@ private:
     std::shared_ptr<const engine::DrumKit> defaultKit;
     std::map<juce::String, std::shared_ptr<const engine::DrumKit>> kitCache;
     juce::Component::SafePointer<ui::DrumKitChooser> kitChooser;
+    juce::Component::SafePointer<ui::InstrumentChooser> instrumentChooser;
     bool editorVisible = true;
     bool loopRecording = false;
     juce::int64 loopRecordStart = 0, loopRecordEnd = 0;
@@ -3743,6 +3834,7 @@ public:
             else if (arg.startsWith ("--drums=")) main.addDrumMachineTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--kit-chooser") juce::Timer::callAfterDelay (300, [&main] { main.showDrumKitChooserFromCommandLine(); });
             else if (arg == "--kit-builder" || arg.startsWith ("--kit-builder=")) juce::Timer::callAfterDelay (300, [&main, arg] { main.showKitBuilderFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false)); });
+            else if (arg == "--preset-builder" || arg.startsWith ("--preset-builder=")) juce::Timer::callAfterDelay (300, [&main, arg] { main.showPresetBuilderFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false)); });
             else if (arg == "--synth")  main.addSynthTrackFromCommandLine();
             else if (arg.startsWith ("--instrument=")) main.addInstrumentTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--sample=")) main.loadSampleFromCommandLine (juce::File::getCurrentWorkingDirectory()

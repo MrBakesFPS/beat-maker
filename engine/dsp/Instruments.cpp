@@ -320,7 +320,49 @@ InstrumentParams Instrument::defaultParams (InstrumentType t)
     return p;
 }
 
+namespace
+{
+    std::vector<Instrument::UserPreset>& userPresetStore() { static std::vector<Instrument::UserPreset> v; return v; }
+}
+
 std::vector<InstrumentParams> Instrument::presets (InstrumentType t)
+{
+    auto out = bundledPresets (t);
+    for (const auto& u : userPresetStore()) if (u.type == t) out.push_back (u.params);
+    return out;
+}
+
+void Instrument::setUserPresets (std::vector<UserPreset> presets)
+{
+    std::vector<UserPreset> kept;
+    for (auto& u : presets)
+    {
+        if (u.type == InstrumentType::none || u.params.presetName.trim().isEmpty()) continue;
+        u.params.type = u.type;
+        bool taken = false;
+        for (const auto& b : bundledPresets (u.type)) if (b.presetName == u.params.presetName) taken = true;
+        for (const auto& k : kept) if (k.type == u.type && k.params.presetName == u.params.presetName) taken = true;
+        if (! taken) kept.push_back (std::move (u));
+    }
+    userPresetStore() = std::move (kept);
+}
+
+const std::vector<Instrument::UserPreset>& Instrument::userPresets() { return userPresetStore(); }
+
+bool Instrument::isUserPreset (InstrumentType t, const juce::String& name)
+{
+    for (const auto& u : userPresetStore()) if (u.type == t && u.params.presetName == name) return true;
+    return false;
+}
+
+InstrumentType Instrument::typeNamed (const juce::String& name)
+{
+    for (auto type : availableTypes())
+        if (juce::String (typeName (type)).removeCharacters (" ").equalsIgnoreCase (name.removeCharacters (" -_"))) return type;
+    return InstrumentType::none;
+}
+
+std::vector<InstrumentParams> Instrument::bundledPresets (InstrumentType t)
 {
     std::vector<InstrumentParams> out;
     auto add = [&] (const char* name, std::initializer_list<std::pair<int, float>> changes)
