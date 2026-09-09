@@ -42,6 +42,11 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 - **Vox**: a detuned saw pair through three formant filters morphing between the vowels A, E, I, O and U (Vowel), with Drift wandering the vowel by itself, breath noise and a tone control. Choirs, ahhs, talking leads.
 - **Organ**: nine drawbars (16' to 1'), each a sine at its harmonic, percussion on the second harmonic, key click and vibrato. Jazz, full, church, flute and rock presets.
 - **Pluck**: a physically modelled plucked string (Karplus-Strong): Bright and Position shape the pick, Damping and Decay the ring, Body adds resonance. Nylon and steel guitars, harp, koto, muted plucks.
+- **Piano**: an acoustic-style piano from decaying inharmonic partials: Hardness (with velocity) sets how bright the hammer strikes, Stiffness stretches the upper partials, the two strings of each note beat at Beat Hz, Thump adds the hammer, higher notes die sooner. Grand, bright, upright, felt and honky-tonk presets.
+- **Strings**: an ensemble of bowed strings: three saws per note Ensemble cents apart whose detune slowly wanders (Movement), vibrato that arrives after the attack, and a Bow filter. Section, solo violin, cellos, pizzicato and a slow pad.
+- **Mallets**: struck bars modelled by their modes: Bars picks marimba, vibraphone (tremolo), glockenspiel or kalimba; Hardness brings out the upper modes, Decay scales the ring, Strike adds the mallet.
+- **Brass**: two detuned saws with the filter opening in a Blat over Blat Time, a pitch Dip into each note and late vibrato. Section, trumpet, French horn, trombone and synth brass.
+- **Flute**: a soft tone with Breath noise shaped at the note (Air sets how whistly or hissy), a Chiff at the start, Overblow into the octave and vibrato after Vib Delay. Flute, pan pipes, recorder, shakuhachi.
 
 In the chooser (Instrument Track > Other...), every instrument and preset row has a small play button at its right: it plays a short phrase (C, E, G, then the chord) on that sound so you can hear it before adding the track, and turns into a stop button while it plays. Selecting a row does not play it. The preview plays straight to the main outputs, outside the mixer.
 

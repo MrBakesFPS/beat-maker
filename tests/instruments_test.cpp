@@ -406,6 +406,87 @@ TEST_CASE ("The new synths each have their own character")
     }
 }
 
+TEST_CASE ("The acoustic-style instruments each behave like their model")
+{
+    // A brightness measure: energy of the first difference over the energy of the signal (rises with high frequencies)
+    auto brightness = [] (const juce::AudioBuffer<float>& b, int from, int to)
+    {
+        const float* d = b.getReadPointer (0); double hi = 0.0, all = 0.0;
+        for (int i = from + 1; i < to; ++i) { const double x = d[i], dx = d[i] - d[i - 1]; hi += dx * dx; all += x * x; }
+        return all > 0.0 ? hi / all : 0.0;
+    };
+    // Piano: in tune, higher notes die sooner, a harder hammer is brighter
+    {
+        auto inst = Instrument::create (InstrumentType::piano, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::piano);
+        p.values[PianoParams::thump] = 0.0f;
+        auto low = renderNote (*inst, p, 48, 4.0);
+        inst->allNotesOff (true);
+        auto high = renderNote (*inst, p, 84, 4.0);
+        inst->allNotesOff (true);
+        CHECK_THAT (periodByAutocorrelation (low, 4800, 28800, 300, 450), WithinAbs (366.9, 2.0));   // C3 = 130.8 Hz
+        // Averaged over seconds 1 to 4 so the beating of the string pair does not decide it
+        const float lowLate = low.getRMSLevel (0, 48000, 144000), highLate = high.getRMSLevel (0, 48000, 144000);
+        CHECK (highLate < lowLate * 0.6f);
+        p.values[PianoParams::hardness] = 0.1f;
+        auto soft = renderNote (*inst, p, 60, 0.5);
+        inst->allNotesOff (true);
+        p.values[PianoParams::hardness] = 1.0f;
+        auto hard = renderNote (*inst, p, 60, 0.5);
+        CHECK (brightness (hard, 1000, 12000) > brightness (soft, 1000, 12000) * 1.3);
+    }
+    // Strings: a slow attack (quiet at 20 ms, loud at 400 ms) and the ensemble is wider than a solo line
+    {
+        auto inst = Instrument::create (InstrumentType::strings, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::strings);
+        auto out = renderNote (*inst, p, 60, 0.6);
+        CHECK (out.getMagnitude (0, 0, 960) < out.getMagnitude (0, 19200, 4800) * 0.25f);
+        inst->allNotesOff (true);
+        p.values[StringsParams::attack] = 0.002f;
+        auto fast = renderNote (*inst, p, 60, 0.6);
+        CHECK (fast.getMagnitude (0, 0, 960) > fast.getMagnitude (0, 19200, 4800) * 0.5f);
+    }
+    // Mallets: every bar rings at the note; the vibraphone rings far longer than the marimba
+    {
+        auto inst = Instrument::create (InstrumentType::mallets, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::mallets);
+        p.values[MalletParams::strike] = 0.0f; p.values[MalletParams::hardness] = 0.0f;   // a soft mallet: the fundamental leads, so the period is clean
+        std::array<float, 4> late {};
+        for (int bar = 0; bar < 4; ++bar)
+        {
+            p.values[MalletParams::instrument] = (float) bar;
+            auto out = renderNote (*inst, p, 72, 1.5);
+            inst->allNotesOff (true);
+            INFO ("bar " << bar);
+            CHECK_THAT (periodByAutocorrelation (out, 2400, 14400, 70, 120), WithinAbs (91.7, 1.5));   // C5 = 523.25 Hz
+            late[(size_t) bar] = out.getMagnitude (0, 48000, 24000);
+        }
+        CHECK (late[1] > late[0] * 3.0f);
+    }
+    // Brass: the filter opens after the attack, so the note is brighter at 300 ms than in its first 10 ms
+    {
+        auto inst = Instrument::create (InstrumentType::brass, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::brass);
+        p.values[BrassParams::attack] = 0.005f; p.values[BrassParams::blatTime] = 0.3f; p.values[BrassParams::dip] = 0.0f; p.values[BrassParams::vibrato] = 0.0f;
+        auto out = renderNote (*inst, p, 55, 0.6);
+        CHECK (brightness (out, 14000, 16000) > brightness (out, 200, 480) * 1.5);
+        CHECK (out.getMagnitude (0, 4800, 19200) > 0.05f);
+    }
+    // Flute: no breath is close to a pure tone at the note; full breath is noisier (a weaker periodic peak)
+    {
+        auto inst = Instrument::create (InstrumentType::flute, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::flute);
+        p.values[FluteParams::breath] = 0.0f; p.values[FluteParams::chiff] = 0.0f; p.values[FluteParams::vibrato] = 0.0f; p.values[FluteParams::overblow] = 0.0f;
+        auto pure = renderNote (*inst, p, 69, 0.5);
+        inst->allNotesOff (true);
+        CHECK_THAT (zeroCrossingHz (pure, 4800, 24000, 48000.0), WithinAbs (440.0, 3.0));
+        p.values[FluteParams::breath] = 1.0f;
+        auto breathy = renderNote (*inst, p, 69, 0.5);
+        CHECK (brightness (breathy, 4800, 24000) > brightness (pure, 4800, 24000) * 1.5);
+        CHECK (breathy.getMagnitude (0, 4800, 19200) > 0.02f);
+    }
+}
+
 TEST_CASE ("Sampler plays the sample at its root pitch and transposes by semitones")
 {
     auto sample = std::make_shared<juce::AudioBuffer<float>> (1, 96000);
