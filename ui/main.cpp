@@ -23,6 +23,8 @@
 #include "shared/SessionChooser.h"
 #include "depth/InstrumentChooser.h"
 #include "depth/DrumKitChooser.h"
+#include "depth/KitBuilder.h"
+#include "../persistence/UserKits.h"
 #include <map>
 #include "shared/UiProfiler.h"
 #include <cstdlib>
@@ -267,6 +269,8 @@ public:
         trackArea.onChooseInstrument = [this] { showInstrumentChooser(); };
         trackArea.onAddDrumTrack = [this] (const juce::String& kit) { addDrumMachineTrack (kit); };
         trackArea.onChooseKit = [this] { showDrumKitChooser(); };
+        trackArea.onBuildKit = [this] { showKitBuilder ({}); };
+        engine::DrumKitFactory::setCustomKits (persistence::UserKits::load (persistence::UserKits::defaultFolder()));   // the user's kits, from ~/Music/Beat Maker/Kits
         trackArea.onSelectionChanged = [this] (int i) { updateSequencerTarget(); if (eventListContent != nullptr) eventListContent->setTrack (i); };
         midiSync.onTransportChanged = [this] { updateStatus(); };
 
@@ -439,6 +443,7 @@ public:
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
     void showInstrumentChooserFromCommandLine() { showInstrumentChooser(); }   // --instrument-chooser
     void showDrumKitChooserFromCommandLine() { showDrumKitChooser(); }         // --kit-chooser
+    void showKitBuilderFromCommandLine (const juce::String& startFrom) { showKitBuilder (startFrom); }   // --kit-builder[=<kit>]
     bool renameSessionFromCommandLine (const juce::String& name) { return renameSession (name); }   // --rename=<name>
     // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
     // takes the double-click/Return path on it (smoke tests)
@@ -1030,6 +1035,7 @@ public:
         add ("track.addDrums", "Track", "New Drum Machine Track", juce::KeyPress ('d', M::commandModifier | M::shiftModifier, 0), 0, [this] { addDrumMachineTrack(); });
         add ("track.addSynth", "Track", "New Synth Track", juce::KeyPress ('i', M::commandModifier, 0), 0, [this] { addInstrumentTrack (engine::InstrumentType::subtractive); });
         add ("track.addDrumKit", "Track", "New Drum Machine Track (choose kit)...", {}, 0, [this] { showDrumKitChooser(); });
+        add ("track.buildKit", "Track", "Build Your Own Drum Kit...", {}, 0, [this] { showKitBuilder ({}); });
         add ("track.addInstrument", "Track", "New Instrument Track (choose)...", juce::KeyPress ('i', M::commandModifier | M::shiftModifier, 0), 0, [this] { showInstrumentChooser(); });
         for (auto type : engine::Instrument::availableTypes())
             add (("track.add." + juce::String (engine::Instrument::typeName (type)).removeCharacters (" ")).toRawUTF8(), "Track", ("New " + juce::String (engine::Instrument::typeName (type)) + " Track").toRawUTF8(), {}, 0, [this, type] { addInstrumentTrack (type); });
@@ -3262,11 +3268,64 @@ private:
         options.useNativeTitleBar = true;
         options.resizable = false;
         auto* window = options.launchAsync();
+        kitChooser = chooser;
         chooser->onCancel = [window] { window->setVisible (false); };
         chooser->onAdd = [this, window] (const juce::String& kit)
         {
             window->setVisible (false);
             addDrumMachineTrack (kit);
+            grabKeyboardFocus();
+        };
+        chooser->onBuild = [this] (const juce::String& startFrom) { showKitBuilder (startFrom); };
+        chooser->onRemove = [this] (const juce::String& name)
+        {
+            if (engine::DrumKitFactory::customKit (name) == nullptr) return;
+            persistence::UserKits::remove (persistence::UserKits::defaultFolder(), name);
+            userKitsChanged();
+            statusMessage = "Removed kit " + name + " (tracks using it keep their sounds)"; updateStatus();
+        };
+    }
+
+    // The user's kits changed on disk: re-register them, forget cached renders, refresh what shows them
+    void userKitsChanged()
+    {
+        engine::DrumKitFactory::setCustomKits (persistence::UserKits::load (persistence::UserKits::defaultFolder()));
+        for (auto it = kitCache.begin(); it != kitCache.end();)
+        {
+            const auto* info = engine::DrumKitFactory::info (it->first);
+            if (info == nullptr || info->custom) it = kitCache.erase (it); else ++it;
+        }
+        if (auto* c = kitChooser.getComponent()) c->refreshKits();
+    }
+
+    // Build Your Own...: a kit from the pads of the other kits, saved to ~/Music/Beat Maker/Kits
+    void showKitBuilder (const juce::String& startFrom)
+    {
+        auto* builder = new ui::KitBuilder (&engine.getGraph(), engine.getSampleRate(), startFrom);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (builder);
+        options.dialogTitle = engine::DrumKitFactory::customKit (startFrom) != nullptr ? "Edit Kit" : "Build Your Own Kit";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        builder->onCancel = [window] { window->setVisible (false); };
+        builder->onSave = [this, window] (const engine::DrumKitFactory::CustomKit& def, bool addTrack)
+        {
+            if (const auto error = persistence::UserKits::save (persistence::UserKits::defaultFolder(), def); error.isNotEmpty()) { statusMessage = error; updateStatus(); return; }
+            window->setVisible (false);
+            userKitsChanged();
+            statusMessage = "Saved kit " + def.name + " to " + persistence::UserKits::defaultFolder().getFullPathName(); updateStatus();
+            if (addTrack) addDrumMachineTrack (def.name);
+            // Tracks already on this kit pick up the new pads
+            for (int i = 0; i < session.getNumTracks(); ++i)
+                if (const auto* t = session.getTrack (i); t != nullptr && t->drumKit != nullptr && t->drumKit->name == def.name && ! addTrack)
+                {
+                    auto kit = std::make_shared<engine::DrumKit> (*kitNamed (def.name));
+                    for (size_t pad = 0; pad < kit->pads.size(); ++pad) kit->pads[pad].gain = t->drumKit->pads[pad].gain;
+                    session.execute (std::make_unique<model::ReplaceDrumKitCommand> (i, std::move (kit), "Update Kit"));
+                }
             grabKeyboardFocus();
         };
     }
@@ -3573,6 +3632,7 @@ private:
     bool libraryVisible = true;
     std::shared_ptr<const engine::DrumKit> defaultKit;
     std::map<juce::String, std::shared_ptr<const engine::DrumKit>> kitCache;
+    juce::Component::SafePointer<ui::DrumKitChooser> kitChooser;
     bool editorVisible = true;
     bool loopRecording = false;
     juce::int64 loopRecordStart = 0, loopRecordEnd = 0;
@@ -3682,6 +3742,7 @@ public:
             if (arg == "--drums")       main.addDrumMachineTrackFromCommandLine();
             else if (arg.startsWith ("--drums=")) main.addDrumMachineTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--kit-chooser") juce::Timer::callAfterDelay (300, [&main] { main.showDrumKitChooserFromCommandLine(); });
+            else if (arg == "--kit-builder" || arg.startsWith ("--kit-builder=")) juce::Timer::callAfterDelay (300, [&main, arg] { main.showKitBuilderFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false)); });
             else if (arg == "--synth")  main.addSynthTrackFromCommandLine();
             else if (arg.startsWith ("--instrument=")) main.addInstrumentTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--sample=")) main.loadSampleFromCommandLine (juce::File::getCurrentWorkingDirectory()

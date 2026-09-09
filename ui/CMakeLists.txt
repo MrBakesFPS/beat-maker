@@ -26,6 +26,7 @@ target_sources(BeatMaker PRIVATE
     depth/NewSessionDialog.cpp
     depth/InstrumentChooser.cpp
     depth/DrumKitChooser.cpp
+    depth/KitBuilder.cpp
     depth/CommandPalette.cpp
     depth/PreferencesWindow.cpp
     depth/MidiEventList.cpp

@@ -304,8 +304,13 @@ TEST_CASE ("Pad previews only fire for kits in the active snapshot, and die when
 TEST_CASE ("Every bundled kit has 16 named, non-silent pads, a category and a description; unknown names give the default")
 {
     const auto& kits = DrumKitFactory::availableKits();
-    REQUIRE (kits.size() >= 5);
-    CHECK (juce::String (kits.front().name) == DrumKitFactory::defaultKitName());
+    REQUIRE (kits.size() >= 25);
+    CHECK (kits.front().name == DrumKitFactory::defaultKitName());
+    for (const auto& cat : { "Acoustic", "Electronic", "Hip-Hop", "World" })
+    {
+        int n = 0; for (const auto& k : kits) if (k.category == cat) ++n;
+        INFO ("category " << cat); CHECK (n >= 6);
+    }
     for (const auto& info : kits)
     {
         INFO ("kit " << info.name);
@@ -324,7 +329,7 @@ TEST_CASE ("Every bundled kit has 16 named, non-silent pads, a category and a de
             CHECK (pad.audio->getMagnitude (0, 0, pad.audio->getNumSamples()) <= 1.0f);
         }
     }
-    for (size_t i = 0; i < kits.size(); ++i) for (size_t j = i + 1; j < kits.size(); ++j) CHECK (juce::String (kits[i].name) != kits[j].name);
+    for (size_t i = 0; i < kits.size(); ++i) for (size_t j = i + 1; j < kits.size(); ++j) CHECK (kits[i].name != kits[j].name);
     CHECK (DrumKitFactory::createKit ("No Such Kit", 44100.0)->name == DrumKitFactory::defaultKitName());
     CHECK (DrumKitFactory::info ("808") != nullptr);
     CHECK (DrumKitFactory::info ("nope") == nullptr);
@@ -332,6 +337,40 @@ TEST_CASE ("Every bundled kit has 16 named, non-silent pads, a category and a de
     // Kits sound different: the 808 kick rings far longer than the 909's
     auto k808 = DrumKitFactory::createKit ("808", 48000.0), k909 = DrumKitFactory::createKit ("909", 48000.0);
     CHECK (k808->pads[DrumKitFactory::kick].audio->getMagnitude (0, 24000, 12000) > k909->pads[DrumKitFactory::kick].audio->getMagnitude (0, 24000, juce::jmin (12000, k909->pads[DrumKitFactory::kick].audio->getNumSamples() - 24000)) * 2.0f);
+}
+
+TEST_CASE ("A custom kit takes its pads from other kits, lists under My Kits, and never refers to itself")
+{
+    DrumKitFactory::CustomKit mine;
+    mine.name = "My Mix";
+    for (int i = 0; i < DrumKit::numPads; ++i) mine.pads[(size_t) i] = { "Studio Kit", i };
+    mine.pads[DrumKitFactory::kick] = { "808", DrumKitFactory::kick };
+    mine.pads[DrumKitFactory::snare] = { "909", DrumKitFactory::snare };
+    mine.pads[DrumKitFactory::closedHat] = { "Latin", DrumKitFactory::closedHat };   // "Cabasa"
+    auto kit = DrumKitFactory::createCustomKit (mine, 48000.0);
+    CHECK (kit->name == "My Mix");
+    CHECK (kit->pads[DrumKitFactory::kick].name == "808 Kick");
+    CHECK (kit->pads[DrumKitFactory::snare].name == "909 Snare");
+    CHECK (kit->pads[DrumKitFactory::closedHat].name == "Cabasa");
+    CHECK (kit->pads[DrumKitFactory::clap].name == "Clap");
+    auto ref808 = DrumKitFactory::createKit ("808", 48000.0);
+    CHECK (kit->pads[DrumKitFactory::kick].audio->getNumSamples() == ref808->pads[DrumKitFactory::kick].audio->getNumSamples());
+
+    // Registered: it lists, resolves by name and cannot shadow a bundled kit
+    DrumKitFactory::CustomKit shadow; shadow.name = "808"; for (int i = 0; i < DrumKit::numPads; ++i) shadow.pads[(size_t) i] = { "909", i };
+    DrumKitFactory::CustomKit self; self.name = "Loop"; for (int i = 0; i < DrumKit::numPads; ++i) self.pads[(size_t) i] = { "Loop", i };
+    DrumKitFactory::setCustomKits ({ mine, shadow, self });
+    CHECK (DrumKitFactory::customKits().size() == 2);
+    REQUIRE (DrumKitFactory::info ("My Mix") != nullptr);
+    CHECK (DrumKitFactory::info ("My Mix")->custom);
+    CHECK (DrumKitFactory::info ("My Mix")->category == DrumKitFactory::customCategory());
+    CHECK (DrumKitFactory::info ("My Mix")->description.contains ("808"));
+    CHECK (DrumKitFactory::createKit ("My Mix", 48000.0)->pads[DrumKitFactory::snare].name == "909 Snare");
+    CHECK (DrumKitFactory::createKit ("808", 48000.0)->pads[DrumKitFactory::snare].name == "808 Snare");   // the bundled one, not the shadow
+    CHECK (DrumKitFactory::createKit ("Loop", 48000.0)->pads[0].name == "Kick");                          // self-reference falls back to the default kit
+    CHECK (std::find (DrumKitFactory::categories().begin(), DrumKitFactory::categories().end(), juce::String (DrumKitFactory::customCategory())) != DrumKitFactory::categories().end());
+    DrumKitFactory::setCustomKits ({});
+    CHECK (DrumKitFactory::info ("My Mix") == nullptr);
 }
 
 TEST_CASE ("The audition kit plays pads without a snapshot, is choked on stop, and is retired when cleared")

@@ -93,7 +93,7 @@ struct DrumKitChooser::KitList final : juce::ListBoxModel
         if (juce::isPositiveAndBelow (row, getNumRows()))
         {
             const auto* k = owner.shown[(size_t) row];
-            r->update (row, k->name, k->name, juce::String (k->category) + "   16 pads", selected);
+            r->update (row, k->name, k->name, k->category + "   16 pads", selected);
         }
         return r;
     }
@@ -114,7 +114,7 @@ struct DrumKitChooser::PadList final : juce::ListBoxModel
         if (juce::isPositiveAndBelow (row, getNumRows()))
         {
             const auto kitName = owner.selectedKit();
-            const auto kit = owner.auditionKit != nullptr && owner.auditionName == kitName ? owner.auditionKit : engine::DrumKitFactory::createKit (kitName, 8000.0);   // names only: a cheap render
+            const auto kit = owner.auditionKit != nullptr && owner.auditionName == kitName ? owner.auditionKit : owner.namesKit (kitName);
             r->update (row, kitName, juce::String (row + 1) + "  " + kit->pads[(size_t) row].name, {}, selected);
         }
         return r;
@@ -157,15 +157,40 @@ DrumKitChooser::DrumKitChooser (engine::AudioGraph* g, double sr) : graph (g), s
     cancelButton.onClick = [this] { if (onCancel) onCancel(); };
     addAndMakeVisible (addButton);
     addAndMakeVisible (cancelButton);
+    buildButton.setTooltip ("Build a kit of your own from the pads of the other kits, starting from the selected one (a kit of yours is edited)");
+    buildButton.onClick = [this] { if (onBuild) onBuild (selectedKit()); };
+    removeButton.setTooltip ("Delete this kit of yours");
+    removeButton.onClick = [this] { if (onRemove) onRemove (selectedKit()); };
+    addAndMakeVisible (buildButton);
+    addAndMakeVisible (removeButton);
     categories.selectRow (0);
     rebuildKits();
     setSize (preferredWidth, preferredHeight);
+}
+
+void DrumKitChooser::refreshKits()
+{
+    const auto keep = selectedKit();
+    categoryNames.clear();
+    categoryNames.push_back ("All");
+    for (const auto& c : engine::DrumKitFactory::categories()) categoryNames.push_back (c);
+    categories.updateContent();
+    if (categories.getSelectedRow() < 0) categories.selectRow (0);
+    rebuildKits();
+    if (keep.isNotEmpty()) selectKit (keep);
 }
 
 DrumKitChooser::~DrumKitChooser()
 {
     stopTimer();
     if (graph != nullptr) graph->setAuditionKit (nullptr);
+}
+
+std::shared_ptr<const engine::DrumKit> DrumKitChooser::namesKit (const juce::String& name)
+{
+    auto& slot = nameKits[name];
+    if (slot == nullptr) slot = engine::DrumKitFactory::createKit (name, 8000.0);
+    return slot;
 }
 
 void DrumKitChooser::rebuildKits()
@@ -191,6 +216,8 @@ void DrumKitChooser::rebuildPads()
     pads.updateContent();
     pads.repaint();
     addButton.setEnabled (info != nullptr);
+    buildButton.setButtonText (info != nullptr && info->custom ? "Edit..." : "Build Your Own...");
+    removeButton.setVisible (info != nullptr && info->custom);
     repaint();
 }
 
@@ -204,7 +231,7 @@ void DrumKitChooser::selectKit (const juce::String& name)
 juce::String DrumKitChooser::selectedKit() const
 {
     const int row = kits.getSelectedRow();
-    return juce::isPositiveAndBelow (row, (int) shown.size()) ? juce::String (shown[(size_t) row]->name) : juce::String();
+    return juce::isPositiveAndBelow (row, (int) shown.size()) ? shown[(size_t) row]->name : juce::String();
 }
 
 void DrumKitChooser::loadAudition (const juce::String& kitName)
@@ -288,6 +315,8 @@ void DrumKitChooser::resized()
     auto buttons = area.removeFromBottom (28);
     cancelButton.setBounds (buttons.removeFromRight (80)); buttons.removeFromRight (6);
     addButton.setBounds (buttons.removeFromRight (110));
+    buildButton.setBounds (buttons.removeFromLeft (130)); buttons.removeFromLeft (8);
+    removeButton.setBounds (buttons.removeFromLeft (80));
     area.removeFromBottom (10);
     auto left = area.removeFromLeft (130); area.removeFromLeft (10);
     categoryLabel.setBounds (left.removeFromTop (16)); categories.setBounds (left);

@@ -141,6 +141,7 @@ public:
     std::function<void()> onChooseInstrument;   // Instrument Track > Other...: open the instrument chooser
     std::function<void (const juce::String& kitName)> onAddDrumTrack;   // Drum Machine Track > a kit
     std::function<void()> onChooseKit;          // Drum Machine Track > Other...: open the kit chooser
+    std::function<void()> onBuildKit;           // Drum Machine Track > Build Your Own...: open the kit builder
     std::function<void (int trackIndex)> onSelectionChanged;
 
     int getSelectedTrack() const noexcept { return selectedTrack; }

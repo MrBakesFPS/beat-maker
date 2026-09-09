@@ -16,8 +16,6 @@ StepSequencer::StepSequencer (model::Session& s, engine::Transport& t, engine::A
     kitLabel.setFont (juce::FontOptions (12.0f));
     addAndMakeVisible (kitBox);
     kitBox.setTooltip ("The drum kit this track plays; every bundled kit shares the same pad layout, so the pattern stays");
-    int kitId = 1;
-    for (const auto& k : engine::DrumKitFactory::availableKits()) kitBox.addItem (k.name, kitId++);
     kitBox.onChange = [this]
     {
         const int id = kitBox.getSelectedId();
@@ -56,10 +54,19 @@ void StepSequencer::setTarget (int newTrackIndex, int newClipIndex)
 // The Kit menu shows the track's kit by name (a kit with pads replaced by files keeps its name)
 void StepSequencer::refreshKitBox()
 {
+    const auto& kits = engine::DrumKitFactory::availableKits();
+    if (kitBox.getNumItems() != (int) kits.size())   // the list changed (a kit of the user's own was saved or removed)
+    {
+        kitBox.clear (juce::dontSendNotification);
+        for (const auto& cat : engine::DrumKitFactory::categories())
+        {
+            kitBox.addSectionHeading (cat);
+            for (int i = 0; i < (int) kits.size(); ++i) if (kits[(size_t) i].category == cat) kitBox.addItem (kits[(size_t) i].name, i + 1);
+        }
+    }
     auto* track = getTrack();
     const juce::String name = track != nullptr && track->drumKit != nullptr ? track->drumKit->name : juce::String();
     int wanted = 0;
-    const auto& kits = engine::DrumKitFactory::availableKits();
     for (int i = 0; i < (int) kits.size(); ++i) if (name == kits[(size_t) i].name) wanted = i + 1;
     if (kitBox.getSelectedId() != wanted) kitBox.setSelectedId (wanted, juce::dontSendNotification);
     if (wanted == 0 && name.isNotEmpty() && kitBox.getText() != name) kitBox.setText (name, juce::dontSendNotification);

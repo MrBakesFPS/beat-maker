@@ -30,9 +30,15 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
         menu.addItem (1, "Audio Track");
         juce::PopupMenu kits;
         const auto& kitList = engine::DrumKitFactory::availableKits();
-        for (int i = 0; i < (int) kitList.size(); ++i) kits.addItem (200 + i, kitList[(size_t) i].name);
+        for (const auto& cat : engine::DrumKitFactory::categories())
+        {
+            juce::PopupMenu inCategory;
+            for (int i = 0; i < (int) kitList.size(); ++i) if (kitList[(size_t) i].category == cat) inCategory.addItem (200 + i, kitList[(size_t) i].name);
+            kits.addSubMenu (cat, inCategory);
+        }
         kits.addSeparator();
-        kits.addItem (199, "Other...");   // the chooser: every kit by category, with descriptions and previews
+        kits.addItem (199, "Other...");           // the chooser: every kit by category, with descriptions and previews
+        kits.addItem (198, "Build Your Own...");  // the kit builder
         menu.addSubMenu ("Drum Machine Track", kits);
         juce::PopupMenu instruments;
         const auto& types = engine::Instrument::availableTypes();
@@ -55,6 +61,7 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
                                 else if (result == 1) onAddTrack (T::audio, K::none, engine::InstrumentType::none);
                                 else if (result == 2) onAddTrack (T::instrument, K::drumMachine, engine::InstrumentType::none);
                                 else if (result == 199) { if (onChooseKit) onChooseKit(); }
+                                else if (result == 198) { if (onBuildKit) onBuildKit(); }
                                 else if (result >= 200 && result < 200 + (int) engine::DrumKitFactory::availableKits().size())
                                 {
                                     if (onAddDrumTrack) onAddDrumTrack (engine::DrumKitFactory::availableKits()[(size_t) (result - 200)].name);

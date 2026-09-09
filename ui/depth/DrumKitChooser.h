@@ -9,6 +9,7 @@
 #include <graph/AudioGraph.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <functional>
+#include <map>
 
 namespace beatmaker::ui
 {
@@ -23,6 +24,10 @@ public:
 
     std::function<void (const juce::String& kitName)> onAdd;
     std::function<void()> onCancel;
+    std::function<void (const juce::String& startFrom)> onBuild;    // Build Your Own..., starting from (or editing) the selected kit
+    std::function<void (const juce::String& kitName)> onRemove;     // Remove, for a kit of the user's own
+
+    void refreshKits();                            // after the user's kits changed
 
     void selectKit (const juce::String& name);
     juce::String selectedKit() const;
@@ -50,6 +55,8 @@ private:
     std::vector<juce::String> categoryNames;      // "All" first
     std::vector<const engine::DrumKitFactory::KitInfo*> shown;
     std::shared_ptr<const engine::DrumKit> auditionKit;   // the kit loaded into the graph's audition slot
+    std::shared_ptr<const engine::DrumKit> namesKit (const juce::String& name);   // a low-rate render, for the pad names only
+    std::map<juce::String, std::shared_ptr<const engine::DrumKit>> nameKits;
     juce::String auditionName, beatKit;
     int beatStep = -1;
     std::unique_ptr<CategoryList> categoryModel;
@@ -58,7 +65,7 @@ private:
     juce::ListBox categories, kits, pads;
     juce::Label categoryLabel { {}, "Category" }, kitLabel { {}, "Kit" }, padLabel { {}, "Pads" };
     juce::TextEditor description;
-    juce::TextButton addButton { "Add Track" }, cancelButton { "Cancel" };
+    juce::TextButton addButton { "Add Track" }, cancelButton { "Cancel" }, buildButton { "Build Your Own..." }, removeButton { "Remove" };
 };
 
 } // namespace beatmaker::ui

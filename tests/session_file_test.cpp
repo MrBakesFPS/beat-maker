@@ -7,6 +7,7 @@
 #include <SessionFile.h>
 #include <AudioFileLoader.h>
 #include <dsp/DrumKitFactory.h>
+#include <UserKits.h>
 
 using namespace beatmaker;
 using namespace beatmaker::model;
@@ -305,6 +306,27 @@ TEST_CASE ("A drum track's kit comes back by name when the loader knows the bund
     REQUIRE (persistence::SessionFile::load (older, ts2, bundle, plain, warnings).isEmpty());
     CHECK (older.getTracks()[0].drumKit->name == "808");
     CHECK (older.getTracks()[0].drumKit->pads[engine::DrumKitFactory::kick].name == "Kick");
+    dir.deleteRecursively();
+}
+
+TEST_CASE ("User kits save to and load from their folder, one file each")
+{
+    using namespace beatmaker;
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("bm-userkits-" + juce::String (juce::Random::getSystemRandom().nextInt (1 << 30)));
+    engine::DrumKitFactory::CustomKit a; a.name = "Punchy Mix";
+    for (int i = 0; i < engine::DrumKit::numPads; ++i) a.pads[(size_t) i] = { "Rock Kit", i };
+    a.pads[0] = { "909", 0 };
+    engine::DrumKitFactory::CustomKit b = a; b.name = "Airy / Soft?";   // characters a file name cannot hold
+    CHECK (persistence::UserKits::save (dir, a).isEmpty());
+    CHECK (persistence::UserKits::save (dir, b).isEmpty());
+    CHECK (persistence::UserKits::save (dir, engine::DrumKitFactory::CustomKit {}).isNotEmpty());
+    auto loaded = persistence::UserKits::load (dir);
+    REQUIRE (loaded.size() == 2);
+    CHECK (loaded[0].name == "Airy / Soft?");
+    CHECK (loaded[1].name == "Punchy Mix");
+    CHECK (loaded[1].pads[0].kit == "909"); CHECK (loaded[1].pads[0].pad == 0); CHECK (loaded[1].pads[5].kit == "Rock Kit"); CHECK (loaded[1].pads[5].pad == 5);
+    CHECK (persistence::UserKits::remove (dir, "Punchy Mix"));
+    CHECK (persistence::UserKits::load (dir).size() == 1);
     dir.deleteRecursively();
 }
 
