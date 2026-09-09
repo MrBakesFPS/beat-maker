@@ -3,6 +3,7 @@
 #include "VoiceHelpers.h"
 #include <array>
 #include <cmath>
+#include <vector>
 
 namespace beatmaker::engine
 {
@@ -15,7 +16,9 @@ using namespace dsp;
 const std::vector<InstrumentType>& Instrument::availableTypes()
 {
     static const std::vector<InstrumentType> types { InstrumentType::subtractive, InstrumentType::fm, InstrumentType::wavetable,
-                                                     InstrumentType::sampler, InstrumentType::electricPiano, InstrumentType::bass };
+                                                     InstrumentType::stack, InstrumentType::chip, InstrumentType::vox,
+                                                     InstrumentType::sampler, InstrumentType::electricPiano, InstrumentType::organ,
+                                                     InstrumentType::pluck, InstrumentType::bass };
     return types;
 }
 
@@ -30,6 +33,11 @@ const char* Instrument::typeName (InstrumentType t)
         case InstrumentType::sampler:       return "Sampler";
         case InstrumentType::electricPiano: return "Electric Piano";
         case InstrumentType::bass:          return "Bass";
+        case InstrumentType::pluck:         return "Pluck";
+        case InstrumentType::organ:         return "Organ";
+        case InstrumentType::stack:         return "Stack";
+        case InstrumentType::chip:          return "Chip";
+        case InstrumentType::vox:           return "Vox";
     }
     return "";
 }
@@ -45,6 +53,11 @@ const char* Instrument::typeCategory (InstrumentType t)
         case InstrumentType::sampler:       return "Samplers";
         case InstrumentType::electricPiano: return "Keys";
         case InstrumentType::bass:          return "Bass";
+        case InstrumentType::pluck:         return "Strings";
+        case InstrumentType::organ:         return "Keys";
+        case InstrumentType::stack:         return "Synths";
+        case InstrumentType::chip:          return "Synths";
+        case InstrumentType::vox:           return "Synths";
     }
     return "";
 }
@@ -60,6 +73,11 @@ const char* Instrument::typeDescription (InstrumentType t)
         case InstrumentType::sampler:       return "Plays an audio file across the keyboard, pitched around C3: tune, one-shot or loop, ADSR and a filter. Drop a file onto the track to load it.";
         case InstrumentType::electricPiano: return "A tine electric piano: velocity-dependent brightness, an inharmonic bell partial, per-note decay and tremolo.";
         case InstrumentType::bass:          return "Monophonic bass with last-note priority, legato, glide, a sub oscillator, a filter envelope and drive.";
+        case InstrumentType::pluck:         return "A plucked string, physically modelled: brightness and pick position shape the attack, damping and decay the ring, body adds resonance. Guitars, harps, kotos, dulcimers.";
+        case InstrumentType::organ:         return "A drawbar organ: nine drawbars over a sine per harmonic, percussion on the second harmonic, key click and vibrato. Jazz, gospel, church and rock organs.";
+        case InstrumentType::stack:         return "Up to seven detuned saws per note spread across the stereo field, through a resonant filter with envelope. Trance leads, wide pads and stacked chords.";
+        case InstrumentType::chip:          return "An 8-bit sound chip: thin pulses, a stepped triangle and noise, bit-crushed, with vibrato and the chip arpeggio trick that turns one note into a chord. Game melodies, bleeps and retro leads.";
+        case InstrumentType::vox:           return "A voice-like synth: a detuned saw through three formant filters that morph between the vowels A, E, I, O and U, with breath noise. Choirs, ahhs and talking pads.";
     }
     return "";
 }
@@ -140,6 +158,67 @@ const std::vector<ParamInfo>& Instrument::paramInfo (InstrumentType t)
         { "Drive",     0.0f, 24.0f,     6.0f,   6.0f,   " dB" },
         { "Level",     0.0f, 1.0f,      0.6f,   0.5f,   "" } };
 
+    static const std::vector<ParamInfo> pluck {
+        { "Bright",    0.0f, 1.0f,      0.7f,   0.0f,   "" },
+        { "Damping",   0.0f, 1.0f,      0.3f,   0.0f,   "" },
+        { "Decay",     0.1f, 10.0f,     2.5f,   2.0f,   " s" },
+        { "Position",  0.02f, 0.5f,     0.2f,   0.0f,   "" },
+        { "Body",      0.0f, 1.0f,      0.3f,   0.0f,   "" },
+        { "Release",   0.01f, 2.0f,     0.3f,   0.3f,   " s" },
+        { "Level",     0.0f, 1.0f,      0.6f,   0.6f,   "" } };
+    static const std::vector<ParamInfo> organ {
+        { "16'",       0.0f, 8.0f,      8.0f,   0.0f,   "" },
+        { "5 1/3'",    0.0f, 8.0f,      0.0f,   0.0f,   "" },
+        { "8'",        0.0f, 8.0f,      8.0f,   0.0f,   "" },
+        { "4'",        0.0f, 8.0f,      8.0f,   0.0f,   "" },
+        { "2 2/3'",    0.0f, 8.0f,      0.0f,   0.0f,   "" },
+        { "2'",        0.0f, 8.0f,      0.0f,   0.0f,   "" },
+        { "1 3/5'",    0.0f, 8.0f,      0.0f,   0.0f,   "" },
+        { "1 1/3'",    0.0f, 8.0f,      0.0f,   0.0f,   "" },
+        { "1'",        0.0f, 8.0f,      0.0f,   0.0f,   "" },
+        { "Perc",      0.0f, 1.0f,      0.0f,   0.0f,   "" },
+        { "Perc Decay",0.05f, 1.0f,     0.3f,   0.3f,   " s" },
+        { "Click",     0.0f, 1.0f,      0.2f,   0.0f,   "" },
+        { "Vibrato",   0.0f, 1.0f,      0.2f,   0.0f,   "" },
+        { "Vib Rate",  0.5f, 10.0f,     6.0f,   0.0f,   " Hz" },
+        { "Level",     0.0f, 1.0f,      0.3f,   0.3f,   "" } };
+    static const std::vector<ParamInfo> stack {
+        { "Voices",    1.0f, 7.0f,      7.0f,   0.0f,   "" },
+        { "Detune",    0.0f, 100.0f,    25.0f,  20.0f,  " ct" },
+        { "Width",     0.0f, 1.0f,      0.8f,   0.0f,   "" },
+        { "Mix",       0.0f, 1.0f,      0.7f,   0.0f,   "" },
+        { "Cutoff",   20.0f, 20000.0f, 8000.0f, 1000.0f, " Hz" },
+        { "Reso",      0.0f, 1.0f,      0.1f,   0.5f,   "" },
+        { "Filt Env",  0.0f, 6.0f,      0.0f,   3.0f,   " oct" },
+        { "Attack",  0.001f, 4.0f,     0.01f,   0.1f,   " s" },
+        { "Decay",    0.01f, 4.0f,      0.3f,   0.3f,   " s" },
+        { "Sustain",   0.0f, 1.0f,      0.8f,   0.5f,   "" },
+        { "Release",  0.01f, 6.0f,      0.3f,   0.5f,   " s" },
+        { "Level",     0.0f, 1.0f,      0.3f,   0.3f,   "" } };
+    static const std::vector<ParamInfo> chip {
+        { "Wave",      0.0f, 4.0f,      1.0f,   0.0f,   "" },        // pulse 12.5%, pulse 25%, square, triangle, noise
+        { "Bits",      2.0f, 16.0f,     8.0f,   0.0f,   "" },
+        { "Arp",       0.0f, 4.0f,      0.0f,   0.0f,   "" },        // off, octave, major, minor, fifth
+        { "Arp Rate",  2.0f, 30.0f,     12.0f,  0.0f,   " Hz" },
+        { "Vib Rate",  0.5f, 12.0f,     5.0f,   0.0f,   " Hz" },
+        { "Vibrato",   0.0f, 1.0f,      0.1f,   0.0f,   "" },
+        { "Attack",  0.001f, 2.0f,     0.001f,  0.05f,  " s" },
+        { "Decay",    0.01f, 4.0f,      0.15f,  0.3f,   " s" },
+        { "Sustain",   0.0f, 1.0f,      0.6f,   0.5f,   "" },
+        { "Release",  0.01f, 4.0f,      0.05f,  0.3f,   " s" },
+        { "Level",     0.0f, 1.0f,      0.25f,  0.25f,  "" } };
+    static const std::vector<ParamInfo> vox {
+        { "Vowel",     0.0f, 4.0f,      0.0f,   0.0f,   "" },        // A E I O U, morphing between
+        { "Drift",     0.0f, 1.0f,      0.3f,   0.0f,   "" },
+        { "Drift Rate",0.05f, 4.0f,     0.3f,   0.5f,   " Hz" },
+        { "Breath",    0.0f, 1.0f,      0.15f,  0.0f,   "" },
+        { "Width",     0.0f, 30.0f,     8.0f,   0.0f,   " ct" },
+        { "Tone",      0.0f, 1.0f,      0.5f,   0.0f,   "" },
+        { "Attack",  0.001f, 4.0f,      0.15f,  0.2f,   " s" },
+        { "Decay",    0.01f, 4.0f,      0.3f,   0.3f,   " s" },
+        { "Sustain",   0.0f, 1.0f,      0.8f,   0.5f,   "" },
+        { "Release",  0.01f, 6.0f,      0.4f,   0.5f,   " s" },
+        { "Level",     0.0f, 1.0f,      0.6f,   0.6f,   "" } };
     switch (t)
     {
         case InstrumentType::subtractive:   return sub;
@@ -148,6 +227,11 @@ const std::vector<ParamInfo>& Instrument::paramInfo (InstrumentType t)
         case InstrumentType::sampler:       return smp;
         case InstrumentType::electricPiano: return ep;
         case InstrumentType::bass:          return bass;
+        case InstrumentType::pluck:         return pluck;
+        case InstrumentType::organ:         return organ;
+        case InstrumentType::stack:         return stack;
+        case InstrumentType::chip:          return chip;
+        case InstrumentType::vox:           return vox;
         case InstrumentType::none:          break;
     }
     return none;
@@ -217,6 +301,39 @@ std::vector<InstrumentParams> Instrument::presets (InstrumentType t)
             add ("Acid Bass",   {});
             add ("Deep Sub",    { { BassParams::wave, 0.0f }, { BassParams::sub, 1.0f }, { BassParams::cutoff, 300.0f }, { BassParams::filterEnv, 1.0f }, { BassParams::drive, 0.0f } });
             add ("Square Bass", { { BassParams::wave, 1.0f }, { BassParams::cutoff, 1200.0f }, { BassParams::resonance, 0.5f }, { BassParams::drive, 12.0f } });
+            break;
+        case InstrumentType::pluck:
+            add ("Nylon Guitar", {});
+            add ("Steel String", { { PluckParams::brightness, 0.9f }, { PluckParams::damping, 0.15f }, { PluckParams::decay, 4.0f }, { PluckParams::position, 0.12f } });
+            add ("Harp",         { { PluckParams::brightness, 0.6f }, { PluckParams::damping, 0.2f }, { PluckParams::decay, 5.0f }, { PluckParams::position, 0.4f }, { PluckParams::body, 0.5f } });
+            add ("Koto",         { { PluckParams::brightness, 1.0f }, { PluckParams::damping, 0.5f }, { PluckParams::decay, 1.2f }, { PluckParams::position, 0.08f }, { PluckParams::body, 0.1f } });
+            add ("Muted Pluck",  { { PluckParams::brightness, 0.4f }, { PluckParams::damping, 0.8f }, { PluckParams::decay, 0.4f }, { PluckParams::release, 0.1f }, { PluckParams::level, 0.8f } });
+            break;
+        case InstrumentType::organ:
+            add ("Jazz Organ",   { { OrganParams::percussion, 0.6f }, { OrganParams::vibrato, 0.35f } });
+            add ("Full Organ",   { { OrganParams::bar5, 6.0f }, { OrganParams::bar2b3, 6.0f }, { OrganParams::bar2, 5.0f }, { OrganParams::bar1b3b5, 4.0f }, { OrganParams::bar1b1b3, 3.0f }, { OrganParams::bar1, 3.0f }, { OrganParams::vibrato, 0.4f }, { OrganParams::level, 0.2f } });
+            add ("Church",       { { OrganParams::bar16, 8.0f }, { OrganParams::bar8, 8.0f }, { OrganParams::bar4, 6.0f }, { OrganParams::bar2, 6.0f }, { OrganParams::bar1, 4.0f }, { OrganParams::click, 0.0f }, { OrganParams::vibrato, 0.0f }, { OrganParams::level, 0.22f } });
+            add ("Soft Flute",   { { OrganParams::bar16, 0.0f }, { OrganParams::bar8, 8.0f }, { OrganParams::bar4, 2.0f }, { OrganParams::click, 0.05f }, { OrganParams::vibrato, 0.5f }, { OrganParams::vibratoRate, 5.0f } });
+            add ("Rock Organ",   { { OrganParams::bar5, 8.0f }, { OrganParams::bar2b3, 8.0f }, { OrganParams::click, 0.5f }, { OrganParams::vibrato, 0.6f }, { OrganParams::vibratoRate, 7.0f }, { OrganParams::level, 0.25f } });
+            break;
+        case InstrumentType::stack:
+            add ("Trance Saw", {});
+            add ("Wide Pad",     { { StackParams::detune, 40.0f }, { StackParams::width, 1.0f }, { StackParams::cutoff, 3000.0f }, { StackParams::attack, 0.6f }, { StackParams::sustain, 1.0f }, { StackParams::release, 1.5f }, { StackParams::level, 0.25f } });
+            add ("Unison Lead",  { { StackParams::voices, 3.0f }, { StackParams::detune, 12.0f }, { StackParams::width, 0.3f }, { StackParams::cutoff, 12000.0f }, { StackParams::resonance, 0.25f }, { StackParams::sustain, 0.9f }, { StackParams::release, 0.1f } });
+            add ("Stack Pluck",  { { StackParams::cutoff, 600.0f }, { StackParams::filterEnv, 4.0f }, { StackParams::decay, 0.35f }, { StackParams::sustain, 0.0f }, { StackParams::release, 0.25f }, { StackParams::level, 0.4f } });
+            break;
+        case InstrumentType::chip:
+            add ("Pulse Lead", {});
+            add ("Square Bleep", { { ChipParams::wave, 2.0f }, { ChipParams::decay, 0.08f }, { ChipParams::sustain, 0.0f }, { ChipParams::vibratoDepth, 0.0f } });
+            add ("Arp Chord",    { { ChipParams::arp, 2.0f }, { ChipParams::arpRate, 15.0f }, { ChipParams::sustain, 0.8f } });
+            add ("Tri Bass",     { { ChipParams::wave, 3.0f }, { ChipParams::bits, 4.0f }, { ChipParams::vibratoDepth, 0.0f }, { ChipParams::sustain, 0.9f }, { ChipParams::level, 0.4f } });
+            add ("Noise Hit",    { { ChipParams::wave, 4.0f }, { ChipParams::decay, 0.12f }, { ChipParams::sustain, 0.0f }, { ChipParams::vibratoDepth, 0.0f } });
+            break;
+        case InstrumentType::vox:
+            add ("Choir Ahh", {});
+            add ("Ooh Pad",      { { VoxParams::vowel, 3.0f }, { VoxParams::drift, 0.15f }, { VoxParams::attack, 0.5f }, { VoxParams::release, 1.2f }, { VoxParams::tone, 0.3f } });
+            add ("Talking Lead", { { VoxParams::drift, 1.0f }, { VoxParams::driftRate, 1.5f }, { VoxParams::attack, 0.01f }, { VoxParams::sustain, 0.9f }, { VoxParams::release, 0.1f }, { VoxParams::breath, 0.05f } });
+            add ("Whisper",      { { VoxParams::vowel, 2.0f }, { VoxParams::breath, 0.8f }, { VoxParams::tone, 0.8f }, { VoxParams::attack, 0.3f }, { VoxParams::level, 0.8f } });
             break;
         case InstrumentType::none:
             break;
@@ -294,6 +411,39 @@ namespace
         for (int ch = 0; ch < juce::jmin (numOutputs, 32); ++ch)
             if (outputs[ch] != nullptr) outputs[ch][i] += sample;
     }
+
+    // Left and right to the first two outputs; any others get the mono sum
+    void addStereo (float* const* outputs, int numOutputs, int i, float l, float r) noexcept
+    {
+        if (numOutputs >= 2 && outputs[0] != nullptr && outputs[1] != nullptr)
+        {
+            outputs[0][i] += l; outputs[1][i] += r;
+            for (int ch = 2; ch < juce::jmin (numOutputs, 32); ++ch) if (outputs[ch] != nullptr) outputs[ch][i] += 0.5f * (l + r);
+        }
+        else addToOutputs (outputs, numOutputs, i, 0.5f * (l + r));
+    }
+
+    struct Noise { std::uint32_t s = 0x9e3779b9u; float next() noexcept { s = s * 1664525u + 1013904223u; return (float) (s >> 8) * (1.0f / 8388608.0f) - 1.0f; } };
+
+    // RBJ band-pass, 0 dB peak gain: the formant filters of the Vox
+    struct BandPass
+    {
+        float b0 = 0.0f, a1 = 0.0f, a2 = 0.0f, z1 = 0.0f, z2 = 0.0f;
+        void set (double hz, double q, double sr) noexcept
+        {
+            const double w = juce::MathConstants<double>::twoPi * juce::jlimit (20.0, 0.45 * sr, hz) / sr;
+            const double alpha = std::sin (w) / (2.0 * juce::jmax (0.5, q)), a0 = 1.0 + alpha;
+            b0 = (float) (alpha / a0); a1 = (float) (-2.0 * std::cos (w) / a0); a2 = (float) ((1.0 - alpha) / a0);
+        }
+        float process (float x) noexcept   // transposed direct form II; b1 = 0, b2 = -b0
+        {
+            const float y = b0 * x + z1;
+            z1 = -a1 * y + z2;
+            z2 = -b0 * x - a2 * y;
+            return y;
+        }
+        void reset() noexcept { z1 = z2 = 0.0f; }
+    };
 }
 
 //==============================================================================
@@ -685,6 +835,389 @@ private:
 };
 
 //==============================================================================
+// Pluck: Karplus-Strong string. A burst of noise (filtered by Bright, combed by
+// the pick Position) circulates in a delay line tuned to the note; a one-pole
+// in the loop (Damping) and the loop gain (Decay, as a T60) shape the ring.
+
+class PluckSynth final : public Instrument
+{
+    struct Voice : VoiceBase { int write = 0; double length = 100.0; float loopGain = 0.99f, lp = 0.0f, amp = 1.0f, dampCoef = 1.0f; };
+public:
+    PluckSynth() : Instrument (InstrumentType::pluck) {}
+    void reset() override { for (auto& v : voices) v = {}; }
+
+    void noteOn (int pitch, float velocity, float gain, int delay, int gate, const InstrumentParams& p) noexcept override
+    {
+        if (! juce::isPositiveAndBelow (pitch, 128) || lines[0].empty()) return;
+        const int index = (int) (allocateVoice (voices, counter) - voices.data());
+        auto& v = voices[(size_t) index]; auto& line = lines[(size_t) index];
+        const auto& pv = p.values;
+        const double f = midiToHz (pitch);
+        v.pitch = pitch; v.velocity = juce::jlimit (0.0f, 1.0f, velocity); v.gain = gain; v.delay = juce::jmax (0, delay); v.gate = gate;
+        v.dampCoef = 1.0f - 0.92f * pv[PluckParams::damping];
+        // The loop's one-pole delays the wave by about (1 - c) / c samples: take that off the line so the pitch stays true
+        v.length = juce::jlimit (2.0, (double) line.size() - 2.0, sampleRate / f - (1.0 - v.dampCoef) / v.dampCoef);
+        v.loopGain = (float) std::exp (-6.9078 / juce::jmax (1.0, pv[PluckParams::decay] * f));   // T60 in periods
+        v.amp = 1.0f; v.lp = 0.0f; v.write = 0;
+        // Excite: noise, low-passed by Bright, then combed at the pick position (a pluck's missing harmonics)
+        const int n = (int) std::ceil (v.length);
+        const float bright = 0.04f + 0.96f * pv[PluckParams::brightness] * (0.5f + 0.5f * v.velocity);
+        float y = 0.0f;
+        for (int i = 0; i < n; ++i) { y += bright * (noise.next() - y); line[(size_t) i] = y; }
+        const int pick = juce::jlimit (1, n - 1, (int) (pv[PluckParams::position] * n));
+        for (int i = n - 1; i >= pick; --i) line[(size_t) i] -= line[(size_t) (i - pick)];
+        for (int i = n; i < (int) line.size(); ++i) line[(size_t) i] = 0.0f;
+        v.write = n % (int) line.size();   // the read point (one period back) lands on the burst, not the silent tail
+        v.filter.reset();
+        v.filter.setCutoff (4500.0 - 3000.0 * pv[PluckParams::body], 0.55f * pv[PluckParams::body], sampleRate);
+        v.env.start();
+    }
+    void noteOff (int pitch) noexcept override { noteOffAll (voices, pitch); }
+    void allNotesOff (bool immediate) noexcept override { releaseAll (voices, immediate); }
+    int getNumActiveVoices() const noexcept override { return countActive (voices); }
+
+    void render (float* const* outputs, int numOutputs, int n, const InstrumentParams& p) noexcept override
+    {
+        const auto& pv = p.values;
+        for (size_t vi = 0; vi < voices.size(); ++vi)
+        {
+            auto& v = voices[vi]; auto& line = lines[vi];
+            if (! v.active || line.empty()) continue;
+            const int len = (int) line.size();
+            const int offset = juce::jmin (v.delay, n); v.delay -= offset;
+            for (int i = offset; i < n; ++i)
+            {
+                if (! stepGate (v, pv[PluckParams::release], sampleRate)) { v.active = false; break; }
+                const float env = v.env.next (0.0005, 100.0, 1.0f, sampleRate);
+                if (! v.env.isActive()) { v.active = false; break; }
+                // Read one period back, with linear interpolation for the fractional part
+                const double readPos = v.write - v.length;
+                const int i0 = ((int) std::floor (readPos) % len + len) % len, i1 = (i0 + 1) % len;
+                const float frac = (float) (readPos - std::floor (readPos));
+                const float x = line[(size_t) i0] + frac * (line[(size_t) i1] - line[(size_t) i0]);
+                v.lp += v.dampCoef * (x - v.lp);
+                const float out = v.lp * v.loopGain;
+                line[(size_t) v.write] = out;
+                v.write = (v.write + 1) % len;
+                v.amp = juce::jmax (v.amp * 0.9997f, std::abs (out));
+                if (v.amp < 1.0e-4f) { v.active = false; break; }
+                addToOutputs (outputs, numOutputs, i, v.filter.process (out) * env * (0.4f + 0.6f * v.velocity) * v.gain * pv[PluckParams::level]);
+            }
+        }
+    }
+protected:
+    void prepareImpl() override { for (auto& l : lines) l.assign ((size_t) (sampleRate / 25.0) + 4, 0.0f); }   // room for a G0
+private:
+    std::array<Voice, maxVoices> voices;
+    std::array<std::vector<float>, maxVoices> lines;   // outside the voices: allocateVoice resets a voice by assignment
+    std::uint32_t counter = 0;
+    Noise noise;
+};
+
+//==============================================================================
+// Organ: nine drawbars, each a sine at a harmonic of the note, plus percussion
+// (a decaying burst on the second harmonic), key click and a global vibrato.
+
+class OrganSynth final : public Instrument
+{
+    struct Voice : VoiceBase { std::array<double, 9> phase {}; double inc = 0.0; float perc = 0.0f, click = 0.0f; };
+    static constexpr double ratios[9] = { 0.5, 1.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0 };
+public:
+    OrganSynth() : Instrument (InstrumentType::organ) {}
+    void reset() override { for (auto& v : voices) v = {}; lfo = 0.0; }
+
+    void noteOn (int pitch, float velocity, float gain, int delay, int gate, const InstrumentParams& p) noexcept override
+    {
+        if (! juce::isPositiveAndBelow (pitch, 128)) return;
+        auto& v = *allocateVoice (voices, counter);
+        v.pitch = pitch; v.velocity = 0.7f + 0.3f * juce::jlimit (0.0f, 1.0f, velocity); v.gain = gain; v.delay = juce::jmax (0, delay); v.gate = gate;
+        v.inc = midiToHz (pitch) / sampleRate;
+        for (size_t h = 0; h < 9; ++h) v.phase[h] = 0.1 * (double) h;
+        v.perc = p.values[OrganParams::percussion]; v.click = p.values[OrganParams::click];
+        v.env.start();
+    }
+    void noteOff (int pitch) noexcept override { noteOffAll (voices, pitch); }
+    void allNotesOff (bool immediate) noexcept override { releaseAll (voices, immediate); }
+    int getNumActiveVoices() const noexcept override { return countActive (voices); }
+
+    void render (float* const* outputs, int numOutputs, int n, const InstrumentParams& p) noexcept override
+    {
+        const auto& pv = p.values;
+        std::array<float, 9> bars;
+        for (size_t h = 0; h < 9; ++h) { const float d = pv[h] / 8.0f; bars[h] = d * d * 0.35f; }   // drawbars are roughly logarithmic
+        const float percCoef = (float) std::exp (-1.0 / juce::jmax (1.0, pv[OrganParams::percDecay] * sampleRate));
+        const float clickCoef = (float) std::exp (-1.0 / (0.004 * sampleRate));
+        const double lfoInc = pv[OrganParams::vibratoRate] / sampleRate;
+        const float vib = pv[OrganParams::vibrato];
+        for (int i = 0; i < n; ++i)
+        {
+            lfo += lfoInc; if (lfo >= 1.0) lfo -= 1.0;
+            const double bend = 1.0 + 0.007 * vib * std::sin (juce::MathConstants<double>::twoPi * lfo);
+            float mix = 0.0f; bool any = false;
+            for (auto& v : voices)
+            {
+                if (! v.active) continue;
+                if (v.delay > 0) { --v.delay; continue; }
+                if (! stepGate (v, 0.04, sampleRate)) { v.active = false; continue; }
+                const float env = v.env.next (0.004, 0.01, 1.0f, sampleRate);
+                if (! v.env.isActive()) { v.active = false; continue; }
+                float sum = 0.0f;
+                for (size_t h = 0; h < 9; ++h)
+                {
+                    if (bars[h] > 0.0f || (h == 3 && v.perc > 0.0f))
+                        sum += (float) std::sin (juce::MathConstants<double>::twoPi * v.phase[h]) * (bars[h] + (h == 3 ? v.perc * 0.5f : 0.0f));
+                    v.phase[h] += v.inc * ratios[h] * bend; if (v.phase[h] >= 1.0) v.phase[h] -= 1.0;
+                }
+                v.perc *= percCoef;
+                sum += noise.next() * v.click * 0.3f; v.click *= clickCoef;
+                mix += sum * env * v.velocity * v.gain;
+                any = true;
+            }
+            if (any) addToOutputs (outputs, numOutputs, i, mix * pv[OrganParams::level]);
+        }
+    }
+private:
+    std::array<Voice, maxVoices> voices;
+    std::uint32_t counter = 0;
+    double lfo = 0.0;
+    Noise noise;
+};
+
+//==============================================================================
+// Stack: a "supersaw" of up to seven detuned saws per note, fanned out across
+// the stereo field, through a filter with envelope.
+
+class StackSynth final : public Instrument
+{
+    struct Voice : VoiceBase { std::array<double, 7> phase {}, inc {}; Svf filterR; };
+public:
+    StackSynth() : Instrument (InstrumentType::stack) {}
+    void reset() override { for (auto& v : voices) v = {}; }
+
+    void noteOn (int pitch, float velocity, float gain, int delay, int gate, const InstrumentParams& p) noexcept override
+    {
+        if (! juce::isPositiveAndBelow (pitch, 128)) return;
+        auto& v = *allocateVoice (voices, counter);
+        const auto& pv = p.values;
+        const double f = midiToHz (pitch);
+        v.pitch = pitch; v.velocity = juce::jlimit (0.0f, 1.0f, velocity); v.gain = gain; v.delay = juce::jmax (0, delay); v.gate = gate;
+        for (int k = 0; k < 7; ++k)
+        {
+            const double spread = (k - 3) / 3.0;                     // -1 .. 1, the centre saw at 0
+            v.inc[(size_t) k] = f * std::pow (2.0, spread * pv[StackParams::detune] / 1200.0) / sampleRate;
+            v.phase[(size_t) k] = 0.5 + 0.5 * noise.next();          // free-running phases: no flanging on every note
+        }
+        v.filter.reset(); v.filterR.reset();
+        v.env.start();
+    }
+    void noteOff (int pitch) noexcept override { noteOffAll (voices, pitch); }
+    void allNotesOff (bool immediate) noexcept override { releaseAll (voices, immediate); }
+    int getNumActiveVoices() const noexcept override { return countActive (voices); }
+
+    void render (float* const* outputs, int numOutputs, int n, const InstrumentParams& p) noexcept override
+    {
+        const auto& pv = p.values;
+        const int count = juce::jlimit (1, 7, (int) std::lround (pv[StackParams::voices]));
+        const float width = pv[StackParams::width], side = pv[StackParams::mix];
+        // Which of the seven saws play: the centre first, then outward in pairs
+        static constexpr int order[7] = { 3, 2, 4, 1, 5, 0, 6 };
+        const float norm = 1.0f / std::sqrt ((float) count);
+        for (auto& v : voices)
+        {
+            if (! v.active) continue;
+            const int offset = juce::jmin (v.delay, n); v.delay -= offset;
+            for (int i = offset; i < n; ++i)
+            {
+                if (! stepGate (v, pv[StackParams::release], sampleRate)) { v.active = false; break; }
+                const float env = v.env.next (pv[StackParams::attack], pv[StackParams::decay], pv[StackParams::sustain], sampleRate);
+                if (! v.env.isActive()) { v.active = false; break; }
+                if (((i - offset) & 15) == 0)
+                {
+                    const double cutoff = pv[StackParams::cutoff] * std::pow (2.0, pv[StackParams::filterEnv] * env);
+                    v.filter.setCutoff (cutoff, pv[StackParams::resonance], sampleRate);
+                    v.filterR.setCutoff (cutoff, pv[StackParams::resonance], sampleRate);
+                }
+                float l = 0.0f, r = 0.0f;
+                for (int c = 0; c < count; ++c)
+                {
+                    const int k = order[c];
+                    const float saw = oscillator (Wave::saw, v.phase[(size_t) k], v.inc[(size_t) k]);
+                    v.phase[(size_t) k] += v.inc[(size_t) k]; if (v.phase[(size_t) k] >= 1.0) v.phase[(size_t) k] -= 1.0;
+                    const float pan = (float) (k - 3) / 3.0f * width;                       // -width .. width
+                    const float g = (k == 3 ? 1.0f : side) * norm;
+                    l += saw * g * (1.0f - juce::jmax (0.0f, pan));
+                    r += saw * g * (1.0f + juce::jmin (0.0f, pan));
+                }
+                const float amp = env * v.velocity * v.gain * pv[StackParams::level];
+                addStereo (outputs, numOutputs, i, v.filter.process (l) * amp, v.filterR.process (r) * amp);
+            }
+        }
+    }
+private:
+    std::array<Voice, maxVoices> voices;
+    std::uint32_t counter = 0;
+    Noise noise;
+};
+
+//==============================================================================
+// Chip: an 8-bit sound chip. Thin pulses, a stepped triangle and LFSR noise,
+// quantised to a few bits, with vibrato and the classic chip arpeggio.
+
+class ChipSynth final : public Instrument
+{
+    struct Voice : VoiceBase { double phase = 0.0, inc = 0.0; int arpStep = 0, arpCounter = 0; std::uint16_t lfsr = 0xACE1; float noiseHold = 0.0f; int noiseCounter = 0; };
+public:
+    ChipSynth() : Instrument (InstrumentType::chip) {}
+    void reset() override { for (auto& v : voices) v = {}; lfo = 0.0; }
+
+    void noteOn (int pitch, float velocity, float gain, int delay, int gate, const InstrumentParams&) noexcept override
+    {
+        if (! juce::isPositiveAndBelow (pitch, 128)) return;
+        auto& v = *allocateVoice (voices, counter);
+        v.pitch = pitch; v.velocity = juce::jlimit (0.0f, 1.0f, velocity); v.gain = gain; v.delay = juce::jmax (0, delay); v.gate = gate;
+        v.inc = midiToHz (pitch) / sampleRate;
+        v.env.start();
+    }
+    void noteOff (int pitch) noexcept override { noteOffAll (voices, pitch); }
+    void allNotesOff (bool immediate) noexcept override { releaseAll (voices, immediate); }
+    int getNumActiveVoices() const noexcept override { return countActive (voices); }
+
+    void render (float* const* outputs, int numOutputs, int n, const InstrumentParams& p) noexcept override
+    {
+        const auto& pv = p.values;
+        const int wave = juce::jlimit (0, 4, (int) std::lround (pv[ChipParams::wave]));
+        const int arp = juce::jlimit (0, 4, (int) std::lround (pv[ChipParams::arp]));
+        static constexpr int arpNotes[5][3] = { { 0, 0, 0 }, { 0, 12, 0 }, { 0, 4, 7 }, { 0, 3, 7 }, { 0, 7, 12 } };
+        const int arpSamples = juce::jmax (1, (int) (sampleRate / juce::jmax (1.0f, pv[ChipParams::arpRate])));
+        const float steps = (float) (1 << (juce::jlimit (2, 16, (int) std::lround (pv[ChipParams::bits])) - 1));
+        const double lfoInc = pv[ChipParams::vibratoRate] / sampleRate;
+        const float vibDepth = pv[ChipParams::vibratoDepth];
+        for (int i = 0; i < n; ++i)
+        {
+            lfo += lfoInc; if (lfo >= 1.0) lfo -= 1.0;
+            const double bend = std::pow (2.0, 0.5 * vibDepth * std::sin (juce::MathConstants<double>::twoPi * lfo) / 12.0);   // up to a quarter tone
+            float mix = 0.0f; bool any = false;
+            for (auto& v : voices)
+            {
+                if (! v.active) continue;
+                if (v.delay > 0) { --v.delay; continue; }
+                if (! stepGate (v, pv[ChipParams::release], sampleRate)) { v.active = false; continue; }
+                const float env = v.env.next (pv[ChipParams::attack], pv[ChipParams::decay], pv[ChipParams::sustain], sampleRate);
+                if (! v.env.isActive()) { v.active = false; continue; }
+                if (arp > 0 && ++v.arpCounter >= arpSamples) { v.arpCounter = 0; v.arpStep = (v.arpStep + 1) % (arp == 1 ? 2 : 3); }
+                const double inc = v.inc * bend * (arp > 0 ? std::pow (2.0, arpNotes[arp][v.arpStep] / 12.0) : 1.0);
+                float x;
+                if (wave == 4)
+                {
+                    // LFSR noise clocked at the note's pitch times 16, like a chip's noise channel
+                    if (++v.noiseCounter >= juce::jmax (1, (int) (1.0 / (inc * 16.0))))
+                    {
+                        v.noiseCounter = 0;
+                        const std::uint16_t bit = (std::uint16_t) (((v.lfsr >> 0) ^ (v.lfsr >> 2) ^ (v.lfsr >> 3) ^ (v.lfsr >> 5)) & 1u);
+                        v.lfsr = (std::uint16_t) ((v.lfsr >> 1) | (bit << 15));
+                        v.noiseHold = (v.lfsr & 1u) ? 1.0f : -1.0f;
+                    }
+                    x = v.noiseHold;
+                }
+                else if (wave == 3) x = (float) (4.0 * std::abs (v.phase - 0.5) - 1.0);
+                else { const double duty = wave == 0 ? 0.125 : wave == 1 ? 0.25 : 0.5; x = v.phase < duty ? 1.0f : -1.0f; }
+                v.phase += inc; if (v.phase >= 1.0) v.phase -= 1.0;
+                x = std::round (x * steps) / steps;   // bit depth
+                mix += x * env * v.velocity * v.gain;
+                any = true;
+            }
+            if (any) addToOutputs (outputs, numOutputs, i, mix * pv[ChipParams::level]);
+        }
+    }
+private:
+    std::array<Voice, maxVoices> voices;
+    std::uint32_t counter = 0;
+    double lfo = 0.0;
+};
+
+//==============================================================================
+// Vox: a detuned saw pair (plus breath noise) through three formant band-passes
+// that morph between vowels; a slow drift moves the vowel by itself.
+
+class VoxSynth final : public Instrument
+{
+    struct Voice : VoiceBase { double ph1 = 0.0, ph2 = 0.5, inc1 = 0.0, inc2 = 0.0; std::array<BandPass, 3> formants; int coefCounter = 0; };
+    struct Vowel { double f[3]; float g[3]; };
+    static constexpr Vowel vowels[5] = { { { 800.0, 1150.0, 2900.0 }, { 1.0f, 0.5f, 0.25f } },     // A
+                                         { { 400.0, 1600.0, 2700.0 }, { 1.0f, 0.35f, 0.2f } },     // E
+                                         { { 270.0, 2300.0, 3000.0 }, { 1.0f, 0.2f, 0.15f } },     // I
+                                         { { 450.0, 800.0, 2830.0 }, { 1.0f, 0.6f, 0.1f } },       // O
+                                         { { 325.0, 700.0, 2530.0 }, { 1.0f, 0.35f, 0.08f } } };   // U
+public:
+    VoxSynth() : Instrument (InstrumentType::vox) {}
+    void reset() override { for (auto& v : voices) v = {}; lfo = 0.0; }
+
+    void noteOn (int pitch, float velocity, float gain, int delay, int gate, const InstrumentParams& p) noexcept override
+    {
+        if (! juce::isPositiveAndBelow (pitch, 128)) return;
+        auto& v = *allocateVoice (voices, counter);
+        const double f = midiToHz (pitch), det = p.values[VoxParams::width];
+        v.pitch = pitch; v.velocity = juce::jlimit (0.0f, 1.0f, velocity); v.gain = gain; v.delay = juce::jmax (0, delay); v.gate = gate;
+        v.inc1 = f * std::pow (2.0, -det / 1200.0) / sampleRate;
+        v.inc2 = f * std::pow (2.0,  det / 1200.0) / sampleRate;
+        for (auto& b : v.formants) b.reset();
+        v.env.start();
+    }
+    void noteOff (int pitch) noexcept override { noteOffAll (voices, pitch); }
+    void allNotesOff (bool immediate) noexcept override { releaseAll (voices, immediate); }
+    int getNumActiveVoices() const noexcept override { return countActive (voices); }
+
+    void render (float* const* outputs, int numOutputs, int n, const InstrumentParams& p) noexcept override
+    {
+        const auto& pv = p.values;
+        const double lfoInc = pv[VoxParams::driftRate] / sampleRate;
+        const float breath = pv[VoxParams::breath], tone = pv[VoxParams::tone];
+        for (int i = 0; i < n; ++i)
+        {
+            lfo += lfoInc; if (lfo >= 1.0) lfo -= 1.0;
+            // The vowel position wanders up to one vowel either way with Drift, wrapping around the five
+            double pos = pv[VoxParams::vowel] + pv[VoxParams::drift] * std::sin (juce::MathConstants<double>::twoPi * lfo);
+            pos = std::fmod (pos + 5.0, 5.0);
+            const int a = (int) std::floor (pos), b = (a + 1) % 5;
+            const float t = (float) (pos - a);
+            float mix = 0.0f; bool any = false;
+            for (auto& v : voices)
+            {
+                if (! v.active) continue;
+                if (v.delay > 0) { --v.delay; continue; }
+                if (! stepGate (v, pv[VoxParams::release], sampleRate)) { v.active = false; continue; }
+                const float env = v.env.next (pv[VoxParams::attack], pv[VoxParams::decay], pv[VoxParams::sustain], sampleRate);
+                if (! v.env.isActive()) { v.active = false; continue; }
+                if (v.coefCounter-- <= 0)
+                {
+                    v.coefCounter = 31;
+                    for (size_t k = 0; k < 3; ++k)
+                        v.formants[k].set (vowels[a].f[k] + t * (vowels[b].f[k] - vowels[a].f[k]), k == 0 ? 8.0 : 12.0, sampleRate);
+                }
+                float src = 0.5f * (oscillator (Wave::saw, v.ph1, v.inc1) + oscillator (Wave::saw, v.ph2, v.inc2));
+                v.ph1 += v.inc1; if (v.ph1 >= 1.0) v.ph1 -= 1.0;
+                v.ph2 += v.inc2; if (v.ph2 >= 1.0) v.ph2 -= 1.0;
+                src = src * (1.0f - 0.7f * breath) + noise.next() * breath * 0.6f;
+                float y = 0.0f;
+                for (size_t k = 0; k < 3; ++k)
+                {
+                    const float g = vowels[a].g[k] + t * (vowels[b].g[k] - vowels[a].g[k]);
+                    y += v.formants[k].process (src) * g * (k == 0 ? 1.0f : 0.5f + tone);
+                }
+                mix += y * env * v.velocity * v.gain;
+                any = true;
+            }
+            if (any) addToOutputs (outputs, numOutputs, i, mix * pv[VoxParams::level] * 2.5f);
+        }
+    }
+private:
+    std::array<Voice, maxVoices> voices;
+    std::uint32_t counter = 0;
+    double lfo = 0.0;
+    Noise noise;
+};
+
+//==============================================================================
 
 std::unique_ptr<Instrument> Instrument::create (InstrumentType t, double sr)
 {
@@ -697,6 +1230,11 @@ std::unique_ptr<Instrument> Instrument::create (InstrumentType t, double sr)
         case InstrumentType::sampler:       inst = std::make_unique<Sampler>(); break;
         case InstrumentType::electricPiano: inst = std::make_unique<ElectricPiano>(); break;
         case InstrumentType::bass:          inst = std::make_unique<BassSynth>(); break;
+        case InstrumentType::pluck:         inst = std::make_unique<PluckSynth>(); break;
+        case InstrumentType::organ:         inst = std::make_unique<OrganSynth>(); break;
+        case InstrumentType::stack:         inst = std::make_unique<StackSynth>(); break;
+        case InstrumentType::chip:          inst = std::make_unique<ChipSynth>(); break;
+        case InstrumentType::vox:           inst = std::make_unique<VoxSynth>(); break;
         case InstrumentType::none:          return nullptr;
     }
     inst->prepare (sr);

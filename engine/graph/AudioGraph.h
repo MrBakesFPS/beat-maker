@@ -49,6 +49,12 @@ public:
     // Message thread. Audition a note on a synth instrument in the snapshot.
     void triggerNotePreview (int instrumentId, int pitch, float velocity, double seconds = 0.3);
 
+    // Message thread. An instrument that is on no track (the instrument chooser's preview): the graph takes it,
+    // plays it straight to the main outputs, and retires the previous one. Null clears it.
+    void setAuditionInstrument (std::unique_ptr<Instrument>, std::shared_ptr<const InstrumentParams>);
+    void triggerAuditionNote (int pitch, float velocity, double seconds = 0.3);
+    bool hasAuditionInstrument() const noexcept { return auditionSet.load (std::memory_order_relaxed); }
+
     // Scrubbing (message thread): the audio of `strip` (-1 = every strip) is
     // dragged toward `targetSample` at a limited rate while the transport is
     // stopped; the transport position follows so the playhead moves.
@@ -119,6 +125,8 @@ private:
     void processPreviewEvents();
     bool snapshotHasKit (const DrumKit* kit) const noexcept;
     void swapInPendingSnapshot() noexcept;
+    void swapInPendingAudition() noexcept;
+    void renderAudition (float* const* outputs, int numOutputs, int numSamples) noexcept;
 
     Transport& transport;
     PerformanceMonitor performance;
@@ -172,10 +180,21 @@ private:
     std::array<RenderSnapshot*, retiredCapacity> retired {};
     juce::AbstractFifo retiredFifo { retiredCapacity }; // audio -> message
 
+    // The chooser's audition instrument, handed over like a snapshot: message -> incoming -> audio -> retired -> message
+    struct Audition { std::unique_ptr<Instrument> instance; std::shared_ptr<const InstrumentParams> params; };
+    Audition* audition = nullptr;                          // owned by the audio thread
+    std::atomic<Audition*> incomingAudition { nullptr };   // an Audition with a null instance clears
+    static constexpr int auditionCapacity = 8;
+    std::array<Audition*, auditionCapacity> retiredAuditions {};
+    juce::AbstractFifo retiredAuditionFifo { auditionCapacity };
+    std::atomic<bool> auditionSet { false };
+    juce::AudioBuffer<float> auditionBuffer { 2, maxBlock };
+
     struct PreviewEvent
     {
         const DrumKit* kit = nullptr;   // pad preview when non-null
         int pad = 0;
+        bool audition = false;          // note on the audition instrument
         int instrumentId = -1;          // note preview when >= 0
         int pitch = 60;
         int gateSamples = 0;

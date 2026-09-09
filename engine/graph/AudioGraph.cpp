@@ -41,6 +41,8 @@ AudioGraph::~AudioGraph()
     collectGarbage();
     delete incoming.exchange (nullptr);
     delete current;
+    delete incomingAudition.exchange (nullptr);
+    delete audition;
 }
 
 //==============================================================================
@@ -60,6 +62,55 @@ void AudioGraph::collectGarbage()
 
     for (int i = 0; i < scope.blockSize1; ++i) delete std::exchange (retired[(size_t) (scope.startIndex1 + i)], nullptr);
     for (int i = 0; i < scope.blockSize2; ++i) delete std::exchange (retired[(size_t) (scope.startIndex2 + i)], nullptr);
+    const auto a = retiredAuditionFifo.read (retiredAuditionFifo.getNumReady());
+    for (int i = 0; i < a.blockSize1; ++i) delete std::exchange (retiredAuditions[(size_t) (a.startIndex1 + i)], nullptr);
+    for (int i = 0; i < a.blockSize2; ++i) delete std::exchange (retiredAuditions[(size_t) (a.startIndex2 + i)], nullptr);
+}
+
+void AudioGraph::setAuditionInstrument (std::unique_ptr<Instrument> instance, std::shared_ptr<const InstrumentParams> params)
+{
+    if (instance != nullptr) instance->prepare (transport.getSampleRate());
+    auditionSet.store (instance != nullptr, std::memory_order_relaxed);
+    auto* next = new Audition { std::move (instance), std::move (params) };
+    delete incomingAudition.exchange (next);   // only this thread stores here; the audio thread swaps in nullptr
+}
+
+void AudioGraph::triggerAuditionNote (int pitch, float velocity, double seconds)
+{
+    const auto scope = previewFifo.write (1);
+    const int index = scope.blockSize1 == 1 ? scope.startIndex1 : scope.blockSize2 == 1 ? scope.startIndex2 : -1;
+    if (index >= 0)
+    {
+        PreviewEvent e;
+        e.audition = true; e.pitch = pitch; e.velocity = velocity;
+        e.gateSamples = (int) std::llround (seconds * transport.getSampleRate());
+        previewEvents[(size_t) index] = e;
+    }
+}
+
+void AudioGraph::swapInPendingAudition() noexcept
+{
+    auto* next = incomingAudition.exchange (nullptr, std::memory_order_acq_rel);
+    if (next == nullptr) return;
+    if (audition != nullptr)
+    {
+        const auto scope = retiredAuditionFifo.write (1);
+        if (scope.blockSize1 == 1)      retiredAuditions[(size_t) scope.startIndex1] = audition;
+        else if (scope.blockSize2 == 1) retiredAuditions[(size_t) scope.startIndex2] = audition;
+        else { Audition* expected = nullptr; if (! incomingAudition.compare_exchange_strong (expected, next)) delete next; return; }   // try next block
+    }
+    audition = next;
+}
+
+void AudioGraph::renderAudition (float* const* outputs, int numOutputs, int numSamples) noexcept
+{
+    if (audition == nullptr || audition->instance == nullptr || audition->params == nullptr) return;
+    auditionBuffer.clear (0, numSamples);
+    float* outs[2] = { auditionBuffer.getWritePointer (0), auditionBuffer.getWritePointer (1) };
+    audition->instance->render (outs, 2, numSamples, *audition->params);
+    for (int ch = 0; ch < juce::jmin (numOutputs, 2); ++ch)
+        if (outputs[ch] != nullptr) juce::FloatVectorOperations::add (outputs[ch], auditionBuffer.getReadPointer (ch), numSamples);
+    if (numOutputs == 1 && outputs[0] != nullptr) juce::FloatVectorOperations::add (outputs[0], auditionBuffer.getReadPointer (1), numSamples);
 }
 
 void AudioGraph::triggerPadPreview (const DrumKit* kit, int pad, float velocity)
@@ -225,6 +276,7 @@ AudioGraph::InstrumentSlot* AudioGraph::slotForId (int instrumentId) noexcept
 void AudioGraph::releaseAllInstruments (bool immediate) noexcept
 {
     for (auto& s : instrumentSlots) if (s.id >= 0) s.instance->allNotesOff (immediate);
+    if (audition != nullptr && audition->instance != nullptr) audition->instance->allNotesOff (immediate);
 }
 
 bool AudioGraph::snapshotHasKit (const DrumKit* kit) const noexcept
@@ -244,7 +296,13 @@ void AudioGraph::processPreviewEvents()
         for (int i = 0; i < count; ++i)
         {
             const auto& e = previewEvents[(size_t) (start + i)];
-            if (e.kit != nullptr)
+            if (e.audition)
+            {
+                if (audition != nullptr && audition->instance != nullptr && audition->params != nullptr)
+                    audition->instance->noteOn (e.pitch, e.velocity, 1.0f, 0, juce::jmax (1, e.gateSamples), *audition->params);
+            }
+            else if (current == nullptr) continue;
+            else if (e.kit != nullptr)
             {
                 for (const auto& p : current->patterns)
                     if (p.kit.get() == e.kit) { drums.trigger (e.kit, e.pad, e.velocity, current->masterGain, 0, p.strip); break; }
@@ -714,11 +772,13 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
             juce::FloatVectorOperations::clear (outputs[ch], numSamples);
 
     swapInPendingSnapshot();
+    swapInPendingAudition();
 
     const bool playing = transport.isPlaying();
     if (wasPlaying && ! playing)
         releaseAllInstruments (false);  // stop: let held notes release
     wasPlaying = playing;
+    processPreviewEvents();   // pad and note previews need the snapshot (checked inside); the audition does not
 
     // Scrubbing starts from wherever the playhead is and drags it along.
     static thread_local bool wasScrubbing = false;
@@ -728,8 +788,6 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
 
     if (current != nullptr)
     {
-        processPreviewEvents();
-
         const juce::int64 pos = transport.getPositionSamples();
         if (playing)
         {
@@ -807,6 +865,7 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
     }
 
     mixPreview (outputs, numOutputs, numSamples);
+    renderAudition (outputs, numOutputs, numSamples);
 
     if (scrubNow)
         transport.setPositionSamples ((juce::int64) std::llround (scrubPosition));
@@ -897,6 +956,7 @@ void AudioGraph::audioDeviceAboutToStart (juce::AudioIODevice* device)
     loudness.prepare (transport.getSampleRate(), maxBlock);
     for (auto& slot : instrumentSlots)
         if (slot.id >= 0) slot.instance->prepare (transport.getSampleRate());
+    if (audition != nullptr && audition->instance != nullptr) audition->instance->prepare (transport.getSampleRate());
 }
 
 void AudioGraph::audioDeviceStopped() {}

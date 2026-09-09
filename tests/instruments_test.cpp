@@ -67,6 +67,20 @@ namespace
         return out;
     }
 
+    // The period (in samples) with the strongest autocorrelation over [from, to), searched between minLag and maxLag.
+    double periodByAutocorrelation (const juce::AudioBuffer<float>& buf, int from, int to, int minLag, int maxLag)
+    {
+        const float* d = buf.getReadPointer (0);
+        int best = minLag; double bestScore = -1.0e30;
+        for (int lag = minLag; lag <= maxLag; ++lag)
+        {
+            double sum = 0.0;
+            for (int i = from; i + lag < to; ++i) sum += (double) d[i] * d[i + lag];
+            if (sum > bestScore) { bestScore = sum; best = lag; }
+        }
+        return best;
+    }
+
     // Dominant frequency by zero-crossing count over [from, to).
     double zeroCrossingHz (const juce::AudioBuffer<float>& buf, int from, int to, double sr)
     {
@@ -267,6 +281,119 @@ TEST_CASE ("Every instrument type sounds, decays after release and exposes metad
 
         inst->allNotesOff (true);
         CHECK (inst->getNumActiveVoices() == 0);
+    }
+}
+
+TEST_CASE ("The audition instrument plays without a snapshot and is retired when replaced or cleared")
+{
+    Renderer r;
+    CHECK (! r.graph.hasAuditionInstrument());
+    r.graph.triggerAuditionNote (60, 1.0f, 0.1);   // nothing loaded: ignored
+    r.renderAll (512, 512);
+    CHECK (r.silentBetween (0, 512));
+
+    r.graph.setAuditionInstrument (Instrument::create (InstrumentType::subtractive, 48000.0), testParams());
+    CHECK (r.graph.hasAuditionInstrument());
+    r.graph.triggerAuditionNote (60, 1.0f, 0.1);
+    r.renderAll (512, 512);
+    CHECK (r.loudBetween (1, 512));                // no snapshot at all, and it still sounds
+    CHECK (r.graph.getNumSynthVoices() == 0);      // not counted among the tracks' voices
+
+    // Replaced: the new one plays, the old one is retired to the message thread
+    r.graph.setAuditionInstrument (Instrument::create (InstrumentType::organ, 48000.0), std::make_shared<const InstrumentParams> (Instrument::presets (InstrumentType::organ)[0]));
+    r.graph.triggerAuditionNote (60, 1.0f, 0.1);
+    r.renderAll (512, 512);
+    CHECK (r.loudBetween (1, 512));
+    r.graph.collectGarbage();
+
+    // Cleared: silence, even with a note queued
+    r.graph.setAuditionInstrument (nullptr, nullptr);
+    CHECK (! r.graph.hasAuditionInstrument());
+    r.graph.triggerAuditionNote (60, 1.0f, 0.1);
+    r.renderAll (512, 512);
+    CHECK (r.silentBetween (0, 512));
+    r.graph.collectGarbage();
+}
+
+TEST_CASE ("The new synths each have their own character")
+{
+    // Pluck: rings and decays by itself while held; a longer Decay rings longer
+    {
+        auto inst = Instrument::create (InstrumentType::pluck, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::pluck);
+        p.values[PluckParams::decay] = 0.5f;
+        auto shortRing = renderNote (*inst, p, 60, 1.5);
+        inst->allNotesOff (true);
+        p.values[PluckParams::decay] = 6.0f;
+        auto longRing = renderNote (*inst, p, 60, 1.5);
+        CHECK (shortRing.getMagnitude (0, 0, 4800) > 0.05f);
+        CHECK (shortRing.getMagnitude (0, 48000, 24000) < longRing.getMagnitude (0, 48000, 24000));
+        // In tune: the strongest autocorrelation lag is the period of C4 (183.5 samples at 48 kHz)
+        CHECK_THAT (periodByAutocorrelation (longRing, 4800, 28800, 120, 260), WithinAbs (183.5, 1.5));
+    }
+    // Organ: the 8' drawbar alone is a sine at the note; the 4' alone an octave up
+    {
+        auto inst = Instrument::create (InstrumentType::organ, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::organ);
+        for (int b = 0; b < 9; ++b) p.values[(size_t) b] = 0.0f;
+        p.values[OrganParams::click] = 0.0f; p.values[OrganParams::vibrato] = 0.0f;
+        p.values[OrganParams::bar8] = 8.0f;
+        auto eight = renderNote (*inst, p, 69, 0.5);
+        CHECK_THAT (zeroCrossingHz (eight, 2400, 24000, 48000.0), WithinAbs (440.0, 3.0));
+        inst->allNotesOff (true);
+        p.values[OrganParams::bar8] = 0.0f; p.values[OrganParams::bar4] = 8.0f;
+        auto four = renderNote (*inst, p, 69, 0.5);
+        CHECK_THAT (zeroCrossingHz (four, 2400, 24000, 48000.0), WithinAbs (880.0, 5.0));
+    }
+    // Stack: with Width the left and right channels differ; with one voice and no width they match
+    {
+        auto inst = Instrument::create (InstrumentType::stack, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::stack);
+        juce::AudioBuffer<float> out (2, 9600); out.clear();
+        float* ptrs[2] = { out.getWritePointer (0), out.getWritePointer (1) };
+        inst->noteOn (60, 1.0f, 1.0f, 0, -1, p);
+        inst->render (ptrs, 2, 9600, p);
+        float diff = 0.0f; for (int i = 0; i < 9600; ++i) diff = juce::jmax (diff, std::abs (out.getSample (0, i) - out.getSample (1, i)));
+        CHECK (diff > 0.01f);
+        inst->allNotesOff (true);
+        p.values[StackParams::voices] = 1.0f; p.values[StackParams::width] = 0.0f;
+        out.clear();
+        inst->noteOn (60, 1.0f, 1.0f, 0, -1, p);
+        inst->render (ptrs, 2, 9600, p);
+        diff = 0.0f; for (int i = 0; i < 9600; ++i) diff = juce::jmax (diff, std::abs (out.getSample (0, i) - out.getSample (1, i)));
+        CHECK (diff < 1.0e-5f);
+    }
+    // Chip: the octave arpeggio alternates between the note and the octave above at the arp rate
+    {
+        auto inst = Instrument::create (InstrumentType::chip, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::chip);
+        p.values[ChipParams::wave] = 2.0f; p.values[ChipParams::vibratoDepth] = 0.0f; p.values[ChipParams::bits] = 16.0f;
+        p.values[ChipParams::sustain] = 1.0f; p.values[ChipParams::attack] = 0.001f;
+        p.values[ChipParams::arp] = 1.0f; p.values[ChipParams::arpRate] = 4.0f;    // 12000 samples per step
+        auto out = renderNote (*inst, p, 69, 1.0);
+        CHECK_THAT (zeroCrossingHz (out, 1000, 11000, 48000.0), WithinAbs (440.0, 6.0));
+        CHECK_THAT (zeroCrossingHz (out, 13000, 23000, 48000.0), WithinAbs (880.0, 10.0));
+        CHECK_THAT (zeroCrossingHz (out, 25000, 35000, 48000.0), WithinAbs (440.0, 6.0));
+        // Two bits: the output takes only a few levels
+        inst->allNotesOff (true);
+        p.values[ChipParams::arp] = 0.0f; p.values[ChipParams::wave] = 3.0f; p.values[ChipParams::bits] = 2.0f;
+        auto crushed = renderNote (*inst, p, 60, 0.2);
+        std::vector<float> levels;
+        for (int i = 2000; i < 9600; ++i) { const float v = std::round (crushed.getSample (0, i) * 1000.0f) / 1000.0f; if (std::find (levels.begin(), levels.end(), v) == levels.end()) levels.push_back (v); }
+        CHECK (levels.size() <= 5);
+    }
+    // Vox: the vowel changes the spectrum: A and U differ, and the drift makes a held note move by itself
+    {
+        auto inst = Instrument::create (InstrumentType::vox, 48000.0);
+        auto p = Instrument::defaultParams (InstrumentType::vox);
+        p.values[VoxParams::drift] = 0.0f; p.values[VoxParams::breath] = 0.0f; p.values[VoxParams::attack] = 0.005f;
+        auto a = renderNote (*inst, p, 55, 0.5);
+        inst->allNotesOff (true);
+        p.values[VoxParams::vowel] = 4.0f;
+        auto u = renderNote (*inst, p, 55, 0.5);
+        CHECK (a.getMagnitude (0, 4800, 19200) > 0.02f);
+        CHECK (u.getMagnitude (0, 4800, 19200) > 0.02f);
+        CHECK (zeroCrossingHz (a, 4800, 24000, 48000.0) > zeroCrossingHz (u, 4800, 24000, 48000.0) * 1.2);   // A is brighter than U
     }
 }
 

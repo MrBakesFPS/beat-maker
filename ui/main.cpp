@@ -3206,7 +3206,7 @@ private:
     // Instrument Track > Other...: the chooser, with every bundled instrument by category
     void showInstrumentChooser (engine::InstrumentType preselect = engine::InstrumentType::none)
     {
-        auto* chooser = new ui::InstrumentChooser();
+        auto* chooser = new ui::InstrumentChooser (&engine.getGraph());
         if (preselect != engine::InstrumentType::none) chooser->selectType (preselect);
         juce::DialogWindow::LaunchOptions options;
         options.content.setOwned (chooser);

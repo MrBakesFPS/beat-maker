@@ -13,7 +13,8 @@
 namespace beatmaker::engine
 {
 
-enum class InstrumentType { none, subtractive, fm, wavetable, sampler, electricPiano, bass };
+// Session files store the type as its number: new instruments go at the end.
+enum class InstrumentType { none, subtractive, fm, wavetable, sampler, electricPiano, bass, pluck, organ, stack, chip, vox };
 
 struct InstrumentParams
 {
@@ -76,5 +77,10 @@ struct WavetableParams     { enum { position, detune, cutoff, resonance, filterE
 struct SamplerParams       { enum { tune, loop, attack, decay, sustain, release, cutoff, level }; };
 struct ElectricPianoParams { enum { tone, decay, release, tremoloRate, tremoloDepth, bell, level }; };
 struct BassParams          { enum { wave, sub, glide, cutoff, resonance, filterEnv, decay, drive, level }; };
+struct PluckParams         { enum { brightness, damping, decay, position, body, release, level }; };
+struct OrganParams         { enum { bar16, bar5, bar8, bar4, bar2b3, bar2, bar1b3b5, bar1b1b3, bar1, percussion, percDecay, click, vibrato, vibratoRate, level }; };
+struct StackParams         { enum { voices, detune, width, mix, cutoff, resonance, filterEnv, attack, decay, sustain, release, level }; };
+struct ChipParams          { enum { wave, bits, arp, arpRate, vibratoRate, vibratoDepth, attack, decay, sustain, release, level }; };
+struct VoxParams           { enum { vowel, drift, driftRate, breath, width, tone, attack, decay, sustain, release, level }; };
 
 } // namespace beatmaker::engine

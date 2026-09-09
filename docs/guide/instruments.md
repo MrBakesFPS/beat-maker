@@ -37,6 +37,13 @@ Add Track > Instrument Track (or **Ctrl+I** for the Synth) creates a track drive
 - **Sampler**: drop an audio file onto the track to load it; plays it pitched around C3 with tune, one-shot or loop, ADSR and a filter. Presets keep the loaded sample.
 - **Electric Piano**: a tine model with velocity-dependent brightness, an inharmonic bell partial, per-note decay and tremolo.
 - **Bass**: monophonic with last-note priority, legato filter retrigger, glide, a sub oscillator, a filter envelope and drive.
+- **Stack**: up to seven detuned saws per note fanned across the stereo field (Voices, Detune, Width, Mix), through a resonant filter with envelope. Trance leads, wide pads, stacked chords.
+- **Chip**: an 8-bit sound chip: 12.5 % and 25 % pulses, a square, a stepped triangle and LFSR noise, quantised to 2 to 16 bits, with vibrato and the chip arpeggio (Arp: octave, major, minor or fifth at Arp Rate) that turns one held note into a rolling chord.
+- **Vox**: a detuned saw pair through three formant filters morphing between the vowels A, E, I, O and U (Vowel), with Drift wandering the vowel by itself, breath noise and a tone control. Choirs, ahhs, talking leads.
+- **Organ**: nine drawbars (16' to 1'), each a sine at its harmonic, percussion on the second harmonic, key click and vibrato. Jazz, full, church, flute and rock presets.
+- **Pluck**: a physically modelled plucked string (Karplus-Strong): Bright and Position shape the pick, Damping and Decay the ring, Body adds resonance. Nylon and steel guitars, harp, koto, muted plucks.
+
+In the chooser (Instrument Track > Other...), selecting an instrument or preset plays a short phrase on it (C, E, G, then the chord) so you can hear it before adding the track; **Audition** plays it again and **Play on select** switches the automatic preview off. The preview plays straight to the main outputs, outside the mixer.
 
 ### Note editor
 
