@@ -88,6 +88,20 @@ void AudioGraph::triggerAuditionNote (int pitch, float velocity, double seconds)
     }
 }
 
+void AudioGraph::setAuditionKit (std::shared_ptr<const DrumKit> kit)
+{
+    auditionSet.store (kit != nullptr, std::memory_order_relaxed);
+    auto* next = new Audition { nullptr, nullptr, std::move (kit) };
+    delete incomingAudition.exchange (next);
+}
+
+void AudioGraph::triggerAuditionPad (int pad, float velocity)
+{
+    const auto scope = previewFifo.write (1);
+    const int index = scope.blockSize1 == 1 ? scope.startIndex1 : scope.blockSize2 == 1 ? scope.startIndex2 : -1;
+    if (index >= 0) { PreviewEvent e; e.audition = true; e.auditionPad = true; e.pad = pad; e.velocity = velocity; previewEvents[(size_t) index] = e; }
+}
+
 void AudioGraph::stopAuditionNotes()
 {
     const auto scope = previewFifo.write (1);
@@ -106,18 +120,29 @@ void AudioGraph::swapInPendingAudition() noexcept
         else if (scope.blockSize2 == 1) retiredAuditions[(size_t) scope.startIndex2] = audition;
         else { Audition* expected = nullptr; if (! incomingAudition.compare_exchange_strong (expected, next)) delete next; return; }   // try next block
     }
+    if (audition != nullptr && audition->kit != nullptr && (next->kit == nullptr || next->kit != audition->kit)) drums.chokeStrip (auditionStrip);
     audition = next;
 }
 
 void AudioGraph::renderAudition (float* const* outputs, int numOutputs, int numSamples) noexcept
 {
-    if (audition == nullptr || audition->instance == nullptr || audition->params == nullptr) return;
+    if (audition == nullptr) return;
+    const bool hasInstrument = audition->instance != nullptr && audition->params != nullptr;
+    if (! hasInstrument && ! drums.hasVoicesForStrip (auditionStrip)) return;
     auditionBuffer.clear (0, numSamples);
     float* outs[2] = { auditionBuffer.getWritePointer (0), auditionBuffer.getWritePointer (1) };
-    audition->instance->render (outs, 2, numSamples, *audition->params);
-    for (int ch = 0; ch < juce::jmin (numOutputs, 2); ++ch)
-        if (outputs[ch] != nullptr) juce::FloatVectorOperations::add (outputs[ch], auditionBuffer.getReadPointer (ch), numSamples);
-    if (numOutputs == 1 && outputs[0] != nullptr) juce::FloatVectorOperations::add (outputs[0], auditionBuffer.getReadPointer (1), numSamples);
+    if (hasInstrument) audition->instance->render (outs, 2, numSamples, *audition->params);
+    drums.render (outs, 2, numSamples, auditionStrip);
+    if (numOutputs >= 2)
+    {
+        for (int ch = 0; ch < 2; ++ch)
+            if (outputs[ch] != nullptr) juce::FloatVectorOperations::add (outputs[ch], auditionBuffer.getReadPointer (ch), numSamples);
+    }
+    else if (numOutputs == 1 && outputs[0] != nullptr)   // mono: the two sides folded down at half gain each
+    {
+        juce::FloatVectorOperations::addWithMultiply (outputs[0], auditionBuffer.getReadPointer (0), 0.5f, numSamples);
+        juce::FloatVectorOperations::addWithMultiply (outputs[0], auditionBuffer.getReadPointer (1), 0.5f, numSamples);
+    }
 }
 
 void AudioGraph::triggerPadPreview (const DrumKit* kit, int pad, float velocity)
@@ -236,6 +261,7 @@ void AudioGraph::swapInPendingSnapshot() noexcept
     for (const auto& p : current->patterns)
         if (p.kit != nullptr && numKits < (int) kits.size())
             kits[(size_t) numKits++] = p.kit.get();
+    if (audition != nullptr && audition->kit != nullptr && numKits < (int) kits.size()) kits[(size_t) numKits++] = audition->kit.get();   // the chooser's kit lives on
     drums.killVoicesNotUsing (kits.data(), numKits);
 }
 
@@ -305,9 +331,18 @@ void AudioGraph::processPreviewEvents()
             const auto& e = previewEvents[(size_t) (start + i)];
             if (e.audition)
             {
-                if (audition == nullptr || audition->instance == nullptr || audition->params == nullptr) continue;
-                if (e.stop) audition->instance->allNotesOff (false);
-                else audition->instance->noteOn (e.pitch, e.velocity, 1.0f, 0, juce::jmax (1, e.gateSamples), *audition->params);
+                if (audition == nullptr) continue;
+                if (e.stop)
+                {
+                    if (audition->instance != nullptr) audition->instance->allNotesOff (false);
+                    drums.chokeStrip (auditionStrip);
+                }
+                else if (e.auditionPad)
+                {
+                    if (audition->kit != nullptr) drums.trigger (audition->kit.get(), e.pad, e.velocity, 1.0f, 0, auditionStrip);
+                }
+                else if (audition->instance != nullptr && audition->params != nullptr)
+                    audition->instance->noteOn (e.pitch, e.velocity, 1.0f, 0, juce::jmax (1, e.gateSamples), *audition->params);
             }
             else if (current == nullptr) continue;
             else if (e.kit != nullptr)

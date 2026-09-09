@@ -43,6 +43,7 @@ public:
     std::function<void (int trackIndex, int pad, const juce::File&)> onPadSampleDropped;
     std::function<void (int trackIndex, int clipIndex, juce::int64 newLengthSamples)> onClipExtend;
     std::function<void (int trackIndex, int clipIndex, bool loop)> onClipLoopChanged;
+    std::function<void (int trackIndex, const juce::String& kitName)> onKitChanged;   // the Kit menu in the header
     bool clipLoops() const { auto* c = getClip(); return c != nullptr && c->loop; }
 
     // EditorPanel
@@ -185,6 +186,9 @@ private:
     model::StepEdits::Cells strokeCells;
 
     juce::TextButton linkButton { "Link" }, loopButton { "Loop" }, unrollButton { "Unroll" };
+    juce::ComboBox kitBox;
+    juce::Label kitLabel { {}, "Kit" };
+    void refreshKitBox();
 };
 
 } // namespace beatmaker::ui

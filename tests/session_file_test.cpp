@@ -278,6 +278,36 @@ TEST_CASE ("Session files round-trip every kind of content")
     bundle.deleteRecursively();
 }
 
+TEST_CASE ("A drum track's kit comes back by name when the loader knows the bundled kits")
+{
+    using namespace beatmaker;
+    const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("bm-kit-" + juce::String (juce::Random::getSystemRandom().nextInt (1 << 30)));
+    dir.createDirectory();
+    const auto bundle = dir.getChildFile ("Kits.bmk");
+    model::Session s;
+    model::Track t; t.name = "Drums"; t.type = model::Track::Type::instrument; t.instrumentKind = model::Track::InstrumentKind::drumMachine;
+    t.drumKit = engine::DrumKitFactory::createKit ("808", 48000.0);
+    s.execute (std::make_unique<model::AddTrackCommand> (t));
+    persistence::TransportState ts;
+    REQUIRE (persistence::SessionFile::save (s, ts, bundle).isEmpty());
+
+    model::Session again; persistence::TransportState ts2; juce::StringArray warnings;
+    persistence::LoadContext ctx;
+    ctx.defaultKit = [] { return engine::DrumKitFactory::createDefaultKit (48000.0); };
+    ctx.kitNamed = [] (const juce::String& name) { return engine::DrumKitFactory::createKit (name, 48000.0); };
+    REQUIRE (persistence::SessionFile::load (again, ts2, bundle, ctx, warnings).isEmpty());
+    REQUIRE (again.getTracks().size() == 1);
+    REQUIRE (again.getTracks()[0].drumKit != nullptr);
+    CHECK (again.getTracks()[0].drumKit->name == "808");
+    CHECK (again.getTracks()[0].drumKit->pads[engine::DrumKitFactory::kick].name == "808 Kick");
+    // A loader without the registry still opens it, on the default kit's sounds
+    model::Session older; persistence::LoadContext plain; plain.defaultKit = ctx.defaultKit;
+    REQUIRE (persistence::SessionFile::load (older, ts2, bundle, plain, warnings).isEmpty());
+    CHECK (older.getTracks()[0].drumKit->name == "808");
+    CHECK (older.getTracks()[0].drumKit->pads[engine::DrumKitFactory::kick].name == "Kick");
+    dir.deleteRecursively();
+}
+
 TEST_CASE ("Renaming a session bundle moves the folder and keeps the session whole")
 {
     using namespace beatmaker;

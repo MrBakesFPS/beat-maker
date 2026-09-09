@@ -21,9 +21,13 @@ public:
     // gateSamples > 0 fades the voice out after that many played samples (a held step); 0 lets it ring out.
     void trigger (const DrumKit* kit, int pad, float velocity, float gain, int delaySamples, int strip = 0, int gateSamples = 0) noexcept;
 
-    // Mix active voices into the outputs (additive). strip < 0 renders every
-    // voice; otherwise only voices belonging to that channel strip.
+    // Mix active voices into the outputs (additive). strip == -1 renders every
+    // voice; otherwise only voices belonging to that channel strip (a negative
+    // strip other than -1 is a private one, such as the audition kit's).
     void render (float* const* outputs, int numOutputs, int numSamples, int strip = -1) noexcept;
+
+    // Fades out every voice on a strip (the way a re-trigger chokes a pad).
+    void chokeStrip (int strip) noexcept;
 
     bool hasVoicesForStrip (int strip) const noexcept;
 

@@ -301,6 +301,71 @@ TEST_CASE ("Pad previews only fire for kits in the active snapshot, and die when
     r.graph.collectGarbage();
 }
 
+TEST_CASE ("Every bundled kit has 16 named, non-silent pads, a category and a description; unknown names give the default")
+{
+    const auto& kits = DrumKitFactory::availableKits();
+    REQUIRE (kits.size() >= 5);
+    CHECK (juce::String (kits.front().name) == DrumKitFactory::defaultKitName());
+    for (const auto& info : kits)
+    {
+        INFO ("kit " << info.name);
+        CHECK (juce::String (info.category).isNotEmpty());
+        CHECK (juce::String (info.description).length() > 40);
+        auto kit = DrumKitFactory::createKit (info.name, 44100.0);
+        REQUIRE (kit != nullptr);
+        CHECK (kit->name == info.name);
+        for (const auto& pad : kit->pads)
+        {
+            INFO ("pad " << pad.name);
+            CHECK (pad.name.isNotEmpty());
+            REQUIRE (pad.audio != nullptr);
+            CHECK (pad.audio->getNumSamples() > 1000);
+            CHECK (pad.audio->getMagnitude (0, 0, pad.audio->getNumSamples()) > 0.2f);
+            CHECK (pad.audio->getMagnitude (0, 0, pad.audio->getNumSamples()) <= 1.0f);
+        }
+    }
+    for (size_t i = 0; i < kits.size(); ++i) for (size_t j = i + 1; j < kits.size(); ++j) CHECK (juce::String (kits[i].name) != kits[j].name);
+    CHECK (DrumKitFactory::createKit ("No Such Kit", 44100.0)->name == DrumKitFactory::defaultKitName());
+    CHECK (DrumKitFactory::info ("808") != nullptr);
+    CHECK (DrumKitFactory::info ("nope") == nullptr);
+    CHECK (! DrumKitFactory::categories().empty());
+    // Kits sound different: the 808 kick rings far longer than the 909's
+    auto k808 = DrumKitFactory::createKit ("808", 48000.0), k909 = DrumKitFactory::createKit ("909", 48000.0);
+    CHECK (k808->pads[DrumKitFactory::kick].audio->getMagnitude (0, 24000, 12000) > k909->pads[DrumKitFactory::kick].audio->getMagnitude (0, 24000, juce::jmin (12000, k909->pads[DrumKitFactory::kick].audio->getNumSamples() - 24000)) * 2.0f);
+}
+
+TEST_CASE ("The audition kit plays pads without a snapshot, is choked on stop, and is retired when cleared")
+{
+    Renderer r;
+    r.transport.setSampleRate (48000.0);
+    r.transport.setBpm (120.0);
+    r.graph.triggerAuditionPad (1, 1.0f);      // nothing loaded: ignored
+    r.renderAll (64, 64);
+    CHECK (r.nonZeroIndices().empty());
+
+    r.graph.setAuditionKit (makeTestKit());
+    CHECK (r.graph.hasAuditionInstrument());
+    r.graph.triggerAuditionPad (1, 1.0f);      // the 1000-sample DC pad, no snapshot at all
+    r.renderAll (64, 64);
+    CHECK_THAT (r.out.getSample (0, 63), WithinAbs (1.0f, 1e-6));
+    CHECK (r.graph.getNumActiveVoices() == 1);
+    // A track's strip never renders it
+    r.graph.stopAuditionNotes();               // choke: gone within the fade
+    r.renderAll (200, 200);
+    CHECK (r.graph.getNumActiveVoices() == 0);
+
+    r.graph.triggerAuditionPad (1, 1.0f);
+    r.renderAll (64, 64);
+    CHECK (r.graph.getNumActiveVoices() == 1);
+    r.graph.setAuditionKit (nullptr);          // cleared: the voice is choked and the kit retired
+    r.renderAll (200, 200);
+    CHECK (r.graph.getNumActiveVoices() == 0);
+    r.graph.triggerAuditionPad (1, 1.0f);
+    r.renderAll (64, 64);
+    CHECK (r.nonZeroIndices().empty());
+    r.graph.collectGarbage();
+}
+
 TEST_CASE ("Default kit has 16 named, non-silent pads")
 {
     auto kit = DrumKitFactory::createDefaultKit (44100.0);

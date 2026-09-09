@@ -1,4 +1,5 @@
 #include "TrackArea.h"
+#include <dsp/DrumKitFactory.h>
 #include <ClipLoop.h>
 #include <ClipJoin.h>
 #include "../shared/UiProfiler.h"
@@ -27,7 +28,12 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
     {
         juce::PopupMenu menu;
         menu.addItem (1, "Audio Track");
-        menu.addItem (2, "Drum Machine Track");
+        juce::PopupMenu kits;
+        const auto& kitList = engine::DrumKitFactory::availableKits();
+        for (int i = 0; i < (int) kitList.size(); ++i) kits.addItem (200 + i, kitList[(size_t) i].name);
+        kits.addSeparator();
+        kits.addItem (199, "Other...");   // the chooser: every kit by category, with descriptions and previews
+        menu.addSubMenu ("Drum Machine Track", kits);
         juce::PopupMenu instruments;
         const auto& types = engine::Instrument::availableTypes();
         for (int i = 0; i < (int) types.size(); ++i)
@@ -48,6 +54,12 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
                                 else if (result == 4) onAddTrack (T::aux, K::none, engine::InstrumentType::none);
                                 else if (result == 1) onAddTrack (T::audio, K::none, engine::InstrumentType::none);
                                 else if (result == 2) onAddTrack (T::instrument, K::drumMachine, engine::InstrumentType::none);
+                                else if (result == 199) { if (onChooseKit) onChooseKit(); }
+                                else if (result >= 200 && result < 200 + (int) engine::DrumKitFactory::availableKits().size())
+                                {
+                                    if (onAddDrumTrack) onAddDrumTrack (engine::DrumKitFactory::availableKits()[(size_t) (result - 200)].name);
+                                    else onAddTrack (T::instrument, K::drumMachine, engine::InstrumentType::none);
+                                }
                                 else if (result == 99) { if (onChooseInstrument) onChooseInstrument(); }
                                 else if (result >= 100 && result < 100 + (int) all.size())
                                     onAddTrack (T::instrument, K::synth, all[(size_t) (result - 100)]);

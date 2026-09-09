@@ -22,6 +22,8 @@
 #include "shared/CrashReporter.h"
 #include "shared/SessionChooser.h"
 #include "depth/InstrumentChooser.h"
+#include "depth/DrumKitChooser.h"
+#include <map>
 #include "shared/UiProfiler.h"
 #include <cstdlib>
 #include <AafExport.h>
@@ -263,6 +265,8 @@ public:
             else                                                              addDrumMachineTrack();
         };
         trackArea.onChooseInstrument = [this] { showInstrumentChooser(); };
+        trackArea.onAddDrumTrack = [this] (const juce::String& kit) { addDrumMachineTrack (kit); };
+        trackArea.onChooseKit = [this] { showDrumKitChooser(); };
         trackArea.onSelectionChanged = [this] (int i) { updateSequencerTarget(); if (eventListContent != nullptr) eventListContent->setTrack (i); };
         midiSync.onTransportChanged = [this] { updateStatus(); };
 
@@ -286,6 +290,15 @@ public:
             session.execute (std::make_unique<model::TrimClipCommand> (model::ClipRef { track, model::ClipRef::Kind::pattern, clip }, t->patternClips[(size_t) clip].timelineStart, newLength));
         };
         sequencer.onPadSampleDropped = [this] (int track, int pad, const juce::File& file) { loadPadSample (track, pad, file); };
+        sequencer.onKitChanged = [this] (int track, const juce::String& kitName)
+        {
+            auto* t = session.getTrack (track);
+            if (t == nullptr || t->drumKit == nullptr || t->drumKit->name == kitName) return;
+            auto kit = std::make_shared<engine::DrumKit> (*kitNamed (kitName));
+            for (size_t i = 0; i < kit->pads.size(); ++i) kit->pads[i].gain = t->drumKit->pads[i].gain;   // the Smart Controls levels stay
+            session.execute (std::make_unique<model::ReplaceDrumKitCommand> (track, std::move (kit), "Change Kit"));
+            statusMessage = "Kit: " + kitName; updateStatus();
+        };
 
         pianoRoll.onSequenceChanged = [this] (int track, int clip, std::shared_ptr<const engine::MidiSequence> seq, juce::String name)
         {
@@ -369,7 +382,7 @@ public:
     }
 
     // Command-line entry points (also handy for smoke tests and demos).
-    void addDrumMachineTrackFromCommandLine() { addDrumMachineTrack(); }
+    void addDrumMachineTrackFromCommandLine (const juce::String& kitName = {}) { addDrumMachineTrack (kitName); }
     void addSynthTrackFromCommandLine() { addInstrumentTrack (engine::InstrumentType::subtractive); }
     void setRecordModeFromCommandLine (const juce::String& name)
     {
@@ -425,6 +438,7 @@ public:
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
     void showInstrumentChooserFromCommandLine() { showInstrumentChooser(); }   // --instrument-chooser
+    void showDrumKitChooserFromCommandLine() { showDrumKitChooser(); }         // --kit-chooser
     bool renameSessionFromCommandLine (const juce::String& name) { return renameSession (name); }   // --rename=<name>
     // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
     // takes the double-click/Return path on it (smoke tests)
@@ -1015,6 +1029,7 @@ public:
         add ("track.addAudio", "Track", "New Audio Track", juce::KeyPress ('n', M::commandModifier | M::shiftModifier, 0), 0, [this] { addTrack ("Audio " + juce::String (countTracks (model::Track::Type::audio) + 1)); });
         add ("track.addDrums", "Track", "New Drum Machine Track", juce::KeyPress ('d', M::commandModifier | M::shiftModifier, 0), 0, [this] { addDrumMachineTrack(); });
         add ("track.addSynth", "Track", "New Synth Track", juce::KeyPress ('i', M::commandModifier, 0), 0, [this] { addInstrumentTrack (engine::InstrumentType::subtractive); });
+        add ("track.addDrumKit", "Track", "New Drum Machine Track (choose kit)...", {}, 0, [this] { showDrumKitChooser(); });
         add ("track.addInstrument", "Track", "New Instrument Track (choose)...", juce::KeyPress ('i', M::commandModifier | M::shiftModifier, 0), 0, [this] { showInstrumentChooser(); });
         for (auto type : engine::Instrument::availableTypes())
             add (("track.add." + juce::String (engine::Instrument::typeName (type)).removeCharacters (" ")).toRawUTF8(), "Track", ("New " + juce::String (engine::Instrument::typeName (type)) + " Track").toRawUTF8(), {}, 0, [this, type] { addInstrumentTrack (type); });
@@ -1947,17 +1962,26 @@ private:
         automation.tick();
     }
 
-    void addDrumMachineTrack()
+    // A bundled kit, synthesised once per name at the engine rate and shared by every track that uses it
+    std::shared_ptr<const engine::DrumKit> kitNamed (const juce::String& name)
     {
-        if (defaultKit == nullptr)
-            defaultKit = engine::DrumKitFactory::createDefaultKit (engine.getSampleRate());
+        const auto* info = engine::DrumKitFactory::info (name);
+        const juce::String key = info != nullptr ? juce::String (info->name) : juce::String (engine::DrumKitFactory::defaultKitName());
+        auto& slot = kitCache[key];
+        if (slot == nullptr) slot = engine::DrumKitFactory::createKit (key, engine.getSampleRate());
+        if (key == engine::DrumKitFactory::defaultKitName()) defaultKit = slot;
+        return slot;
+    }
 
+    void addDrumMachineTrack (const juce::String& kitName = {})
+    {
+        const auto kit = kitNamed (kitName);
         model::Track track;
-        track.name    = "Drums " + juce::String (countTracks (model::Track::Type::instrument) + 1);
+        track.name    = (kitName.isEmpty() || kitName == engine::DrumKitFactory::defaultKitName() ? juce::String ("Drums ") : kitName + " ") + juce::String (countTracks (model::Track::Type::instrument) + 1);
         track.type    = model::Track::Type::instrument;
         track.instrumentKind = model::Track::InstrumentKind::drumMachine;
         track.colour  = model::Session::colourForTrackIndex (session.getNumTracks());
-        track.drumKit = defaultKit;
+        track.drumKit = kit;
 
         auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
         auto* raw = cmd.get();
@@ -2155,9 +2179,9 @@ private:
         };
         ctx.defaultKit = [this]
         {
-            if (defaultKit == nullptr) defaultKit = engine::DrumKitFactory::createDefaultKit (engine.getSampleRate());
-            return defaultKit;
+            return kitNamed (engine::DrumKitFactory::defaultKitName());
         };
+        ctx.kitNamed = [this] (const juce::String& name) { return kitNamed (name); };
         ctx.instantiatePlugin = [this] (const juce::String& id, juce::String& error) -> std::shared_ptr<engine::Effect>
         {
             auto desc = pluginManager.getKnownPlugins().getTypeForIdentifierString (id);
@@ -3225,6 +3249,28 @@ private:
         };
     }
 
+    // Drum Machine Track > Other...: the kit chooser
+    void showDrumKitChooser (const juce::String& preselect = {})
+    {
+        auto* chooser = new ui::DrumKitChooser (&engine.getGraph(), engine.getSampleRate());
+        if (preselect.isNotEmpty()) chooser->selectKit (preselect);
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (chooser);
+        options.dialogTitle = "Add Drum Machine Track";
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        chooser->onCancel = [window] { window->setVisible (false); };
+        chooser->onAdd = [this, window] (const juce::String& kit)
+        {
+            window->setVisible (false);
+            addDrumMachineTrack (kit);
+            grabKeyboardFocus();
+        };
+    }
+
     void showNewSessionDialog()
     {
         auto* dialog = new ui::NewSessionDialog (templateChoices(), "Untitled");
@@ -3526,6 +3572,7 @@ private:
     std::shared_ptr<const juce::AudioBuffer<float>> previewAudio;
     bool libraryVisible = true;
     std::shared_ptr<const engine::DrumKit> defaultKit;
+    std::map<juce::String, std::shared_ptr<const engine::DrumKit>> kitCache;
     bool editorVisible = true;
     bool loopRecording = false;
     juce::int64 loopRecordStart = 0, loopRecordEnd = 0;
@@ -3633,6 +3680,8 @@ public:
         for (const auto& arg : getCommandLineParameterArray())
         {
             if (arg == "--drums")       main.addDrumMachineTrackFromCommandLine();
+            else if (arg.startsWith ("--drums=")) main.addDrumMachineTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg == "--kit-chooser") juce::Timer::callAfterDelay (300, [&main] { main.showDrumKitChooserFromCommandLine(); });
             else if (arg == "--synth")  main.addSynthTrackFromCommandLine();
             else if (arg.startsWith ("--instrument=")) main.addInstrumentTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--sample=")) main.loadSampleFromCommandLine (juce::File::getCurrentWorkingDirectory()

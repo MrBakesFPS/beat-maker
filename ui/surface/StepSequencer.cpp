@@ -1,4 +1,5 @@
 #include "StepSequencer.h"
+#include <dsp/DrumKitFactory.h>
 #include "../shared/UiProfiler.h"
 
 namespace beatmaker::ui
@@ -10,6 +11,18 @@ using StepEdits = model::StepEdits;
 StepSequencer::StepSequencer (model::Session& s, engine::Transport& t, engine::AudioGraph& g)
     : session (s), transport (t), graph (g)
 {
+    addAndMakeVisible (kitLabel);
+    kitLabel.setColour (juce::Label::textColourId, theme::textDim);
+    kitLabel.setFont (juce::FontOptions (12.0f));
+    addAndMakeVisible (kitBox);
+    kitBox.setTooltip ("The drum kit this track plays; every bundled kit shares the same pad layout, so the pattern stays");
+    int kitId = 1;
+    for (const auto& k : engine::DrumKitFactory::availableKits()) kitBox.addItem (k.name, kitId++);
+    kitBox.onChange = [this]
+    {
+        const int id = kitBox.getSelectedId();
+        if (trackIndex >= 0 && id > 0 && onKitChanged) onKitChanged (trackIndex, engine::DrumKitFactory::availableKits()[(size_t) (id - 1)].name);
+    };
     addAndMakeVisible (linkButton);
     linkButton.setClickingTogglesState (true);
     linkButton.setToggleState (true, juce::dontSendNotification);
@@ -36,7 +49,20 @@ void StepSequencer::setTarget (int newTrackIndex, int newClipIndex)
     if (trackChanged) { clipIndex = newClipIndex >= 0 ? newClipIndex : 0; selection.clear(); ownPixelsPerSecond = 0.0; drag = Drag::none; }
     else if (newClipIndex >= 0 && newClipIndex != clipIndex) setActiveClip (newClipIndex);
     if (clipIndex >= numClips()) { clipIndex = juce::jmax (0, numClips() - 1); selection.clear(); }
+    refreshKitBox();
     repaint();
+}
+
+// The Kit menu shows the track's kit by name (a kit with pads replaced by files keeps its name)
+void StepSequencer::refreshKitBox()
+{
+    auto* track = getTrack();
+    const juce::String name = track != nullptr && track->drumKit != nullptr ? track->drumKit->name : juce::String();
+    int wanted = 0;
+    const auto& kits = engine::DrumKitFactory::availableKits();
+    for (int i = 0; i < (int) kits.size(); ++i) if (name == kits[(size_t) i].name) wanted = i + 1;
+    if (kitBox.getSelectedId() != wanted) kitBox.setSelectedId (wanted, juce::dontSendNotification);
+    if (wanted == 0 && name.isNotEmpty() && kitBox.getText() != name) kitBox.setText (name, juce::dontSendNotification);
 }
 
 void StepSequencer::setActiveClip (int ci)
@@ -373,7 +399,9 @@ juce::String StepSequencer::describeSelection() const
 void StepSequencer::resized()
 {
     auto header = getLocalBounds().removeFromTop (headerHeight).reduced (8, 3);
-    header.removeFromLeft (4);
+    kitLabel.setBounds (header.removeFromLeft (28));
+    kitBox.setBounds (header.removeFromLeft (150));
+    header.removeFromLeft (10);
     linkButton.setBounds (header.removeFromLeft (46));
     header.removeFromLeft (4);
     loopButton.setBounds (header.removeFromLeft (48));
@@ -852,6 +880,7 @@ bool StepSequencer::keyPressed (const juce::KeyPress& key)
 
 void StepSequencer::timerCallback()
 {
+    refreshKitBox();   // cheap: compares a name
     // Repaint only what changed: the playhead's two columns, or everything when the linked view moved.
     const auto v = view();
     if (linked && (std::abs (v.startSeconds - lastViewStart) > 1.0e-9 || std::abs (v.pixelsPerSecond - lastViewPps) > 1.0e-9 || std::abs (v.originX - lastViewOrigin) > 0.5))

@@ -40,6 +40,13 @@ void DrumMachine::trigger (const DrumKit* kit, int pad, float velocity, float ga
     target->active = true;
 }
 
+void DrumMachine::chokeStrip (int strip) noexcept
+{
+    for (auto& v : voices)
+        if (v.active && v.strip == strip && v.fadeRemaining < 0 && v.fadePending < 0)
+            v.fadePending = 0;
+}
+
 bool DrumMachine::hasVoicesForStrip (int strip) const noexcept
 {
     for (const auto& v : voices) if (v.active && v.strip == strip) return true;
@@ -50,7 +57,7 @@ void DrumMachine::render (float* const* outputs, int numOutputs, int numSamples,
 {
     for (auto& v : voices)
     {
-        if (! v.active || (strip >= 0 && v.strip != strip))
+        if (! v.active || (strip != -1 && v.strip != strip))
             continue;
 
         int pos = juce::jmin (v.delay, numSamples);   // position within this block

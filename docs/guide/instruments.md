@@ -2,7 +2,9 @@
 
 ## Drum Machine
 
-A Drum Machine track has a synthesised 16-pad kit and a one-bar pattern clip with a starter beat. Smart Controls add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals, Perc and Sub.
+A Drum Machine track has a synthesised 16-pad kit and a one-bar pattern clip with a starter beat. Add Track > Drum Machine Track lists the bundled kits; **Other...** at the bottom (or "New Drum Machine Track (choose kit)..." in the command palette) opens the kit chooser: every kit by category with a description and its sixteen pads. The play button on a kit row plays a bar of a beat on it, the one on a pad row plays that pad. The **Kit** menu in the drum editor's header swaps the kit of an existing track (the pattern and the Smart Controls levels stay, since every kit shares the same pad layout). Smart Controls add levels for Kick, Snare, Clap/Rim, Hats, Toms, Cymbals, Perc and Sub.
+
+The kits: **Studio Kit** (tight and dry, the default), **808** (the analogue classic: booming kick, metallic hats and cowbell, deep sub), **909** (the house machine: clicking kick, crunchy snare, bright hats, big cymbals), **Lo-Fi** (the studio kit through an old sampler: crushed, dark and dusty) and **Percussion** (surdo, timbale, bongo, woodblock, cabasa, shaker, congas, bell tree, triangle, agogo, guiro, tabla, djembe and a low drum in place of a kit). A session remembers which kit each track uses.
 
 ### Drum editor
 

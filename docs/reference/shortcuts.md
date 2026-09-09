@@ -130,12 +130,23 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | New Audio Track | `ctrl + shift + N` |  |
 | New Drum Machine Track | `ctrl + shift + D` |  |
 | New Synth Track | `ctrl + I` |  |
+| New Drum Machine Track (choose kit)... |  |  |
 | New Instrument Track (choose)... | `ctrl + shift + I` |  |
 | New Synth Track |  |  |
 | New FM Synth Track |  |  |
 | New Wavetable Track |  |  |
+| New Stack Track |  |  |
+| New Chip Track |  |  |
+| New Vox Track |  |  |
 | New Sampler Track |  |  |
+| New Piano Track |  |  |
 | New Electric Piano Track |  |  |
+| New Organ Track |  |  |
+| New Mallets Track |  |  |
+| New Pluck Track |  |  |
+| New Strings Track |  |  |
+| New Brass Track |  |  |
+| New Flute Track |  |  |
 | New Bass Track |  |  |
 | New Aux Input |  |  |
 | New VCA Master |  |  |

@@ -396,9 +396,13 @@ namespace
         if (v.hasProperty ("drumKit"))
         {
             auto kit = std::make_shared<engine::DrumKit>();
-            if (ctx.defaultKit) if (auto def = ctx.defaultKit()) *kit = *def;
             const auto kv = get (v, "drumKit");
-            kit->name = get (kv, "name", kit->name).toString();
+            const auto savedName = get (kv, "name", "").toString();
+            std::shared_ptr<const engine::DrumKit> base;
+            if (ctx.kitNamed && savedName.isNotEmpty()) base = ctx.kitNamed (savedName);   // the bundled kit the track used
+            if (base == nullptr && ctx.defaultKit) base = ctx.defaultKit();
+            if (base != nullptr) *kit = *base;
+            kit->name = savedName.isNotEmpty() ? savedName : kit->name;
             const auto pads = get (kv, "pads");
             for (int i = 0; i < juce::jmin ((int) kit->pads.size(), count (pads)); ++i)
             {
