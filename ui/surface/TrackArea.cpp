@@ -40,10 +40,12 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
         kits.addItem (199, "Other...");           // the chooser: every kit by category, with descriptions and previews
         kits.addItem (198, "Build Your Own...");  // the kit builder
         menu.addSubMenu ("Drum Machine Track", kits);
+        // One instrument per category (the first of each); the rest are in the chooser, so the menu stays short
         juce::PopupMenu instruments;
         const auto& types = engine::Instrument::availableTypes();
-        for (int i = 0; i < (int) types.size(); ++i)
-            instruments.addItem (100 + i, engine::Instrument::typeName (types[(size_t) i]));
+        for (const auto& category : engine::Instrument::categories())
+            for (int i = 0; i < (int) types.size(); ++i)
+                if (category == engine::Instrument::typeCategory (types[(size_t) i])) { instruments.addItem (100 + i, engine::Instrument::typeName (types[(size_t) i])); break; }
         instruments.addSeparator();
         instruments.addItem (99, "Other...");   // the chooser: every instrument by category, with descriptions and presets
         menu.addSubMenu ("Instrument Track", instruments);
