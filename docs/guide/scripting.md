@@ -27,7 +27,7 @@ Indices are 1-based. Times are seconds unless a function says beats or bars. Tra
 |---|---|
 | `tracks()`, `track(i)`, `num_tracks()` | track tables with `index`, `id`, `name`, `kind`, `gain`, `gain_db`, `pan`, `mute`, `solo`, `armed`, `num_clips`, `output_bus` |
 | `add_track(kind[, name])` | returns the new track's index |
-| `rename_track(i, name)`, `remove_track(i)` | |
+| `rename_track(i, name)`, `remove_track(i)`, `set_track_colour(i, "#rrggbb")` | track tables carry `colour` as `#rrggbb` |
 | `set_gain(i, g)`, `set_gain_db(i, db)`, `set_pan(i, p)` | gain 0 to 2, pan -1 to 1 |
 | `set_mute(i, on)`, `set_solo(i, on)`, `set_arm(i, on)` | |
 | `clips(i)` | clip tables with `index`, `kind` (`audio`, `pattern`, `midi`), `name`, `start`, `length`, `end` in seconds |

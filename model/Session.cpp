@@ -43,14 +43,20 @@ double Session::getLengthSeconds() const
     return end;
 }
 
-juce::Colour Session::colourForTrackIndex (int index)
+const std::vector<juce::Colour>& Session::trackPalette()
 {
-    static const juce::Colour palette[] = {
+    static const std::vector<juce::Colour> palette {
         juce::Colour (0xff3498db), juce::Colour (0xff2ecc71), juce::Colour (0xffe67e22),
         juce::Colour (0xff9b59b6), juce::Colour (0xffe74c3c), juce::Colour (0xff1abc9c),
         juce::Colour (0xfff1c40f), juce::Colour (0xffe84393),
     };
-    return palette[(size_t) index % std::size (palette)];
+    return palette;
+}
+
+juce::Colour Session::colourForTrackIndex (int index)
+{
+    const auto& palette = trackPalette();
+    return palette[(size_t) index % palette.size()];
 }
 
 } // namespace beatmaker::model

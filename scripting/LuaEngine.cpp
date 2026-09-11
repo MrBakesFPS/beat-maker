@@ -58,6 +58,7 @@ struct LuaBindings
         setField (L, "index", index + 1);
         setField (L, "id", t.id);
         setField (L, "name", t.name);
+        setField (L, "colour", "#" + t.colour.toDisplayString (false));
         setField (L, "kind", juce::String (trackKind (t)));
         setField (L, "gain", (double) t.gain);
         setField (L, "gain_db", (double) juce::Decibels::gainToDecibels (t.gain, -100.0f));
@@ -126,6 +127,13 @@ struct LuaBindings
         return 1;
     }
     static int renameTrack (lua_State* L) { session (L).execute (std::make_unique<RenameTrackCommand> (trackIndex (L, 1), str (L, 2))); return 0; }
+    static int setTrackColour (lua_State* L)   // "#rrggbb" or "rrggbb"
+    {
+        const auto hex = str (L, 2).trim().removeCharacters ("#");
+        if (hex.length() != 6) return luaL_error (L, "colour must be #rrggbb");
+        session (L).execute (std::make_unique<SetTrackColourCommand> (trackIndex (L, 1), juce::Colour::fromString ("ff" + hex)));
+        return 0;
+    }
     static int removeTrack (lua_State* L) { session (L).execute (std::make_unique<RemoveTrackCommand> (trackIndex (L, 1))); return 0; }
     static int setGain (lua_State* L)
     {
@@ -446,6 +454,7 @@ void LuaEngine::installApi()
     lua_newtable (L);   // session
     reg ("tracks", LuaBindings::tracks); reg ("track", LuaBindings::track); reg ("num_tracks", LuaBindings::numTracks);
     reg ("add_track", LuaBindings::addTrack); reg ("rename_track", LuaBindings::renameTrack); reg ("remove_track", LuaBindings::removeTrack);
+    reg ("set_track_colour", LuaBindings::setTrackColour);
     reg ("set_gain", LuaBindings::setGain); reg ("set_gain_db", LuaBindings::setGainDb); reg ("set_pan", LuaBindings::setPan);
     reg ("set_mute", LuaBindings::setMute); reg ("set_solo", LuaBindings::setSolo); reg ("set_arm", LuaBindings::setArm);
     reg ("clips", LuaBindings::clips); reg ("move_clip", LuaBindings::moveClip); reg ("trim_clip", LuaBindings::trimClip);
@@ -503,7 +512,7 @@ LuaEngine::Result LuaEngine::callRegistered (const juce::String& id)
 juce::String LuaEngine::apiReference()
 {
     return "beatmaker.transport: play() stop() is_playing() position() set_position(s) bpm() set_bpm(b) bar() locate_bar(n) beats_to_seconds(b) set_cycle(on)\n"
-           "beatmaker.session: tracks() track(i) num_tracks() add_track(kind[, name]) rename_track(i, name) remove_track(i)\n"
+           "beatmaker.session: tracks() track(i) num_tracks() add_track(kind[, name]) rename_track(i, name) remove_track(i) set_track_colour(i, '#rrggbb')\n"
            "  set_gain(i, g) set_gain_db(i, db) set_pan(i, p) set_mute(i, on) set_solo(i, on) set_arm(i, on)\n"
            "  clips(i) move_clip(i, c, start) trim_clip(i, c, start, len) delete_clip(i, c) duplicate_clip(i, c) set_clip_gain(i, c, g)\n"
            "  markers() add_marker(name, s[, end_s]) remove_marker(id) set_insert(i|0=master, slot, effect) set_insert_param(i, slot, name|n, v) insert_params(i, slot)\n"

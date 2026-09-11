@@ -8,7 +8,7 @@
 - **Aux Input tracks** read a bus and can carry inserts and sends of their own.
 - **VCA Master tracks** have a fader, mute, solo and automation but no audio; tracks assigned to one follow its fader.
 
-The + Track menu creates any of them. Right-click a track header to rename, freeze, commit or delete it. Tracks have mute, solo, record arm, input monitoring, an automation mode and a view selector (Clips, Clip Gain, or an automation lane).
+The + Track menu creates any of them. Right-click a track header to rename, colour, freeze, commit or delete it. **Colour** offers the eight palette colours new tracks are dealt from, **Automatic** (the track's place in that palette) and **Custom...** for any colour; the colour shows in the header, the clips and the mixer strip, is undoable and is saved with the session. "Colour Selected Track..." in the command palette opens the picker too. Tracks have mute, solo, record arm, input monitoring, an automation mode and a view selector (Clips, Clip Gain, or an automation lane).
 
 When there are more tracks than fit, the list scrolls: the mouse wheel over the tracks scrolls the list, Shift+wheel (or a sideways wheel) scrolls time, Ctrl+wheel zooms, and the scrollbar at the right edge does the same. Selecting a track with the keyboard scrolls it into view; the ruler and marker strip stay put.
 

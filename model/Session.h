@@ -372,6 +372,7 @@ public:
 
     // Palette used to colour new tracks GarageBand-style.
     static juce::Colour colourForTrackIndex (int index);
+    static const std::vector<juce::Colour>& trackPalette();   // the same colours, for choosing by hand
 
 private:
     // Commands are the only code allowed to touch these.
@@ -405,6 +406,7 @@ private:
     friend class AddMarkerCommand;
     friend class SetTrackMidiPropsCommand;
     friend class RenameTrackCommand;
+    friend class SetTrackColourCommand;
     friend class FreezeTrackCommand;
     friend class UnfreezeTrackCommand;
     friend class RemoveMarkerCommand;
@@ -1068,6 +1070,19 @@ public:
 private:
     int index;
     juce::String name, old;
+};
+
+// The colour a track (or the master, index -1) shows in its header, clips and mixer strip
+class SetTrackColourCommand final : public Command
+{
+public:
+    SetTrackColourCommand (int trackIndex, juce::Colour newColour) : index (trackIndex), colour (newColour) {}
+    juce::String getName() const override { return "Colour Track"; }
+    void execute (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) { old = t->colour; t->colour = colour; } }
+    void undo (Session& s) override { if (auto* t = EditAccess::trackOrMaster (s, index)) t->colour = old; }
+private:
+    int index;
+    juce::Colour colour, old;
 };
 
 class FreezeTrackCommand final : public Command

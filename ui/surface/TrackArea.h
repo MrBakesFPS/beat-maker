@@ -59,6 +59,8 @@ public:
     std::function<void()> onOpenMemoryLocations;
     // Track header menu: action is one of freeze / unfreeze / commit / rename / delete
     std::function<void (int trackIndex, const juce::String& action)> onTrackAction;
+    std::function<void (int trackIndex, juce::Colour)> onTrackColour;   // a colour picked from the header's Colour menu
+    std::function<void (int trackIndex)> onTrackCustomColour;           // Colour > Custom...: the colour picker
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
 

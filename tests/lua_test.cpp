@@ -63,6 +63,7 @@ TEST_CASE ("Lua scripts drive the session through undoable commands and print to
         s.set_pan(a, -0.5)
         s.set_mute(b, true)
         s.rename_track(b, 'Piano')
+        s.set_track_colour(a, '#a1b2c3')
         print(s.num_tracks(), s.track(a).name, s.track(a).kind, s.track(b).kind)
         for _, t in ipairs(s.tracks()) do print(t.index, t.name) end
     )");
@@ -73,7 +74,10 @@ TEST_CASE ("Lua scripts drive the session through undoable commands and print to
     CHECK_THAT (host.s.getTracks()[0].pan, WithinAbs (-0.5f, 1e-6));
     CHECK (host.s.getTracks()[1].mute);
     CHECK (host.s.getTracks()[1].name == "Piano");
+    CHECK (host.s.getTracks()[0].colour == juce::Colour (0xffa1b2c3));
     CHECK (r.output.startsWith ("2\tVox\taudio\tsynth\n1\tVox\n2\tPiano\n"));
+    CHECK (host.s.getHistory().getUndoName() == "Colour Track");
+    host.s.undo();
     CHECK (host.s.getHistory().getUndoName() == "Rename Track");
     host.s.undo();
     CHECK (host.s.getTracks()[1].name == "Keys");

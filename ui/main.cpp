@@ -221,6 +221,8 @@ public:
             else if (action == "delete") { session.execute (std::make_unique<model::RemoveTrackCommand> (i)); trackArea.setSelectedTrack (-1); }
             else if (action == "rename") promptRenameTrack (i);
         };
+        trackArea.onTrackColour = [this] (int i, juce::Colour c) { setTrackColour (i, c); };
+        trackArea.onTrackCustomColour = [this] (int i) { promptTrackColour (i); };
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
@@ -445,6 +447,10 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    void setTrackColourFromCommandLine (const juce::String& spec)   // --track-colour=<track>,<#rrggbb>
+    {
+        setTrackColour (spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1, juce::Colour::fromString (spec.fromFirstOccurrenceOf (",", false, false).replace ("#", "ff")));
+    }
     void showInstrumentChooserFromCommandLine() { showInstrumentChooser(); }   // --instrument-chooser
     void showDrumKitChooserFromCommandLine() { showDrumKitChooser(); }         // --kit-chooser
     void showKitBuilderFromCommandLine (const juce::String& startFrom) { showKitBuilder (startFrom); }   // --kit-builder[=<kit>]
@@ -1061,6 +1067,7 @@ public:
         add ("track.mute", "Track", "Mute Selected Track", juce::KeyPress ('m', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::mute); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.solo", "Track", "Solo Selected Track", juce::KeyPress ('s', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::solo); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.arm", "Track", "Record-arm Selected Track", juce::KeyPress ('r', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::arm); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isAudio(); });
+        add ("track.colour", "Track", "Colour Selected Track...", {}, 0, [this] { promptTrackColour (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.rename", "Track", "Rename Selected Track...", {}, 0, [this] { promptRenameTrack (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.delete", "Track", "Delete Selected Track", {}, 0, [this] { const int i = trackArea.getSelectedTrack(); if (session.getTrack (i)) { session.execute (std::make_unique<model::RemoveTrackCommand> (i)); trackArea.setSelectedTrack (juce::jmin (i, session.getNumTracks() - 1)); } }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.next", "Track", "Select Next Track", {}, 0, [this] { trackArea.selectTrayByOffsetPublic (1); });
@@ -2936,6 +2943,34 @@ private:
         updateStatus();
     }
 
+    void setTrackColour (int trackIndex, juce::Colour colour)
+    {
+        const auto* t = session.getTrackOrMaster (trackIndex);
+        if (t == nullptr || t->colour == colour) return;
+        session.execute (std::make_unique<model::SetTrackColourCommand> (trackIndex, colour));
+    }
+
+    // Colour > Custom...: a colour picker; the colour is applied once, on OK, as one undo step
+    void promptTrackColour (int trackIndex)
+    {
+        const auto* t = session.getTrackOrMaster (trackIndex);
+        if (t == nullptr) return;
+        auto* window = new juce::AlertWindow ("Track Colour", "The colour of " + t->name + " in its header, clips and mixer strip.", juce::MessageBoxIconType::NoIcon);
+        auto selector = std::make_unique<juce::ColourSelector> (juce::ColourSelector::showColourspace | juce::ColourSelector::showSliders | juce::ColourSelector::editableColour);
+        selector->setCurrentColour (t->colour, juce::dontSendNotification);
+        selector->setSize (300, 280);
+        auto* sel = selector.get();
+        window->addCustomComponent (sel);
+        window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, trackIndex, sel, keep = std::move (selector)] (int result) mutable
+        {
+            if (result == 1) setTrackColour (trackIndex, sel->getCurrentColour().withAlpha (1.0f));
+            keep.reset();
+            grabKeyboardFocus();
+        }), true);
+    }
+
     void promptRenameTrack (int trackIndex)
     {
         const auto* t = session.getTrack (trackIndex);
@@ -3849,6 +3884,7 @@ public:
                 if (parts.size() == 2) main.setPunchRangeFromCommandLine (parts[0].getDoubleValue(), parts[1].getDoubleValue());
             }
             else if (arg.startsWith ("--session=")) main.openSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
+            else if (arg.startsWith ("--track-colour=")) main.setTrackColourFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));

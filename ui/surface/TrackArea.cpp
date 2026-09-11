@@ -1424,6 +1424,16 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
             const auto& t = session.getTracks()[(size_t) track];
             juce::PopupMenu menu;
             menu.addItem (1, "Rename Track...");
+            // Colour: the palette new tracks are dealt from, Automatic (its place in that palette), or any colour
+            juce::PopupMenu colours;
+            const auto& palette = model::Session::trackPalette();
+            static const char* colourNames[] = { "Blue", "Green", "Orange", "Purple", "Red", "Teal", "Yellow", "Pink" };
+            for (int i = 0; i < (int) palette.size(); ++i)
+                colours.addColouredItem (100 + i, i < 8 ? colourNames[i] : "Colour " + juce::String (i + 1), palette[(size_t) i], true, t.colour == palette[(size_t) i]);
+            colours.addSeparator();
+            colours.addItem (99, "Automatic  (its place in the palette)");
+            colours.addItem (98, "Custom...");
+            menu.addSubMenu ("Colour", colours);
             if (t.isAudio() || t.isInstrument())
             {
                 menu.addSeparator();
@@ -1438,6 +1448,9 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
                 const auto* tt = session.getTrack (track);
                 if (tt == nullptr) return;
                 if (r == 1) onTrackAction (track, "rename");
+                else if (r >= 100 && r < 100 + (int) model::Session::trackPalette().size()) { if (onTrackColour) onTrackColour (track, model::Session::trackPalette()[(size_t) (r - 100)]); }
+                else if (r == 99) { if (onTrackColour) onTrackColour (track, model::Session::colourForTrackIndex (track)); }
+                else if (r == 98) { if (onTrackCustomColour) onTrackCustomColour (track); }
                 else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
                 else if (r == 3) onTrackAction (track, "commit");
                 else if (r == 4) onTrackAction (track, "delete");

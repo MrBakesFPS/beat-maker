@@ -141,22 +141,51 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | New Stack Track |  |  |
 | New Chip Track |  |  |
 | New Vox Track |  |  |
+| New Pad Track |  |  |
+| New Lead Track |  |  |
+| New Pulse Track |  |  |
+| New Sync Track |  |  |
+| New Texture Track |  |  |
 | New Sampler Track |  |  |
+| New Granular Track |  |  |
+| New Vinyl Sampler Track |  |  |
 | New Piano Track |  |  |
 | New Electric Piano Track |  |  |
 | New Organ Track |  |  |
+| New Harpsichord Track |  |  |
+| New Clavinet Track |  |  |
+| New Celesta Track |  |  |
+| New Accordion Track |  |  |
+| New Melodica Track |  |  |
 | New Mallets Track |  |  |
+| New Steel Drum Track |  |  |
+| New Handpan Track |  |  |
+| New Tubular Bells Track |  |  |
+| New Gamelan Track |  |  |
 | New Pluck Track |  |  |
 | New Strings Track |  |  |
+| New Harp Track |  |  |
+| New Guitar Track |  |  |
+| New Solo Strings Track |  |  |
 | New Brass Track |  |  |
+| New Solo Brass Track |  |  |
+| New Big Band Track |  |  |
 | New Flute Track |  |  |
+| New Clarinet Track |  |  |
+| New Oboe Track |  |  |
+| New Sax Track |  |  |
+| New Harmonica Track |  |  |
 | New Bass Track |  |  |
+| New Sub Bass Track |  |  |
+| New Slap Bass Track |  |  |
+| New Upright Bass Track |  |  |
 | New Aux Input |  |  |
 | New VCA Master |  |  |
 | New Group... | `ctrl + G` |  |
 | Mute Selected Track | `shift + M` |  |
 | Solo Selected Track | `shift + S` |  |
 | Record-arm Selected Track | `shift + R` |  |
+| Colour Selected Track... |  |  |
 | Rename Selected Track... |  |  |
 | Delete Selected Track |  |  |
 | Select Next Track |  |  |

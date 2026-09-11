@@ -256,3 +256,23 @@ TEST_CASE ("Synth tracks: MIDI clips, copy-on-write sequences and sound changes 
     REQUIRE (snap->instruments.size() == 1);       // instrument kept for auditioning
     CHECK (snap->midiClips[0].length == 0);        // but nothing plays
 }
+
+TEST_CASE ("A track's colour can be set by hand, on the master too, and undone")
+{
+    using namespace beatmaker::model;
+    Session s;
+    Track t; t.name = "Keys"; t.type = Track::Type::instrument;
+    s.execute (std::make_unique<AddTrackCommand> (t));
+    const auto before = s.getTracks()[0].colour;
+    s.execute (std::make_unique<SetTrackColourCommand> (0, juce::Colour (0xff123456)));
+    CHECK (s.getTracks()[0].colour == juce::Colour (0xff123456));
+    CHECK (s.getHistory().getUndoName() == "Colour Track");
+    s.undo();
+    CHECK (s.getTracks()[0].colour == before);
+    s.execute (std::make_unique<SetTrackColourCommand> (-1, juce::Colour (0xff654321)));
+    CHECK (s.getMaster().colour == juce::Colour (0xff654321));
+    s.execute (std::make_unique<SetTrackColourCommand> (7, juce::Colour (0xff000000)));   // no such track: nothing happens
+    CHECK (s.getTracks().size() == 1);
+    CHECK (Session::trackPalette().size() == 8);
+    CHECK (Session::colourForTrackIndex (9) == Session::trackPalette()[1]);
+}
