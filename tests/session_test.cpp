@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <RenderSnapshotBuilder.h>
 #include <Session.h>
+#include <MixerCommands.h>
 
 using namespace beatmaker::model;
 
@@ -275,4 +276,21 @@ TEST_CASE ("A track's colour can be set by hand, on the master too, and undone")
     CHECK (s.getTracks().size() == 1);
     CHECK (Session::trackPalette().size() == 8);
     CHECK (Session::colourForTrackIndex (9) == Session::trackPalette()[1]);
+}
+
+TEST_CASE ("A track's first empty insert slot is where a new effect goes")
+{
+    using namespace beatmaker;
+    model::Session s;
+    model::Track t; t.name = "Vox"; t.type = model::Track::Type::audio;
+    s.execute (std::make_unique<model::AddTrackCommand> (t));
+    CHECK (s.getTracks()[0].firstEmptyInsert() == 0);
+    s.execute (std::make_unique<model::SetInsertCommand> (0, 0, engine::EffectType::eq, 48000.0));
+    CHECK (s.getTracks()[0].firstEmptyInsert() == 1);
+    s.execute (std::make_unique<model::SetInsertCommand> (0, 1, engine::EffectType::compressor, 48000.0));
+    CHECK (s.getTracks()[0].firstEmptyInsert() == 2);
+    s.execute (std::make_unique<model::SetInsertCommand> (0, 0, engine::EffectType::none, 48000.0));   // remove the first: the gap is reused
+    CHECK (s.getTracks()[0].firstEmptyInsert() == 0);
+    for (int i = 0; i < model::Track::numInsertSlots; ++i) if (s.getTracks()[0].inserts[(size_t) i].isEmpty()) s.execute (std::make_unique<model::SetInsertCommand> (0, i, engine::EffectType::delay, 48000.0));
+    CHECK (s.getTracks()[0].firstEmptyInsert() == -1);
 }

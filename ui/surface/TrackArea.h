@@ -7,6 +7,7 @@
 #include "../shared/Theme.h"
 #include <ClipEdits.h>
 #include <Session.h>
+#include <dsp/Effects.h>
 #include <graph/AudioGraph.h>
 #include <transport/Transport.h>
 
@@ -60,6 +61,10 @@ public:
     // Track header menu: action is one of freeze / unfreeze / commit / rename / delete
     std::function<void (int trackIndex, const juce::String& action)> onTrackAction;
     std::function<void (int trackIndex, juce::Colour)> onTrackColour;   // a colour picked from the header's Colour menu
+    // Effects from the track header (FX button or the context menu's Effects submenu): "add" with a type (into the
+    // first empty slot), "bypass" / "remove" / "edit" with a slot; edit gets the header's screen rectangle to anchor its callout
+    std::function<void (int trackIndex, const juce::String& action, int slot, engine::EffectType, juce::Rectangle<int> anchor)> onTrackEffect;
+    void showTrackEffectsMenu (int trackIndex);
     std::function<void (int trackIndex)> onTrackCustomColour;           // Colour > Custom...: the colour picker
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
@@ -170,7 +175,7 @@ public:
 private:
     struct TrackControls
     {
-        std::unique_ptr<juce::TextButton> mute, solo, arm, monitor, playlists;
+        std::unique_ptr<juce::TextButton> mute, solo, arm, monitor, playlists, fx;
         std::unique_ptr<juce::ComboBox> input, autoMode, autoView;
         std::vector<std::unique_ptr<juce::TextButton>> laneMain, laneComp;   // per alternate lane
     };
@@ -182,6 +187,8 @@ private:
     juce::Rectangle<int> getAlternateLaneBounds (int trackIndex, int alternate) const;
     void paintAlternateLanes (juce::Graphics&, const model::Track&, int trackIndex);
     void showPlaylistMenu (int trackIndex);
+    juce::PopupMenu buildEffectsMenu (int trackIndex);
+    void handleEffectsMenu (int trackIndex, int result);
 
     // Automation display state per track id: which parameter lane is shown (nullopt = clips)
     std::map<int, engine::ParamId> automationView;

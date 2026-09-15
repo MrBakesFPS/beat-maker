@@ -25,6 +25,7 @@
 #include "depth/DrumKitChooser.h"
 #include "depth/KitBuilder.h"
 #include "depth/PresetBuilder.h"
+#include "depth/EffectEditor.h"
 #include "../persistence/UserPresets.h"
 #include "../persistence/UserKits.h"
 #include <map>
@@ -222,6 +223,7 @@ public:
             else if (action == "rename") promptRenameTrack (i);
         };
         trackArea.onTrackColour = [this] (int i, juce::Colour c) { setTrackColour (i, c); };
+        trackArea.onTrackEffect = [this] (int i, const juce::String& action, int slot, engine::EffectType type, juce::Rectangle<int> anchor) { trackEffect (i, action, slot, type, anchor); };
         trackArea.onTrackCustomColour = [this] (int i) { promptTrackColour (i); };
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
@@ -447,6 +449,15 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    void addTrackEffectFromCommandLine (const juce::String& spec)   // --add-effect=<track>,<effect name>
+    {
+        const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
+        const auto name = spec.fromFirstOccurrenceOf (",", false, false).removeCharacters (" -_");
+        for (auto type : engine::Effect::availableTypes())
+            if (juce::String (engine::Effect::typeName (type)).removeCharacters (" -_/").equalsIgnoreCase (name))
+                { trackEffect (track, "add", -1, type, trackArea.getScreenBounds()); return; }
+        statusMessage = "Unknown effect: " + name; updateStatus();
+    }
     void setTrackColourFromCommandLine (const juce::String& spec)   // --track-colour=<track>,<#rrggbb>
     {
         setTrackColour (spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1, juce::Colour::fromString (spec.fromFirstOccurrenceOf (",", false, false).replace ("#", "ff")));
@@ -1067,6 +1078,7 @@ public:
         add ("track.mute", "Track", "Mute Selected Track", juce::KeyPress ('m', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::mute); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.solo", "Track", "Solo Selected Track", juce::KeyPress ('s', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::solo); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.arm", "Track", "Record-arm Selected Track", juce::KeyPress ('r', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::arm); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isAudio(); });
+        add ("track.effects", "Track", "Effects on Selected Track...", juce::KeyPress ('f', M::commandModifier | M::altModifier, 0), 0, [this] { trackArea.showTrackEffectsMenu (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.colour", "Track", "Colour Selected Track...", {}, 0, [this] { promptTrackColour (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.rename", "Track", "Rename Selected Track...", {}, 0, [this] { promptRenameTrack (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.delete", "Track", "Delete Selected Track", {}, 0, [this] { const int i = trackArea.getSelectedTrack(); if (session.getTrack (i)) { session.execute (std::make_unique<model::RemoveTrackCommand> (i)); trackArea.setSelectedTrack (juce::jmin (i, session.getNumTracks() - 1)); } }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
@@ -2943,6 +2955,42 @@ private:
         updateStatus();
     }
 
+    // Effects from a track header: the same insert slots the Mix window shows
+    void trackEffect (int trackIndex, const juce::String& action, int slot, engine::EffectType type, juce::Rectangle<int> anchor)
+    {
+        auto* t = session.getTrack (trackIndex);
+        if (t == nullptr) return;
+        if (action == "add")
+        {
+            const int empty = t->firstEmptyInsert();
+            if (empty < 0) { statusMessage = "All " + juce::String (model::Track::numInsertSlots) + " insert slots are in use"; updateStatus(); return; }
+            session.execute (std::make_unique<model::SetInsertCommand> (trackIndex, empty, type, engine.getSampleRate()));
+            statusMessage = juce::String (engine::Effect::typeName (type)) + " added to " + t->name + " (slot " + juce::String (empty + 1) + ")"; updateStatus();
+            editTrackEffect (trackIndex, empty, anchor);
+            return;
+        }
+        if (! juce::isPositiveAndBelow (slot, model::Track::numInsertSlots) || t->inserts[(size_t) slot].isEmpty()) return;
+        if (action == "bypass") session.execute (std::make_unique<model::SetInsertBypassCommand> (trackIndex, slot, ! t->inserts[(size_t) slot].bypass));
+        else if (action == "remove") session.execute (std::make_unique<model::SetInsertCommand> (trackIndex, slot, engine::EffectType::none, engine.getSampleRate()));
+        else if (action == "edit") editTrackEffect (trackIndex, slot, anchor);
+    }
+
+    void editTrackEffect (int trackIndex, int slot, juce::Rectangle<int> anchor)
+    {
+        auto* t = session.getTrack (trackIndex);
+        if (t == nullptr || ! juce::isPositiveAndBelow (slot, model::Track::numInsertSlots) || t->inserts[(size_t) slot].isEmpty()) return;
+        if (t->inserts[(size_t) slot].isPlugin()) { openPluginEditor (trackIndex, slot); return; }
+        auto editor = std::make_unique<ui::EffectEditor> (t->inserts[(size_t) slot], engine.getSampleRate(), session,
+            [this, trackIndex, slot] (std::shared_ptr<const engine::InsertParams> p, bool replace)
+            {
+                if (replace) session.undo();
+                session.execute (std::make_unique<model::SetInsertParamsCommand> (trackIndex, slot, std::move (p)));
+            },
+            [this, trackIndex, slot] (int keyBus, bool listen) { session.execute (std::make_unique<model::SetInsertKeyCommand> (trackIndex, slot, keyBus, listen)); },
+            [this, trackIndex, slot] { chooseImpulseResponse (trackIndex, slot); });
+        juce::CallOutBox::launchAsynchronously (std::move (editor), anchor, nullptr);
+    }
+
     void setTrackColour (int trackIndex, juce::Colour colour)
     {
         const auto* t = session.getTrackOrMaster (trackIndex);
@@ -3885,6 +3933,7 @@ public:
             }
             else if (arg.startsWith ("--session=")) main.openSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--track-colour=")) main.setTrackColourFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--add-effect=")) main.addTrackEffectFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));

@@ -185,6 +185,7 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Mute Selected Track | `shift + M` |  |
 | Solo Selected Track | `shift + S` |  |
 | Record-arm Selected Track | `shift + R` |  |
+| Effects on Selected Track... | `ctrl + alt + F` |  |
 | Colour Selected Track... |  |  |
 | Rename Selected Track... |  |  |
 | Delete Selected Track |  |  |

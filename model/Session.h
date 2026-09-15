@@ -269,6 +269,7 @@ struct Track
 
     // Mixer
     std::array<Insert, numInsertSlots> inserts;
+    int firstEmptyInsert() const noexcept { for (int i = 0; i < numInsertSlots; ++i) if (inserts[(size_t) i].isEmpty()) return i; return -1; }
     std::array<Send, numSendSlots> sends;
     int outputBus = -1;      // -1 = main mix
     int inputBus = -1;       // aux tracks: which bus feeds this strip

@@ -224,6 +224,7 @@ void TrackArea::resized()
         header.removeFromBottom (3);
         auto autoRow = header.removeFromBottom (19);
         if (c.autoMode) { c.autoMode->setBounds (autoRow.removeFromLeft (64)); autoRow.removeFromLeft (3); }
+        if (c.fx) { c.fx->setBounds (autoRow.removeFromRight (32)); autoRow.removeFromRight (3); }
         if (c.autoView) c.autoView->setBounds (autoRow);
 
         header.removeFromBottom (3);
@@ -285,6 +286,13 @@ void TrackArea::rebuildTrackControls()
         c.mute->setTooltip ("Mute (Solo on another track also silences this one)");
         c.solo->setTooltip ("Solo");
 
+        c.fx = std::make_unique<juce::TextButton> ("FX");
+        c.fx->setTooltip ("Effects on this track: add an EQ, compressor or any built-in effect, edit, bypass or remove them (the Mix window has the same slots, and plugins)");
+        c.fx->setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+        bool anyInsert = false; for (const auto& ins : track.inserts) anyInsert = anyInsert || ! ins.isEmpty();
+        c.fx->setToggleState (anyInsert, juce::dontSendNotification);
+        c.fx->onClick = [this, i] { showTrackEffectsMenu (i); };
+        addAndMakeVisible (*c.fx);
         c.mute->onClick = [this, i, b = c.mute.get()] { if (onMuteChanged) onMuteChanged (i, b->getToggleState()); };
         c.solo->onClick = [this, i, b = c.solo.get()] { if (onSoloChanged) onSoloChanged (i, b->getToggleState()); };
 
@@ -1434,6 +1442,7 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
             colours.addItem (99, "Automatic  (its place in the palette)");
             colours.addItem (98, "Custom...");
             menu.addSubMenu ("Colour", colours);
+            menu.addSubMenu ("Effects", buildEffectsMenu (track));
             if (t.isAudio() || t.isInstrument())
             {
                 menu.addSeparator();
@@ -1451,6 +1460,7 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
                 else if (r >= 100 && r < 100 + (int) model::Session::trackPalette().size()) { if (onTrackColour) onTrackColour (track, model::Session::trackPalette()[(size_t) (r - 100)]); }
                 else if (r == 99) { if (onTrackColour) onTrackColour (track, model::Session::colourForTrackIndex (track)); }
                 else if (r == 98) { if (onTrackCustomColour) onTrackCustomColour (track); }
+                else if (r >= 200 && r < 900) handleEffectsMenu (track, r);
                 else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
                 else if (r == 3) onTrackAction (track, "commit");
                 else if (r == 4) onTrackAction (track, "delete");
@@ -2034,6 +2044,58 @@ void TrackArea::commitDrag()
     }
 }
 
+// The Effects menu: Add > every built-in effect (into the first empty slot), then each insert with Edit, Bypass, Remove.
+// Ids: 200 + type index to add; 300 + slot edit; 400 + slot bypass; 500 + slot remove.
+juce::PopupMenu TrackArea::buildEffectsMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return menu;
+    juce::PopupMenu add;
+    const auto& types = engine::Effect::availableTypes();
+    bool room = false; for (const auto& ins : t->inserts) room = room || ins.isEmpty();
+    for (int i = 0; i < (int) types.size(); ++i)
+        if (types[(size_t) i] != engine::EffectType::plugin) add.addItem (200 + i, engine::Effect::typeName (types[(size_t) i]), room);
+    menu.addSubMenu ("Add Effect", add);
+    bool any = false;
+    for (int slot = 0; slot < model::Track::numInsertSlots; ++slot)
+    {
+        const auto& ins = t->inserts[(size_t) slot];
+        if (ins.isEmpty()) continue;
+        if (! any) menu.addSeparator();
+        any = true;
+        juce::PopupMenu one;
+        one.addItem (300 + slot, ins.isPlugin() ? "Open Plugin Window..." : "Edit...");
+        one.addItem (400 + slot, "Bypass", true, ins.bypass);
+        one.addItem (500 + slot, "Remove");
+        menu.addSubMenu (juce::String (slot + 1) + ": " + ins.displayName() + (ins.bypass ? "  (bypassed)" : ""), one);
+    }
+    if (! any) { menu.addSeparator(); menu.addItem (999, "No effects yet: pick one under Add Effect", false); }
+    return menu;
+}
+
+void TrackArea::handleEffectsMenu (int trackIndex, int result)
+{
+    if (! onTrackEffect || result < 200 || result >= 900) return;
+    const auto anchor = getHeaderBounds (trackIndex).translated (getScreenX(), getScreenY());
+    const auto& types = engine::Effect::availableTypes();
+    if (result < 300) { if (result - 200 < (int) types.size()) onTrackEffect (trackIndex, "add", -1, types[(size_t) (result - 200)], anchor); }
+    else if (result < 400) onTrackEffect (trackIndex, "edit", result - 300, engine::EffectType::none, anchor);
+    else if (result < 500) onTrackEffect (trackIndex, "bypass", result - 400, engine::EffectType::none, anchor);
+    else if (result < 600) onTrackEffect (trackIndex, "remove", result - 500, engine::EffectType::none, anchor);
+}
+
+void TrackArea::showTrackEffectsMenu (int trackIndex)
+{
+    if (session.getTrack (trackIndex) == nullptr) return;
+    setSelectedTrack (trackIndex);
+    auto menu = buildEffectsMenu (trackIndex);
+    juce::Component* target = juce::isPositiveAndBelow (trackIndex, (int) trackControls.size()) && trackControls[(size_t) trackIndex].fx ? trackControls[(size_t) trackIndex].fx.get() : nullptr;
+    auto options = target != nullptr ? juce::PopupMenu::Options().withTargetComponent (target)
+                                     : juce::PopupMenu::Options().withTargetScreenArea (getHeaderBounds (trackIndex).translated (getScreenX(), getScreenY()));
+    menu.showMenuAsync (options, [this, trackIndex] (int r) { handleEffectsMenu (trackIndex, r); });
+}
+
 void TrackArea::mouseMove (const juce::MouseEvent& e) { updateCursor (e); }
 
 void TrackArea::updateCursor (const juce::MouseEvent& e)
@@ -2410,6 +2472,12 @@ void TrackArea::paintEditOverlays (juce::Graphics& g)
 
 void TrackArea::timerCallback()
 {
+    for (int i = 0; i < (int) trackControls.size() && i < session.getNumTracks(); ++i)
+        if (auto& fx = trackControls[(size_t) i].fx)
+        {
+            bool any = false; for (const auto& ins : session.getTracks()[(size_t) i].inserts) any = any || ! ins.isEmpty();
+            if (fx->getToggleState() != any) fx->setToggleState (any, juce::dontSendNotification);
+        }
     // Repaint only what changed: the playhead's columns, or everything when the
     // view scrolled or a recording is drawing new audio.
     const double before = viewStartSeconds;
