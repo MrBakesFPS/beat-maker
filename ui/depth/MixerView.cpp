@@ -21,9 +21,10 @@ public:
 
     ChannelStrip (MixerView& owner, int trackIndex) : mixer (owner), index (trackIndex)
     {
-        for (int i = 0; i < visibleInserts; ++i)
+        for (int i = 0; i < model::Track::numInsertSlots; ++i)   // every slot has a button; the first five show, more as they fill
         {
             auto* b = insertButtons.add (new juce::TextButton());
+            b->setVisible (i < visibleInserts);
             b->setColour (juce::TextButton::buttonColourId, theme::background);
             b->setColour (juce::TextButton::textColourOffId, theme::text);
             b->onClick = [this, i] { insertClicked (i); };
@@ -246,6 +247,9 @@ public:
         if (t == nullptr) return;
         syncing = true;
 
+        int shown = visibleInserts;
+        for (int i = 0; i < insertButtons.size(); ++i) if (! t->inserts[(size_t) i].isEmpty()) shown = juce::jmax (shown, i + 1);
+        bool visibilityChanged = false;
         for (int i = 0; i < insertButtons.size(); ++i)
         {
             const auto& ins = t->inserts[(size_t) i];
@@ -253,9 +257,11 @@ public:
             insertButtons[i]->setColour (juce::TextButton::buttonColourId, ins.isEmpty() ? theme::background : ins.bypass ? theme::panelDark
                                          : ins.isPlugin() ? juce::Colour (0xff5b6ea8) : theme::accent.darker (0.55f));
             insertButtons[i]->setTooltip (ins.isEmpty() ? "Click to add an insert (built-in or plugin)" : ins.displayName() + (ins.bypass ? " (bypassed)" : "")
-                                          + (ins.isPlugin() ? "\nClick: open the plugin window   Right-click: bypass / replace / remove"
-                                                            : "\nClick: edit   Right-click: bypass / replace / remove"));
+                                          + "\nClick: on / off   Right-click: edit / replace / remove");
+            const bool visible = i < shown && ! (t->type == model::Track::Type::vca);
+            if (insertButtons[i]->isVisible() != visible) { insertButtons[i]->setVisible (visible); visibilityChanged = true; }
         }
+        if (visibilityChanged) resized();
         for (int i = 0; i < sendButtons.size(); ++i)
         {
             const auto& send = t->sends[(size_t) i];
@@ -378,7 +384,8 @@ public:
             },
             [this, slot] (int keyBus, bool listen) { issue (std::make_unique<model::SetInsertKeyCommand> (index, slot, keyBus, listen)); },
             [this, slot] { if (mixer.onLoadImpulse) mixer.onLoadImpulse (index, slot); });
-        juce::CallOutBox::launchAsynchronously (std::move (editor), insertButtons[slot]->getScreenBounds(), nullptr);
+        const auto anchor = slot < insertButtons.size() && insertButtons[slot]->isVisible() ? insertButtons[slot]->getScreenBounds() : getScreenBounds().removeFromTop (34);
+        juce::CallOutBox::launchAsynchronously (std::move (editor), anchor, nullptr);
     }
 
     void sendClicked (int sendIndex)
@@ -586,7 +593,7 @@ public:
         for (int i = 0; i < insertButtons.size(); ++i)
         {
             const auto& ins = t->inserts[(size_t) i];
-            if (ins.isEmpty()) continue;
+            if (ins.isEmpty() || ! insertButtons[i]->isVisible()) continue;
             const float gr = ins.instance->getMeter();
             if (gr <= 0.01f) continue;
             auto bar = insertButtons[i]->getBounds().removeFromRight (5).reduced (0, 2);
@@ -635,7 +642,7 @@ public:
     {
         auto area = getLocalBounds().reduced (4, 0);
         area.removeFromTop (34);
-        for (auto* b : insertButtons) { b->setBounds (area.removeFromTop (15)); area.removeFromTop (1); }
+        for (auto* b : insertButtons) if (b->isVisible()) { b->setBounds (area.removeFromTop (15)); area.removeFromTop (1); }
         if (! isMaster())
         {
             area.removeFromTop (12);
