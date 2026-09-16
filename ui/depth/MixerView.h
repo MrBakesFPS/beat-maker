@@ -42,6 +42,9 @@ public:
     std::function<void (int trackIndex, int slot)> onLoadImpulse;   // Convolution Reverb: pick an IR file
     std::function<std::optional<float> (int, const engine::ParamId&)> automatedValue;   // value to display when reading
 
+    // Opens an insert's knobs by its slot on a track's strip, scrolling the strip into view (a track menu's Add Effect lands here)
+    void openInsertEditor (int trackIndex, int slot);
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;

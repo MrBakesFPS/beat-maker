@@ -2966,7 +2966,9 @@ private:
             if (empty < 0) { statusMessage = "All " + juce::String (model::Track::numInsertSlots) + " insert slots are in use"; updateStatus(); return; }
             session.execute (std::make_unique<model::SetInsertCommand> (trackIndex, empty, type, engine.getSampleRate()));
             statusMessage = juce::String (engine::Effect::typeName (type)) + " added to " + t->name + " (slot " + juce::String (empty + 1) + ")"; updateStatus();
-            editTrackEffect (trackIndex, empty, anchor);
+            // The Mix window shows the new insert in its slot, with its knobs open there
+            setMixerVisible (true);
+            juce::Timer::callAfterDelay (120, [this, trackIndex, empty] { mixerView.openInsertEditor (trackIndex, empty); });
             return;
         }
         if (! juce::isPositiveAndBelow (slot, model::Track::numInsertSlots) || t->inserts[(size_t) slot].isEmpty()) return;
@@ -2976,6 +2978,13 @@ private:
     }
 
     void editTrackEffect (int trackIndex, int slot, juce::Rectangle<int> anchor)
+    {
+        // Called from a menu: the click that chose the item is still in flight and would dismiss a callout opened
+        // right now, so the callout opens a moment later
+        juce::Timer::callAfterDelay (60, [this, trackIndex, slot, anchor] { editTrackEffectNow (trackIndex, slot, anchor); });
+    }
+
+    void editTrackEffectNow (int trackIndex, int slot, juce::Rectangle<int> anchor)
     {
         auto* t = session.getTrack (trackIndex);
         if (t == nullptr || ! juce::isPositiveAndBelow (slot, model::Track::numInsertSlots) || t->inserts[(size_t) slot].isEmpty()) return;

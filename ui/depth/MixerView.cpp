@@ -296,6 +296,8 @@ public:
         repaint();
     }
 
+    // A click on an empty slot offers the effects; a click on an effect switches it on or off; a right-click on an
+    // effect offers Edit, Replace With, Bypass and Remove.
     void insertClicked (int slot)
     {
         auto* t = track();
@@ -303,59 +305,72 @@ public:
         const auto& ins = t->inserts[(size_t) slot];
         const bool rightClick = juce::ModifierKeys::getCurrentModifiers().isPopupMenu();
 
-        if (ins.isEmpty() || rightClick)
+        if (! ins.isEmpty() && ! rightClick)
         {
-            juce::PopupMenu menu;
-            int id = 1;
-            for (auto type : engine::Effect::availableTypes())
-                menu.addItem (id++, engine::Effect::typeName (type), true, ins.type == type);
-
-            // Hosted plugins, grouped by format
-            const auto plugins = mixer.knownPlugins ? mixer.knownPlugins() : juce::Array<juce::PluginDescription>();
-            juce::PopupMenu pluginMenu;
-            juce::StringArray formatsSeen;
-            for (const auto& d : plugins) formatsSeen.addIfNotAlreadyThere (d.pluginFormatName);
-            for (const auto& fmt : formatsSeen)
-            {
-                juce::PopupMenu sub;
-                for (int i = 0; i < plugins.size(); ++i)
-                    if (plugins[i].pluginFormatName == fmt)
-                        sub.addItem (1000 + i, plugins[i].name + (plugins[i].manufacturerName.isNotEmpty() ? "  (" + plugins[i].manufacturerName + ")" : juce::String()),
-                                     true, ins.isPlugin() && ins.pluginIdentifier == plugins[i].createIdentifierString());
-                pluginMenu.addSubMenu (fmt, sub);
-            }
-            if (plugins.isEmpty()) pluginMenu.addItem (999, "No plugins found - scan first", false);
-            pluginMenu.addSeparator();
-            pluginMenu.addItem (998, "Scan for Plugins...");
-            menu.addSubMenu ("Plugins", pluginMenu);
-
-            if (! ins.isEmpty())
-            {
-                menu.addSeparator();
-                menu.addItem (100, "Bypass", true, ins.bypass);
-                menu.addItem (101, "Remove Insert");
-            }
-            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (insertButtons[slot]), [this, slot, plugins] (int result)
-            {
-                if (result == 0) return;
-                auto* tr = track();
-                if (tr == nullptr) return;
-                if (result == 100)       issue (std::make_unique<model::SetInsertBypassCommand> (index, slot, ! tr->inserts[(size_t) slot].bypass));
-                else if (result == 101)  issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::EffectType::none, mixer.sampleRate()));
-                else if (result == 998)  { if (mixer.onScanPlugins) mixer.onScanPlugins(); }
-                else if (result >= 1000) { if (mixer.onInsertPlugin && result - 1000 < plugins.size()) mixer.onInsertPlugin (index, slot, plugins[result - 1000]); }
-                else                     issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::Effect::availableTypes()[(size_t) (result - 1)], mixer.sampleRate()));
-            });
+            issue (std::make_unique<model::SetInsertBypassCommand> (index, slot, ! ins.bypass));
             return;
         }
 
+        juce::PopupMenu chooser;
+        int id = 1;
+        for (auto type : engine::Effect::availableTypes())
+            chooser.addItem (id++, engine::Effect::typeName (type), true, ins.type == type);
+
+        // Hosted plugins, grouped by format
+        const auto plugins = mixer.knownPlugins ? mixer.knownPlugins() : juce::Array<juce::PluginDescription>();
+        juce::PopupMenu pluginMenu;
+        juce::StringArray formatsSeen;
+        for (const auto& d : plugins) formatsSeen.addIfNotAlreadyThere (d.pluginFormatName);
+        for (const auto& fmt : formatsSeen)
+        {
+            juce::PopupMenu sub;
+            for (int i = 0; i < plugins.size(); ++i)
+                if (plugins[i].pluginFormatName == fmt)
+                    sub.addItem (1000 + i, plugins[i].name + (plugins[i].manufacturerName.isNotEmpty() ? "  (" + plugins[i].manufacturerName + ")" : juce::String()),
+                                 true, ins.isPlugin() && ins.pluginIdentifier == plugins[i].createIdentifierString());
+            pluginMenu.addSubMenu (fmt, sub);
+        }
+        if (plugins.isEmpty()) pluginMenu.addItem (999, "No plugins found - scan first", false);
+        pluginMenu.addSeparator();
+        pluginMenu.addItem (998, "Scan for Plugins...");
+        chooser.addSubMenu ("Plugins", pluginMenu);
+
+        juce::PopupMenu menu;
+        if (ins.isEmpty()) menu = chooser;
+        else
+        {
+            menu.addItem (102, ins.isPlugin() ? "Open Plugin Window..." : "Edit...");
+            menu.addSeparator();
+            menu.addSubMenu ("Replace With", chooser);
+            menu.addItem (100, "Bypass", true, ins.bypass);
+            menu.addItem (101, "Remove Insert");
+        }
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (insertButtons[slot]), [this, slot, plugins] (int result)
+        {
+            if (result == 0) return;
+            auto* tr = track();
+            if (tr == nullptr) return;
+            if (result == 100)       issue (std::make_unique<model::SetInsertBypassCommand> (index, slot, ! tr->inserts[(size_t) slot].bypass));
+            else if (result == 101)  issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::EffectType::none, mixer.sampleRate()));
+            else if (result == 102)  juce::Timer::callAfterDelay (60, [safe = juce::Component::SafePointer<ChannelStrip> (this), slot] { if (auto* me = safe.getComponent()) me->openInsertEditor (slot); });   // after the menu's click is over
+            else if (result == 998)  { if (mixer.onScanPlugins) mixer.onScanPlugins(); }
+            else if (result >= 1000) { if (mixer.onInsertPlugin && result - 1000 < plugins.size()) mixer.onInsertPlugin (index, slot, plugins[result - 1000]); }
+            else                     issue (std::make_unique<model::SetInsertCommand> (index, slot, engine::Effect::availableTypes()[(size_t) (result - 1)], mixer.sampleRate()));
+        });
+    }
+
+    // The effect's knobs in a callout by its slot (a plugin: its own window)
+    void openInsertEditor (int slot)
+    {
+        auto* t = track();
+        if (t == nullptr || ! juce::isPositiveAndBelow (slot, (int) t->inserts.size())) return;
+        const auto& ins = t->inserts[(size_t) slot];
+        if (ins.isEmpty()) return;
         if (ins.isPlugin())
         {
             if (mixer.onOpenPluginEditor) mixer.onOpenPluginEditor (index, slot);
             return;
         }
-
-        // Edit the effect in a callout
         auto editor = std::make_unique<EffectEditor> (ins, mixer.sampleRate(), mixer.session,
             [this, slot] (std::shared_ptr<const engine::InsertParams> p, bool replace)
             {
@@ -708,6 +723,17 @@ MixerView::MixerView (model::Session& s, engine::AudioGraph& g, std::function<do
 }
 
 MixerView::~MixerView() { session.removeListener (this); }
+
+void MixerView::openInsertEditor (int trackIndex, int slot)
+{
+    if (! juce::isPositiveAndBelow (trackIndex, strips.size())) return;
+    auto* strip = strips[trackIndex];
+    // Bring the strip into view, then open the callout by its slot
+    const auto area = viewport.getViewArea();
+    if (strip->getRight() > area.getRight() || strip->getX() < area.getX())
+        viewport.setViewPosition (juce::jmax (0, strip->getX() - 20), viewport.getViewPositionY());
+    strip->openInsertEditor (slot);
+}
 
 void MixerView::rebuildStrips()
 {
