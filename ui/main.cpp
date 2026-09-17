@@ -240,6 +240,7 @@ public:
         trackArea.onTrackFadesDialog = [this] (int i) { showTrackFadesDialog (i); };
         trackArea.onInputBusChanged = [this] (int i, int bus) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackRoutingCommand> (i, bus, t->outputBus)); };
         trackArea.onSendChanged = [this] (int i, int slot, model::Send send) { session.execute (std::make_unique<model::SetSendCommand> (i, slot, send)); };
+        trackArea.onPanChanged = [this] (int i, float pan) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackMixCommand> (i, t->gain, pan)); };
         trackArea.onRenameBus = [this] (int bus) { promptRenameBus (bus); };
         trackArea.onNewAuxForBus = [this] (int bus) { addAuxTrack (bus); };
         trackArea.onTrackEffect = [this] (int i, const juce::String& action, int slot, engine::EffectType type, juce::Rectangle<int> anchor) { trackEffect (i, action, slot, type, anchor); };
@@ -477,6 +478,12 @@ public:
         send.preFader = p.size() > 4 && p[4].trim() == "pre";
         session.execute (std::make_unique<model::SetSendCommand> (p[0].getIntValue() - 1, juce::jlimit (0, model::Track::numSendSlots - 1, p[1].getIntValue() - 1), send));
     }
+    void setPanFromCommandLine (const juce::String& spec)   // --pan=<track>,<-100..100>: negative is left
+    {
+        const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
+        if (auto* t = session.getTrack (track))
+            session.execute (std::make_unique<model::SetTrackMixCommand> (track, t->gain, juce::jlimit (-1.0f, 1.0f, spec.fromFirstOccurrenceOf (",", false, false).getFloatValue() / 100.0f)));
+    }
     void importToTrackFromCommandLine (const juce::String& spec)   // --import=<track>,<file>: onto an existing track at the playhead
     {
         const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
@@ -656,6 +663,11 @@ public:
     void showBounceDialog();
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
+    void openSendsPanelFromCommandLine (int track)   // --sends-panel=<track>: the Mix window with that strip's sends panel open
+    {
+        setMixerVisible (true);
+        juce::Timer::callAfterDelay (300, [this, track] { mixerView.openSendsPanel (track); });
+    }
     void addVcaTrackFromCommandLine() { addVcaTrack(); }
     void scanPluginsFromCommandLine() { scanPlugins(); }
     // --insert-plugin=<name>: put the first known plugin whose name contains <name> on track 1, slot 1.
@@ -4050,6 +4062,7 @@ public:
             else if (arg.startsWith ("--auto-fade=")) main.setAutoFadeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--import=")) main.importToTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--send=")) main.setSendFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--pan=")) main.setPanFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
@@ -4104,6 +4117,7 @@ public:
                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--bounce-dialog") main.showBounceDialog();
             else if (arg == "--mixer")  main.setMixerVisibleFromCommandLine (true);
+            else if (arg.startsWith ("--sends-panel=")) main.openSendsPanelFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue() - 1);
             else if (arg == "--automation-demo") main.automationDemoFromCommandLine();
             else if (arg == "--io-setup") main.showIOSetupDialogFromCommandLine();
             else if (arg == "--vca") main.addVcaTrackFromCommandLine();

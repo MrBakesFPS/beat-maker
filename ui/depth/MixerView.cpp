@@ -2,6 +2,7 @@
 #include "EffectEditor.h"
 #include "../shared/UiProfiler.h"
 #include <dsp/PitchCorrection.h>
+#include <array>
 
 namespace beatmaker::ui
 {
@@ -29,6 +30,15 @@ public:
             b->setColour (juce::TextButton::textColourOffId, theme::text);
             b->onClick = [this, i] { insertClicked (i); };
             addAndMakeVisible (b);
+        }
+        if (! isMaster())
+        {
+            sendsButton.setButtonText ("SENDS  >");
+            sendsButton.setTooltip ("Open the sends panel: every send on a wide dB scale with its bus and pre/post switch");
+            sendsButton.setColour (juce::TextButton::buttonColourId, theme::background);
+            sendsButton.setColour (juce::TextButton::textColourOffId, theme::text);
+            sendsButton.onClick = [this] { openSendsPanel(); };
+            addAndMakeVisible (sendsButton);
         }
         if (! isMaster())
             for (int i = 0; i < model::Track::numSendSlots; ++i)
@@ -237,6 +247,7 @@ public:
             if (auto v = mixer.automatedValue (index, engine::ParamId::pan()))    pan.setValue (*v, juce::dontSendNotification);
             for (int i = 0; i < sendLevels.size(); ++i)
                 if (auto v = mixer.automatedValue (index, engine::ParamId::send (i))) sendLevels[i]->setValue (*v, juce::dontSendNotification);
+            if (sendsPanel != nullptr) sendsPanel->follow();
         }
         syncing = false;
     }
@@ -270,6 +281,7 @@ public:
             sendLevels[i]->setValue (send.gain, juce::dontSendNotification);
             sendLevels[i]->setEnabled (send.isActive());
         }
+        if (sendsPanel != nullptr) sendsPanel->refresh();
         if (! isMaster())
         {
             pan.setValue (t->pan, juce::dontSendNotification);
@@ -386,6 +398,179 @@ public:
             [this, slot] { if (mixer.onLoadImpulse) mixer.onLoadImpulse (index, slot); });
         const auto anchor = slot < insertButtons.size() && insertButtons[slot]->isVisible() ? insertButtons[slot]->getScreenBounds() : getScreenBounds().removeFromTop (34);
         juce::CallOutBox::launchAsynchronously (std::move (editor), anchor, nullptr);
+    }
+
+    // The sends panel: the strip's five sends on a wide dB scale, each with its bus, pre/post switch and a typed level.
+    // It is the strip's own controls at a larger size, so a change here is the same command (and automation pass)
+    // as a drag on the small slider, and the small controls follow it.
+    class SendsPanel final : public juce::Component
+    {
+    public:
+        explicit SendsPanel (ChannelStrip& s) : strip (s)
+        {
+            title.setJustificationType (juce::Justification::centredLeft);
+            title.setColour (juce::Label::textColourId, theme::text);
+            title.setFont (juce::FontOptions (14.0f, juce::Font::bold));
+            addAndMakeVisible (title);
+            for (int i = 0; i < model::Track::numSendSlots; ++i)
+            {
+                auto& r = rows[(size_t) i];
+                r.name.setText ("Send " + juce::String (i + 1), juce::dontSendNotification);
+                r.name.setColour (juce::Label::textColourId, theme::text);
+                addAndMakeVisible (r.name);
+
+                r.bus.setTooltip ("Which bus this send feeds");
+                r.bus.onChange = [this, i]
+                {
+                    if (syncing) return;
+                    auto* t = strip.track();
+                    if (t == nullptr) return;
+                    auto send = t->sends[(size_t) i];
+                    const int id = rows[(size_t) i].bus.getSelectedId();
+                    if (id == 100) send.bus = -1;
+                    else if (id > 0) { if (! send.isActive()) send.gain = 1.0f; send.bus = id - 1; }
+                    strip.issue (std::make_unique<model::SetSendCommand> (strip.index, i, send));
+                };
+                addAndMakeVisible (r.bus);
+
+                r.pre.setButtonText ("Pre");
+                r.pre.setTooltip ("Pre-fader: the send ignores the fader (else post-fader)");
+                r.pre.setClickingTogglesState (true);
+                r.pre.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.3f));
+                r.pre.onClick = [this, i]
+                {
+                    if (syncing) return;
+                    auto* t = strip.track();
+                    if (t == nullptr) return;
+                    auto send = t->sends[(size_t) i];
+                    send.preFader = rows[(size_t) i].pre.getToggleState();
+                    strip.issue (std::make_unique<model::SetSendCommand> (strip.index, i, send));
+                };
+                addAndMakeVisible (r.pre);
+
+                r.level.setSliderStyle (juce::Slider::LinearHorizontal);
+                r.level.setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 20);
+                r.level.setRange (0.0, 2.0, 0.0);
+                r.level.setSkewFactorFromMidPoint (1.0);
+                r.level.setDoubleClickReturnValue (true, 1.0);
+                r.level.setTooltip ("Send level: drag, or type a value in dB (-inf to +6)");
+                r.level.textFromValueFunction = [] (double v) { return dbText ((float) v) + " dB"; };
+                r.level.valueFromTextFunction = [] (const juce::String& text)
+                {
+                    const auto t = text.trim().toLowerCase();
+                    if (t.startsWith ("-inf")) return 0.0;
+                    return (double) juce::jlimit (0.0f, 2.0f, juce::Decibels::decibelsToGain (t.retainCharacters ("0123456789.-+").getFloatValue()));
+                };
+                r.level.setColour (juce::Slider::trackColourId, theme::accent.darker (0.4f));
+                r.level.setColour (juce::Slider::backgroundColourId, theme::background);
+                r.level.onDragStart = [this] { strip.gesture = true; strip.changed = false; };
+                r.level.onDragEnd = [this, i] { strip.endGesture (engine::ParamId::send (i)); };
+                r.level.onValueChange = [this, i]
+                {
+                    if (syncing) return;
+                    if (auto* t = strip.track(); t != nullptr && t->sends[(size_t) i].isActive())
+                    {
+                        auto send = t->sends[(size_t) i];
+                        send.gain = (float) rows[(size_t) i].level.getValue();
+                        strip.issue (std::make_unique<model::SetSendCommand> (strip.index, i, send));
+                        strip.report (engine::ParamId::send (i), send.gain);
+                    }
+                };
+                addAndMakeVisible (r.level);
+            }
+            setSize (520, 30 + model::Track::numSendSlots * 34 + 26);
+            refresh();
+        }
+
+        // The model's values into the controls (a command ran, or the strip re-synced)
+        void refresh()
+        {
+            auto* t = strip.track();
+            if (t == nullptr) return;
+            syncing = true;
+            title.setText (t->name + "  sends", juce::dontSendNotification);
+            for (int i = 0; i < model::Track::numSendSlots; ++i)
+            {
+                auto& r = rows[(size_t) i];
+                const auto& send = t->sends[(size_t) i];
+                r.bus.clear (juce::dontSendNotification);   // bus names can change while the panel is open
+                for (int b = 0; b < model::Track::numBuses; ++b) r.bus.addItem (strip.mixer.session.busName (b), 1 + b);
+                r.bus.addSeparator();
+                r.bus.addItem ("No Send", 100);
+                r.bus.setSelectedId (send.isActive() ? 1 + send.bus : 100, juce::dontSendNotification);
+                r.pre.setToggleState (send.preFader, juce::dontSendNotification);
+                r.pre.setEnabled (send.isActive());
+                r.level.setValue (send.gain, juce::dontSendNotification);
+                r.level.setEnabled (send.isActive());
+            }
+            syncing = false;
+            repaint();
+        }
+
+        // In Read mode the levels follow the lanes, like the strip's small sliders
+        void follow()
+        {
+            if (strip.gesture || ! strip.mixer.automatedValue) return;
+            syncing = true;
+            for (int i = 0; i < model::Track::numSendSlots; ++i)
+                if (auto v = strip.mixer.automatedValue (strip.index, engine::ParamId::send (i))) rows[(size_t) i].level.setValue (*v, juce::dontSendNotification);
+            syncing = false;
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (theme::panel);
+            // A dB scale under the sliders, so a level can be read against it
+            if (scale.isEmpty()) return;
+            g.setColour (theme::text.withAlpha (0.55f));
+            g.setFont (juce::FontOptions (10.0f));
+            for (float db : { -100.0f, -24.0f, -12.0f, -6.0f, -3.0f, 0.0f, 3.0f, 6.0f })
+            {
+                const float gain = db <= -99.0f ? 0.0f : juce::Decibels::decibelsToGain (db);
+                const double norm = rows[0].level.valueToProportionOfLength (gain);
+                const int x = scale.getX() + (int) std::round (norm * scale.getWidth());
+                g.drawVerticalLine (x, (float) scale.getY(), (float) scale.getY() + 4.0f);
+                g.drawText (db <= -99.0f ? juce::String ("-inf") : juce::String (db, 0), x - 18, scale.getY() + 5, 36, 12, juce::Justification::centred);
+            }
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (10, 8);
+            title.setBounds (area.removeFromTop (22));
+            area.removeFromTop (4);
+            for (auto& r : rows)
+            {
+                auto row = area.removeFromTop (28);
+                r.name.setBounds (row.removeFromLeft (52));
+                r.bus.setBounds (row.removeFromLeft (96).reduced (0, 3));
+                row.removeFromLeft (6);
+                r.pre.setBounds (row.removeFromLeft (40).reduced (0, 3));
+                row.removeFromLeft (6);
+                r.level.setBounds (row);
+                area.removeFromTop (6);
+            }
+            // The scale sits under the sliders' travel (the text box takes their right end)
+            const auto& first = rows[0].level;
+            const int left = first.getX() + (int) first.getPositionOfValue (0.0), right = first.getX() + (int) first.getPositionOfValue (2.0);
+            scale = juce::Rectangle<int> (left, area.getY(), juce::jmax (0, right - left), 18);
+        }
+
+    private:
+        ChannelStrip& strip;
+        juce::Label title;
+        struct Row { juce::Label name; juce::ComboBox bus; juce::TextButton pre; juce::Slider level; };
+        std::array<Row, (size_t) model::Track::numSendSlots> rows;
+        juce::Rectangle<int> scale;
+        bool syncing = false;
+    };
+
+    void openSendsPanel()
+    {
+        if (track() == nullptr || sendsPanel != nullptr) return;
+        auto panel = std::make_unique<SendsPanel> (*this);
+        sendsPanel = panel.get();
+        juce::CallOutBox::launchAsynchronously (std::move (panel), sendsButton.getScreenBounds(), nullptr);
     }
 
     void sendClicked (int sendIndex)
@@ -536,7 +721,6 @@ public:
             g.drawText ("dly " + juce::String (d.total()) + (d.insertLatency > 0 ? "  (" + juce::String (d.insertLatency) + ")" : juce::String()),
                         4, 24, getWidth() - 8, 10, juce::Justification::centredRight);
         }
-        if (! isMaster() && ! isVca()) g.drawText ("SENDS", 4, sendsY - 12, getWidth() - 8, 10, juce::Justification::centredLeft);
 
         // Meters beside the fader, drawn per the track's meter type
         const auto type = t->meterType;
@@ -645,7 +829,9 @@ public:
         for (auto* b : insertButtons) if (b->isVisible()) { b->setBounds (area.removeFromTop (15)); area.removeFromTop (1); }
         if (! isMaster())
         {
-            area.removeFromTop (12);
+            sendsButton.setVisible (! isVca());
+            sendsButton.setBounds (area.removeFromTop (13));
+            area.removeFromTop (1);
             sendsY = area.getY();
             for (int i = 0; i < sendButtons.size(); ++i)
             {
@@ -698,6 +884,8 @@ private:
     int index;
     juce::OwnedArray<juce::TextButton> insertButtons, sendButtons;
     juce::OwnedArray<juce::Slider> sendLevels;
+    juce::TextButton sendsButton;
+    juce::Component::SafePointer<SendsPanel> sendsPanel;   // open while its callout shows
     juce::Slider pan, fader;
     juce::TextButton mute { "M" }, solo { "S" };
     juce::ComboBox output, autoMode, vcaBox;
@@ -740,6 +928,16 @@ void MixerView::openInsertEditor (int trackIndex, int slot)
     if (strip->getRight() > area.getRight() || strip->getX() < area.getX())
         viewport.setViewPosition (juce::jmax (0, strip->getX() - 20), viewport.getViewPositionY());
     strip->openInsertEditor (slot);
+}
+
+void MixerView::openSendsPanel (int trackIndex)
+{
+    if (! juce::isPositiveAndBelow (trackIndex, strips.size())) return;
+    auto* strip = strips[trackIndex];
+    const auto area = viewport.getViewArea();
+    if (strip->getRight() > area.getRight() || strip->getX() < area.getX())
+        viewport.setViewPosition (juce::jmax (0, strip->getX() - 20), viewport.getViewPositionY());
+    strip->openSendsPanel();
 }
 
 void MixerView::rebuildStrips()

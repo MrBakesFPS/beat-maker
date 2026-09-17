@@ -72,6 +72,7 @@ public:
     std::function<void (int trackIndex)> onTrackFadesDialog;                                // Fades for every clip on the track
     std::function<void (int trackIndex, int bus)> onInputBusChanged;                         // aux tracks: the bus they read
     std::function<void (int trackIndex, int slot, model::Send)> onSendChanged;               // a send slot's bus, level or pre/post
+    std::function<void (int trackIndex, float pan)> onPanChanged;                             // Pan submenu (-1 left .. 1 right)
     std::function<void (int bus)> onRenameBus;
     std::function<void (int bus)> onNewAuxForBus;                                            // an aux track reading the bus
     std::function<void (int trackIndex)> onTrackCustomColour;           // Colour > Custom...: the colour picker
@@ -201,6 +202,10 @@ private:
     juce::PopupMenu buildIoMenu (int trackIndex);
     juce::PopupMenu buildFadesMenu (int trackIndex);
     void handleIoFadesMenu (int trackIndex, int result);
+    static juce::String panName (float pan);   // "L50", "Centre", "Hard Right"
+    juce::PopupMenu buildPanMenu (int trackIndex);
+    juce::PopupMenu buildAutomationMenu (int trackIndex);
+    void handlePanAutomationMenu (int trackIndex, int result);
     juce::PopupMenu buildSendsMenu (int trackIndex);
     juce::PopupMenu buildBusesMenu (int trackIndex);
     void handleSendsBusesMenu (int trackIndex, int result);

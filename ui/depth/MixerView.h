@@ -44,6 +44,7 @@ public:
 
     // Opens an insert's knobs by its slot on a track's strip, scrolling the strip into view (a track menu's Add Effect lands here)
     void openInsertEditor (int trackIndex, int slot);
+    void openSendsPanel (int trackIndex);   // the strip's sends on a wide dB scale, in a callout
 
     void paint (juce::Graphics&) override;
     void resized() override;

@@ -247,4 +247,20 @@ TEST_CASE ("Mixer commands: inserts keep their instance across undo/redo, sends 
     REQUIRE (snap->strips.size() == 2);
     CHECK (snap->strips[1].isAux);
     CHECK (snap->strips[1].inputBus == 4);
+
+    // Pan positions the track menu offers: each lands in the snapshot, keeps the gain, clamps and undoes
+    for (float pan : { -1.0f, -0.75f, -0.5f, -0.25f, 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
+    {
+        s.execute (std::make_unique<SetTrackMixCommand> (0, s.getTracks()[0].gain, pan));
+        CHECK_THAT (s.getTracks()[0].pan, WithinAbs (pan, 1.0e-6));
+        CHECK_THAT (buildRenderSnapshot (s)->strips[0].pan, WithinAbs (pan, 1.0e-6));
+    }
+    const float gainBefore = s.getTracks()[0].gain;
+    s.execute (std::make_unique<SetTrackMixCommand> (0, gainBefore, 7.0f));
+    CHECK_THAT (s.getTracks()[0].pan, WithinAbs (1.0f, 1.0e-6));   // clamped
+    CHECK_THAT (s.getTracks()[0].gain, WithinAbs (gainBefore, 1.0e-6));
+    s.undo();
+    CHECK_THAT (s.getTracks()[0].pan, WithinAbs (1.0f, 1.0e-6));   // back to the last position
+    s.undo();
+    CHECK_THAT (s.getTracks()[0].pan, WithinAbs (0.75f, 1.0e-6));
 }

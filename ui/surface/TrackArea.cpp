@@ -1444,6 +1444,8 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
             menu.addSubMenu ("Colour", colours);
             menu.addSubMenu ("Effects", buildEffectsMenu (track));
             if (! t.isVca()) menu.addSubMenu ("I/O", buildIoMenu (track));
+            if (! t.isVca()) menu.addSubMenu ("Pan", buildPanMenu (track));
+            menu.addSubMenu ("Automation", buildAutomationMenu (track));
             if (! t.isVca()) menu.addSubMenu ("Sends", buildSendsMenu (track));
             if (! t.isVca()) menu.addSubMenu ("Buses", buildBusesMenu (track));
             if (t.isAudio()) menu.addSubMenu ("Fades", buildFadesMenu (track));
@@ -1467,6 +1469,7 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
                 else if (r == 98) { if (onTrackCustomColour) onTrackCustomColour (track); }
                 else if (r >= 200 && r < 600) handleEffectsMenu (track, r);
                 else if (r >= 600 && r < 1000) handleIoFadesMenu (track, r);
+                else if (r >= 4000 && r < 5000) handlePanAutomationMenu (track, r);
                 else if (r >= 2000) handleSendsBusesMenu (track, r);
                 else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
                 else if (r == 3) onTrackAction (track, "commit");
@@ -2153,6 +2156,72 @@ juce::PopupMenu TrackArea::buildSendsMenu (int trackIndex)
         menu.addSubMenu (label, one);
     }
     return menu;
+}
+
+// Pan: nine positions from hard left to hard right (the mixer's knob sets any value). Ids: 4000 + position.
+static const float panPositions[] = { -1.0f, -0.75f, -0.5f, -0.25f, 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
+
+juce::String TrackArea::panName (float pan)
+{
+    const int pct = (int) std::round (std::abs (pan) * 100.0f);
+    if (pct == 0) return "Centre";
+    if (pct >= 100) return pan < 0.0f ? "Hard Left" : "Hard Right";
+    return (pan < 0.0f ? "L" : "R") + juce::String (pct);
+}
+
+juce::PopupMenu TrackArea::buildPanMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return menu;
+    for (int i = 0; i < (int) std::size (panPositions); ++i)
+        menu.addItem (4000 + i, panName (panPositions[i]), true, std::abs (t->pan - panPositions[i]) < 0.01f);
+    menu.addSeparator();
+    menu.addItem (4020, "Now: " + panName (t->pan) + "   (the mixer's knob sets any value)", false);
+    return menu;
+}
+
+// Automation: the track's mode, and which lane its header row shows (the same choices as the header's two boxes).
+// Ids: 4100 + mode; 4200 + view (0 clips, 1 clip gain, 2 volume, 3 pan, 4 mute, 5 + send slot).
+juce::PopupMenu TrackArea::buildAutomationMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return menu;
+    juce::PopupMenu modes;
+    for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch,
+                    model::AutomationMode::write, model::AutomationMode::trim })
+        modes.addItem (4100 + (int) m, model::automationModeName (m), true, t->automationMode == m);
+    menu.addSubMenu (juce::String ("Mode:  ") + model::automationModeName (t->automationMode), modes);
+    juce::PopupMenu lanes;
+    const auto shown = shownLane (*t);
+    const bool clipGain = showsClipGain (*t);
+    lanes.addItem (4200, "Clips", true, ! shown && ! clipGain);
+    if (t->isAudio()) lanes.addItem (4201, "Clip Gain", true, clipGain);
+    lanes.addItem (4202, "Volume", true, shown && shown->type == engine::ParamId::Type::volume);
+    if (! t->isVca()) lanes.addItem (4203, "Pan", true, shown && shown->type == engine::ParamId::Type::pan);
+    lanes.addItem (4204, "Mute", true, shown && shown->type == engine::ParamId::Type::mute);
+    if (! t->isVca())
+        for (int s = 0; s < model::Track::numSendSlots; ++s)
+            lanes.addItem (4205 + s, engine::ParamId::send (s).getName(), true, shown && shown->type == engine::ParamId::Type::sendLevel && shown->index == s);
+    menu.addSubMenu ("Show Lane", lanes);
+    return menu;
+}
+
+void TrackArea::handlePanAutomationMenu (int trackIndex, int result)
+{
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return;
+    if (result >= 4000 && result < 4000 + (int) std::size (panPositions)) { if (onPanChanged) onPanChanged (trackIndex, panPositions[result - 4000]); return; }
+    if (result >= 4100 && result < 4100 + 6) { if (onAutomationModeChanged) onAutomationModeChanged (trackIndex, (model::AutomationMode) (result - 4100)); return; }
+    if (result >= 4200 && result < 4205 + model::Track::numSendSlots)
+    {
+        // The header's view box owns this state; setting it there keeps the two in step
+        static const int boxIds[] = { 1, 100, 2, 3, 4 };
+        const int view = result - 4200;
+        if (juce::isPositiveAndBelow (trackIndex, (int) trackControls.size()) && trackControls[(size_t) trackIndex].autoView != nullptr)
+            trackControls[(size_t) trackIndex].autoView->setSelectedId (view < 5 ? boxIds[view] : 5 + (view - 5), juce::sendNotificationSync);
+    }
 }
 
 // Buses: each of the eight with Rename... and New Aux Track (an aux input reading it, where reverbs and delays live).
