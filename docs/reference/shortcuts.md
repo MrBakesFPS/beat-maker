@@ -29,6 +29,7 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Save | `ctrl + S` |  |
 | Save As... | `ctrl + shift + S` |  |
 | Rename Session... |  |  |
+| Delete Session... |  |  |
 | Save As Template... |  |  |
 | Import Audio Files... |  |  |
 | Bounce to Disk... | `ctrl + B` |  |

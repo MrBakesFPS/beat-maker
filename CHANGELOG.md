@@ -20,6 +20,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - Join Selected Clips (Ctrl+J, and in the clip menus): MIDI and pattern clips merge into one with their contents written out (loops included), audio clips heal when adjacent pieces of one file. Split at Playhead is in the clip menus too.
 
 ### Added
+- Delete Session... in the File menu and the command palette: pick a session (the open one is offered first), confirm, and its bundle goes to the trash; deleting the open session leaves an empty Untitled one. `--delete-session=<bundle>` flag.
 - A metronome: the Click button in the transport bar (or K) plays a click on every beat while the transport runs, accented on the downbeat, to the main outputs only (never in a bounce). Preferences > Metronome: level, sound (Beep, Click, Wood), accent, only while recording. `--metronome` flag.
 - Fades on every clip: MIDI and pattern clips have fade in/out and shapes like audio clips (Smart Tool corners, Ctrl+F or Fades... in the clip's right-click menu, Fades for All Clips on Selected Track). The instrument's or kit's rendered sound is enveloped at the clip's edges and a fade-out cuts the tail. Saved with the session. The per-track auto-fade setting (Fades submenu, `--auto-fade`) is gone.
 - Pan and Automation on the Mix window's strips: right-click the pan knob for the nine positions, right-click the strip for Pan and Automation (mode, and which lane the track's row shows).

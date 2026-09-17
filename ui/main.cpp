@@ -505,6 +505,10 @@ public:
         showPresetBuilder (engine::Instrument::typeNamed (spec.upToFirstOccurrenceOf (",", false, false)), spec.fromFirstOccurrenceOf (",", false, false), nullptr);
     }
     bool renameSessionFromCommandLine (const juce::String& name) { return renameSession (name); }   // --rename=<name>
+    bool deleteSessionFromCommandLine (const juce::String& path)   // --delete-session=<bundle>: no confirmation
+    {
+        return deleteSessionBundle (juce::File::getCurrentWorkingDirectory().getChildFile (path));
+    }
     // --open-dialog[=<bundle>]: shows the Open Session browser; with a bundle, selects it and after a moment
     // takes the double-click/Return path on it (smoke tests)
     void showOpenDialogFromCommandLine (const juce::File& bundle)
@@ -1035,6 +1039,7 @@ public:
         add ("file.save", "File", "Save", juce::KeyPress ('s', M::commandModifier, 0), 0, [this] { saveSession (false); });
         add ("file.saveAs", "File", "Save As...", juce::KeyPress ('s', M::commandModifier | M::shiftModifier, 0), 0, [this] { saveSession (true); });
         add ("file.rename", "File", "Rename Session...", {}, 0, [this] { showRenameSession(); });
+        add ("file.delete", "File", "Delete Session...", {}, 0, [this] { showDeleteSession(); });
         add ("file.saveTemplate", "File", "Save As Template...", {}, 0, [this] { saveAsTemplate(); });
         add ("file.import", "File", "Import Audio Files...", {}, 0, [this] { openFileChooser(); });
         add ("file.bounce", "File", "Bounce to Disk...", juce::KeyPress ('b', M::commandModifier, 0), 0, [this] { showBounceDialogImpl(); });
@@ -2420,6 +2425,46 @@ private:
         }), true);
     }
 
+    // Delete Session: pick a session bundle (the open one is offered first), confirm, and move it to the trash
+    // (deleted outright only where there is no trash). Deleting the open session leaves an empty Untitled one.
+    void showDeleteSession()
+    {
+        sessionsFolder().createDirectory();
+        auto* browser = ui::SessionChooser::launch ("Delete Session: choose a session", sessionsFolder(), "*.bmk", [this] (juce::File f)
+        {
+            if (f == juce::File()) { grabKeyboardFocus(); return; }
+            if (f.getFileName() == "session.json") f = f.getParentDirectory();
+            if (! persistence::SessionFile::isSessionBundle (f)) { statusMessage = "Not a session: " + f.getFileName(); updateStatus(); grabKeyboardFocus(); return; }
+            const bool open = f == sessionFile;
+            auto* w = new juce::AlertWindow ("Delete Session",
+                                             "Move \"" + persistence::SessionFile::sessionName (f) + "\" to the trash?\n" + f.getFullPathName()
+                                                 + "\n\nThe whole bundle goes, recordings and backups included. It can be brought back from the trash."
+                                                 + (open ? "\n\nThis is the open session: an empty Untitled session takes its place." : juce::String()),
+                                             juce::MessageBoxIconType::WarningIcon);
+            w->addButton ("Delete", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            w->enterModalState (true, juce::ModalCallbackFunction::create ([this, w, f] (int result)
+            {
+                if (result == 1) deleteSessionBundle (f);
+                grabKeyboardFocus();
+            }), true);
+        });
+        if (browser != nullptr && sessionFile != juce::File()) browser->showBundle (sessionFile);
+    }
+
+    bool deleteSessionBundle (const juce::File& bundle)
+    {
+        if (! persistence::SessionFile::isSessionBundle (bundle)) { statusMessage = "Not a session: " + bundle.getFileName(); updateStatus(); return false; }
+        const auto name = persistence::SessionFile::sessionName (bundle);
+        const bool wasOpen = bundle == sessionFile;
+        if (wasOpen) newEmptySession ("Untitled");   // let go of it first: the recorder, backups and the title all point into it
+        ui::CrashReporter::get().addBreadcrumb ("delete session " + bundle.getFileName());
+        bool trashed = bundle.moveToTrash();
+        if (! trashed && bundle.exists() && ! bundle.deleteRecursively()) { statusMessage = "Could not delete " + name; updateStatus(); return false; }
+        statusMessage = "Session " + name + (trashed ? " moved to the trash" : " deleted") + (wasOpen ? " (now on a new Untitled session)" : ""); updateStatus();
+        return true;
+    }
+
     bool renameSession (const juce::String& newName)
     {
         const auto name = persistence::SessionFile::legalSessionName (newName);
@@ -3694,6 +3739,7 @@ private:
         menu.addItem (3, "Save  (Ctrl+S)");
         menu.addItem (4, "Save As...  (Ctrl+Shift+S)");
         menu.addItem (13, "Rename Session...");
+        menu.addItem (14, "Delete Session...");
         menu.addItem (5, "Save As Template...");
         menu.addSeparator();
         menu.addItem (6, "Import Audio Files...");
@@ -3723,6 +3769,7 @@ private:
                 case 9: showStemExport(); break;
                 case 12: showAafExport(); break;
                 case 13: showRenameSession(); break;
+                case 14: showDeleteSession(); break;
                 case 10: showWelcome(); break;
                 case 11: showShortcuts(); break;
                 default:
@@ -4115,6 +4162,7 @@ public:
             else if (arg.startsWith ("--send=")) main.setSendFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--pan=")) main.setPanFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--delete-session=")) main.deleteSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--marker-demo") main.markerDemoFromCommandLine();
