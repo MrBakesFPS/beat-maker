@@ -234,6 +234,7 @@ public:
         trackArea.onInputBusChanged = [this] (int i, int bus) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackRoutingCommand> (i, bus, t->outputBus)); };
         trackArea.onSendChanged = [this] (int i, int slot, model::Send send) { session.execute (std::make_unique<model::SetSendCommand> (i, slot, send)); };
         mixerView.onLaneViewChanged = [this] (int i, int view) { trackArea.setLaneView (i, view); };
+        trackArea.onFadesDialog = [this] { showFadesDialog(); };
         trackArea.onPanChanged = [this] (int i, float pan) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackMixCommand> (i, t->gain, pan)); };
         trackArea.onRenameBus = [this] (int bus) { promptRenameBus (bus); };
         trackArea.onNewAuxForBus = [this] (int bus) { addAuxTrack (bus); };

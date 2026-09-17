@@ -200,6 +200,7 @@ private:
     juce::Rectangle<int> getAlternateLaneBounds (int trackIndex, int alternate) const;
     void paintAlternateLanes (juce::Graphics&, const model::Track&, int trackIndex);
     void showPlaylistMenu (int trackIndex);
+    void openFadesFor (const model::ClipRef&);
     juce::PopupMenu buildEffectsMenu (int trackIndex);
     void handleEffectsMenu (int trackIndex, int result);
     juce::PopupMenu buildIoMenu (int trackIndex);
@@ -278,6 +279,7 @@ private:
     juce::int64 ghostMarkerSample = 0;   // rendered sample of the marker being dragged
 public:
     std::function<void (const juce::String&)> onStatus;   // one-line status messages
+    std::function<void()> onFadesDialog;                   // Fades... from a clip's menu (the selection's fades window)
 private:
     EditSettings::Tool effectiveTool (const juce::MouseEvent&, const std::optional<model::ClipRef>& hit, bool& nearStart, bool& nearEnd) const;
     std::optional<model::ClipRef> clipAtPoint (juce::Point<int>) const;

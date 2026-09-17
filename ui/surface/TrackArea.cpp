@@ -2864,6 +2864,14 @@ int TrackArea::addClipForSelection (double fallbackSeconds)
 }
 
 // Loop settings of a pattern or MIDI clip: on/off, and how far the loop goes (the clip's length).
+// Fades... from a clip's menu: the window works on the selection, so a clip outside it becomes the selection
+// and a clip inside it keeps the others (one window for all of them).
+void TrackArea::openFadesFor (const model::ClipRef& ref)
+{
+    if (! isSelected (ref)) selectClip (ref, false);
+    if (onFadesDialog) onFadesDialog();
+}
+
 void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screenPos)
 {
     const auto* t = session.getTrack (ref.track);
@@ -2887,9 +2895,12 @@ void TrackArea::showLoopMenu (const model::ClipRef& ref, juce::Point<int> screen
     menu.addSeparator();
     menu.addItem (3, "Split at Playhead  (Ctrl+E)");
     menu.addItem (4, "Join Selected Clips  (Ctrl+J)", selectedClips.size() >= 2);
+    menu.addSeparator();
+    menu.addItem (5, "Fades...  (Ctrl+F)");
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, ref, midi, loop, contentBeats, sr, start, bpb] (int result)
     {
         if (result == 0) return;
+        if (result == 5) { openFadesFor (ref); return; }
         auto setLength = [this, ref, midi, sr, start, bpb] (double barsWanted)
         {
             const auto newLength = (juce::int64) std::llround (transport.beatsToSeconds (barsWanted * bpb) * sr);
@@ -2953,12 +2964,15 @@ void TrackArea::showClipMenu (const model::ClipRef& ref, juce::Point<int> screen
     menu.addSeparator();
     menu.addItem (8, "Split at Playhead  (Ctrl+E)");
     menu.addItem (9, "Join Selected Clips  (Ctrl+J)", selectedClips.size() >= 2);
+    menu.addSeparator();
+    menu.addItem (10, "Fades...  (Ctrl+F)");
 
     const double anchor = dragAnchorSeconds;
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }), [this, ref, anchor] (int result)
     {
         const auto* track = session.getTrack (ref.track);
         if (result == 0 || track == nullptr || ref.index >= (int) track->clips.size()) return;
+        if (result == 10) { openFadesFor (ref); return; }
         const auto& c = track->clips[(size_t) ref.index];
 
         if (result >= 100 && result < 105)
