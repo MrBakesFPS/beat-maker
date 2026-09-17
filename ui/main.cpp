@@ -1085,11 +1085,11 @@ public:
         add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
         add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { if (auto* ed = focusedEditor()) ed->zoomToFit(); else trackArea.zoomToSelection(); });
         add ("view.editor", "View", "Editor panel", juce::KeyPress ('e'), 0, [this] { setEditorVisible (! editorVisible); });
-        add ("track.addFromLibrary", "Track", "Add from Sample Library...", juce::KeyPress ('l'), 0, [this] { showLibraryWindow(); });
+        add ("track.addFromLibrary", "Track", "Add from Sample Library...", juce::KeyPress ('l'), 0, [this] { showLibraryWindow (true); });
         add ("view.controls", "View", "Smart Controls", juce::KeyPress ('b'), 0, [this] { setControlsVisible (! controlsVisible); });
         add ("view.mixer", "View", "Mix window", juce::KeyPress ('x'), 0, [this] { setMixerVisible (! mixerVisible); });
         add ("view.editorCtrl", "View", "Editor panel (Ctrl+Shift+E)", juce::KeyPress ('e', M::commandModifier | M::shiftModifier, 0), 0, [this] { setEditorVisible (! editorVisible); });
-        add ("track.addFromLibraryCtrl", "Track", "Add from Sample Library... (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { showLibraryWindow(); });
+        add ("track.addFromLibraryCtrl", "Track", "Add from Sample Library... (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { showLibraryWindow (true); });
         add ("view.controlsCtrl", "View", "Smart Controls (Ctrl+Shift+B)", juce::KeyPress ('b', M::commandModifier | M::shiftModifier, 0), 0, [this] { setControlsVisible (! controlsVisible); });
         add ("view.mixerCtrl", "View", "Mix window (Ctrl+Shift+X)", juce::KeyPress ('x', M::commandModifier | M::shiftModifier, 0), 0, [this] { setMixerVisible (! mixerVisible); });
 
@@ -1486,13 +1486,25 @@ private:
         resized();
     }
 
-    // The Sample Library: a window over the loop browser, opened from + Track (or L). Choosing a loop adds a track.
-    void showLibraryWindow()
+    // The Sample Library: a window over the loop browser, opened from + Track (or L, which also closes it). Its Close
+    // button, Escape and the title bar's close button hide it. Choosing a loop adds a track.
+    void showLibraryWindow (bool toggle = false)
     {
+        if (libraryWindow != nullptr && libraryWindow->isVisible() && toggle) { closeLibraryWindow(); return; }
         if (libraryWindow == nullptr)
-            libraryWindow = std::make_unique<LibraryWindow> (loopBrowser, [this] { loopBrowser.stopPreview(); if (libraryWindow) libraryWindow->setVisible (false); });
+        {
+            libraryWindow = std::make_unique<LibraryWindow> (loopBrowser, [this] { closeLibraryWindow(); });
+            loopBrowser.onClose = [this] { closeLibraryWindow(); };
+        }
         libraryWindow->setVisible (true);
         libraryWindow->toFront (true);
+        loopBrowser.grabKeyboardFocus();
+    }
+    void closeLibraryWindow()
+    {
+        loopBrowser.stopPreview();
+        if (libraryWindow != nullptr) libraryWindow->setVisible (false);
+        grabKeyboardFocus();
     }
 
     //==========================================================================
@@ -3922,7 +3934,7 @@ private:
         LibraryWindow (juce::Component& content, std::function<void()> onClose)
             : juce::DocumentWindow ("Sample Library", ui::theme::panel, juce::DocumentWindow::closeButton), close (std::move (onClose))
         {
-            setUsingNativeTitleBar (true);
+            setUsingNativeTitleBar (false);   // our own title bar: a tiling compositor draws no decorations, so the close button must be ours
             setContentNonOwned (&content, false);
             setResizable (true, false);
             setResizeLimits (260, 320, 1000, 1600);

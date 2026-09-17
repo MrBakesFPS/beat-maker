@@ -25,12 +25,14 @@ public:
     std::function<void (const persistence::LoopInfo*)> onPreview;          // nullptr = stop
     std::function<void (const persistence::LoopInfo&)> onAddAtPlayhead;    // double-click
     std::function<void()> onAddFolder;
+    std::function<void()> onClose;   // the Close button and Escape (when the browser is a window of its own)
 
     void setSessionBpm (double bpm) { sessionBpm = bpm; list.repaint(); }
     void stopPreview();
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
     // ListBoxModel
@@ -52,7 +54,7 @@ private:
     juce::OwnedArray<juce::TextButton> categoryButtons;
     int categoryFilter = -1;   // -1 = all, else LoopInfo::Category
     juce::ListBox list;
-    juce::TextButton addFolderButton { "+ Folder" }, rescanButton { "Rescan" };
+    juce::TextButton addFolderButton { "+ Folder" }, rescanButton { "Rescan" }, closeButton { "Close" };
     juce::Label statusLabel;
 
     const persistence::LoopInfo* previewing = nullptr;

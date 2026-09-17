@@ -44,6 +44,11 @@ LoopBrowser::LoopBrowser (persistence::LoopLibrary& lib) : library (lib)
     addAndMakeVisible (rescanButton);
     rescanButton.onClick = [this] { library.rescanAsync(); statusLabel.setText ("Scanning...", juce::dontSendNotification); };
 
+    closeButton.setTooltip ("Close the Sample Library (Escape, or L again)");
+    closeButton.onClick = [this] { if (onClose) onClose(); };
+    addAndMakeVisible (closeButton);
+    setWantsKeyboardFocus (true);
+
     addAndMakeVisible (statusLabel);
     statusLabel.setColour (juce::Label::textColourId, theme::textDim);
     statusLabel.setFont (juce::FontOptions (11.0f));
@@ -108,6 +113,12 @@ void LoopBrowser::paint (juce::Graphics& g)
     g.drawText ("Sample Library", 12, 6, getWidth() - 24, 20, juce::Justification::centredLeft);
 }
 
+bool LoopBrowser::keyPressed (const juce::KeyPress& k)
+{
+    if (k == juce::KeyPress::escapeKey && onClose) { onClose(); return true; }
+    return false;
+}
+
 void LoopBrowser::resized()
 {
     auto area = getLocalBounds().reduced (8);
@@ -131,6 +142,7 @@ void LoopBrowser::resized()
     addFolderButton.setBounds (bottom.removeFromLeft (80));
     bottom.removeFromLeft (4);
     rescanButton.setBounds (bottom.removeFromLeft (64));
+    closeButton.setBounds (bottom.removeFromRight (64));
     area.removeFromBottom (4);
     statusLabel.setBounds (area.removeFromBottom (16));
     area.removeFromBottom (4);
