@@ -25,7 +25,7 @@ Flags are processed in order, so a session or demo flag before an export flag ex
 
 | Flag | Effect |
 |---|---|
-| `--play`, `--cycle` | start playback; enable Cycle |
+| `--play`, `--cycle`, `--metronome` | start playback; enable Cycle; turn the metronome on |
 | `--record` | add an armed audio track and start recording |
 | `--record-mode=<Normal\|QuickPunch\|TrackPunch\|Loop>` | |
 | `--pre-roll=<s>`, `--post-roll=<s>`, `--punch=<in>,<out>` | punch range in seconds |

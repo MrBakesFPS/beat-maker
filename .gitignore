@@ -23,3 +23,6 @@ build-release/
 site/
 .venv/
 dist/
+
+# App settings written by older builds next to the sources (now in ~/.config/Beat Maker)
+Beat Maker.settings

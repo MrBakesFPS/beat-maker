@@ -984,6 +984,8 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
 
     mixPreview (outputs, numOutputs, numSamples);
     renderAudition (outputs, numOutputs, numSamples);
+    metronome.render (outputs, numOutputs, numSamples, transport.getPositionSamples(), transport.getSampleRate(), transport.getBpm(),
+                      transport.getBeatsPerBar(), playing, recorder != nullptr && recorder->isRecording());
 
     if (scrubNow)
         transport.setPositionSamples ((juce::int64) std::llround (scrubPosition));

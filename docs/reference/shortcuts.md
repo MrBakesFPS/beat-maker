@@ -16,6 +16,7 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Cycle on/off | `C` |  |
 | Cycle on/off (Ctrl+Shift+C) | `ctrl + shift + C` |  |
 | Stop loop preview | `escape` |  |
+| Metronome (click) | `K` |  |
 | Move Playhead Right by the Grid |  |  |
 | Move Playhead Left by the Grid |  |  |
 

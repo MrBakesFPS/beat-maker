@@ -242,6 +242,7 @@ public:
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
+        transportBar.onMetronomeToggled = [this] (bool on) { setMetronome (on); };
         transportBar.onControlsToggled = [this] (bool visible) { setControlsVisible (visible); };
         transportBar.onMixerToggled = [this] (bool visible) { setMixerVisible (visible); };
 
@@ -647,6 +648,17 @@ public:
         startRecording();
     }
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
+    void setMetronomeFromCommandLine (bool on) { setMetronome (on); }   // --metronome
+
+    // The metronome: on or off is remembered across sessions (an app setting, like the loop folders)
+    void setMetronome (bool on)
+    {
+        metronomeOn = on;
+        engine.getGraph().getMetronome().setEnabled (on);
+        transportBar.setMetronome (on);
+        if (appSettings != nullptr) { appSettings->setValue ("metronome", on); appSettings->saveIfNeeded(); }   // the file is only written on request
+        statusMessage = on ? "Metronome on: a click on every beat (K)" : "Metronome off"; updateStatus();
+    }
     void showBounceDialog();
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
     void showLibraryWindowFromCommandLine() { showLibraryWindow(); }   // --library
@@ -1081,6 +1093,7 @@ public:
         add ("tool.focus", "Tool", "Commands Keyboard Focus on/off", juce::KeyPress ('k', M::commandModifier | M::altModifier, 0), 0, [this, notifyEdit] { editSettings.commandsFocus = ! editSettings.commandsFocus; notifyEdit(); statusMessage = editSettings.commandsFocus ? "Commands Keyboard Focus ON: A/S trim, D/G fades, F fades, B separate, H duplicate, X/C/V clipboard, R/T zoom, E zoom to fit" : "Commands Keyboard Focus off"; updateStatus(); });
 
         // View
+        add ("transport.metronome", "Transport", "Metronome (click)", juce::KeyPress ('k'), 0, [this] { setMetronome (! metronomeOn); });
         add ("view.zoomIn", "View", "Zoom In", juce::KeyPress ('t', M::commandModifier, 0), 't', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (prefs.getDouble ("display.zoomSensitivity")); });
         add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
         add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { if (auto* ed = focusedEditor()) ed->zoomToFit(); else trackArea.zoomToSelection(); });
@@ -1199,24 +1212,40 @@ private:
         return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Loops");
     }
 
+    // App settings (loop folders, sync, metronome): next to the preferences in ~/.config/Beat Maker. On Linux JUCE
+    // builds the default path as ~/<folderName>, so the folder name carries the .config prefix; earlier builds wrote
+    // ~/Beat Maker/Beat Maker.settings, which is moved across once.
     static juce::PropertiesFile::Options settingsOptions()
     {
         juce::PropertiesFile::Options o;
         o.applicationName = "Beat Maker";
         o.filenameSuffix = "settings";
+       #if JUCE_LINUX || JUCE_BSD
+        o.folderName = ".config/Beat Maker";
+       #else
         o.folderName = "Beat Maker";
+       #endif
         o.osxLibrarySubFolder = "Application Support";
         return o;
+    }
+    static void migrateOldSettingsFile()
+    {
+        const auto wanted = settingsOptions().getDefaultFile();
+        const auto old = juce::File ("~").getChildFile ("Beat Maker").getChildFile ("Beat Maker.settings");
+        if (old.existsAsFile() && ! wanted.existsAsFile() && wanted.getParentDirectory().createDirectory())
+            old.moveFileTo (wanted);
     }
 
     void setupLoopLibrary()
     {
+        migrateOldSettingsFile();
         appSettings = std::make_unique<juce::PropertiesFile> (settingsOptions());
 
         juce::Array<juce::File> folders;
         if (const auto bundled = bundledLoopsFolder(); bundled.isDirectory()) folders.add (bundled);
         userLoopsFolder().createDirectory();
         folders.add (userLoopsFolder());
+        setMetronome (appSettings->getBoolValue ("metronome", false));
         for (const auto& path : juce::StringArray::fromLines (appSettings->getValue ("loopFolders")))
             if (juce::File (path).isDirectory()) folders.add (juce::File (path));
 
@@ -2587,6 +2616,10 @@ private:
             trackArea.setTrackHeight (heights[juce::jlimit (0, 3, prefs.getInt ("display.trackHeight"))]);
         }
         if (is ("processing.backgroundRenderSeconds")) ui::ElasticJob::asyncThresholdSeconds = prefs.getDouble ("processing.backgroundRenderSeconds");
+        if (is ("metronome.level"))      engine.getGraph().getMetronome().setLevel (juce::Decibels::decibelsToGain ((float) prefs.getDouble ("metronome.level"), -60.0f));
+        if (is ("metronome.sound"))      engine.getGraph().getMetronome().setSound (prefs.getInt ("metronome.sound"));
+        if (is ("metronome.accent"))     engine.getGraph().getMetronome().setAccent (prefs.getBool ("metronome.accent"));
+        if (is ("metronome.recordOnly")) engine.getGraph().getMetronome().setRecordOnly (prefs.getBool ("metronome.recordOnly"));
         if (is ("operation.crashReports")) ui::CrashReporter::get().setEnabled (prefs.getBool ("operation.crashReports"));
         if (is ("processing.audioCacheMb")) loader.setCacheBudgetBytes ((juce::int64) (prefs.getDouble ("processing.audioCacheMb") * 1024.0 * 1024.0));
         if (is ("midi.defaultVelocity") || is ("midi.softVelocity")) pianoRoll.setDefaultVelocities (prefs.getInt ("midi.defaultVelocity"), prefs.getInt ("midi.softVelocity"));
@@ -3927,6 +3960,7 @@ private:
     model::AutomationRecorder automation { session, engine.getTransport() };
     bool controlsVisible = true;
     bool mixerVisible = false;
+    bool metronomeOn = false;
     persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
     ui::LoopBrowser loopBrowser { loopLibrary };
     struct LibraryWindow final : public juce::DocumentWindow
@@ -4129,6 +4163,7 @@ public:
             else if (arg.startsWith ("--punch-at="))   // seconds after launch: toggle punch (QuickPunch/TrackPunch smoke tests)
                 juce::Timer::callAfterDelay (juce::roundToInt (arg.fromFirstOccurrenceOf ("=", false, false).getDoubleValue() * 1000.0), [&main] { main.punchFromCommandLine(); });
             else if (arg == "--cycle")  main.setCycleEnabled (true);
+            else if (arg == "--metronome") main.setMetronomeFromCommandLine (true);
             else if (arg == "--play")   play = true;
             else if (arg.startsWith ("--bounce=")) bounceFile = juce::File::getCurrentWorkingDirectory()
                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));

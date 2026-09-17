@@ -18,6 +18,7 @@
 #include "RenderSnapshot.h"
 #include "PerformanceMonitor.h"
 #include "../dsp/DrumMachine.h"
+#include "../dsp/Metronome.h"
 #include "../io/Recorder.h"
 #include "../metering/Loudness.h"
 #include "../transport/Transport.h"
@@ -60,6 +61,9 @@ public:
     void triggerAuditionPad (int pad, float velocity);
     static constexpr int auditionStrip = -2;
     bool hasAuditionInstrument() const noexcept { return auditionSet.load (std::memory_order_relaxed); }
+
+    // The click: on every beat while playing (or only while recording), to the main outputs, never into a bounce
+    Metronome& getMetronome() noexcept { return metronome; }
 
     // Scrubbing (message thread): the audio of `strip` (-1 = every strip) is
     // dragged toward `targetSample` at a limited rate while the transport is
@@ -140,6 +144,7 @@ private:
     PerformanceMonitor performance;
     DrumMachine drums;
     Recorder* recorder = nullptr;
+    Metronome metronome;
 
     static constexpr int maxInstruments = 64;
     struct InstrumentSlot { int id = -1; int strip = 0; Instrument* instance = nullptr; const InstrumentParams* params = nullptr; };

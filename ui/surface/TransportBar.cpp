@@ -89,6 +89,12 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     cycleButton.setTooltip ("Cycle: loop the whole arrangement (C)");
     cycleButton.onClick = [this] { transport.setLoopEnabled (cycleButton.getToggleState()); };
 
+    addAndMakeVisible (clickButton);
+    clickButton.setClickingTogglesState (true);
+    clickButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
+    clickButton.setTooltip ("Metronome: a click on every beat while playing, accented on the downbeat (K). Level, sound and record-only are in Preferences > Metronome.");
+    clickButton.onClick = [this] { if (onMetronomeToggled) onMetronomeToggled (clickButton.getToggleState()); };
+
     addAndMakeVisible (cpuLabel);
     cpuLabel.setJustificationType (juce::Justification::centred);
     cpuLabel.setFont (juce::FontOptions (11.0f));
@@ -146,6 +152,7 @@ void TransportBar::resized()
     playButton.setBounds   (area.removeFromLeft (size).reduced (6)); area.removeFromLeft (6);
     stopButton.setBounds   (area.removeFromLeft (size).reduced (8)); area.removeFromLeft (10);
     cycleButton.setBounds  (area.removeFromLeft (60).reduced (0, 8)); area.removeFromLeft (6);
+    clickButton.setBounds  (area.removeFromLeft (56).reduced (0, 8)); area.removeFromLeft (6);
     recordModeButton.setBounds (area.removeFromLeft (112).reduced (0, 8)); area.removeFromLeft (6);
     rollButton.setBounds (area.removeFromLeft (104).reduced (0, 8)); area.removeFromLeft (16);
 

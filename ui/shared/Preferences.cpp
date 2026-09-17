@@ -48,6 +48,12 @@ std::vector<PrefDef> Preferences::definitions()
         toggle ("editing.nudgeFollowsGrid", "Editing", "Nudge amount follows grid", "The , and . keys move clips by the grid value.", true),
         choice ("editing.separateOnDelete", "Editing", "Delete with a time selection", "What Delete does when a time range is selected.", 0, { "Delete clips in range", "Clear the range (separate first)" }),
 
+        // Metronome
+        number ("metronome.level", "Metronome", "Click level", "How loud the metronome click is.", -10.0, -40.0, 6.0, 1.0, "dB"),
+        choice ("metronome.sound", "Metronome", "Click sound", "The click's character.", 0, { "Beep", "Click", "Wood" }),
+        toggle ("metronome.accent", "Metronome", "Accent the downbeat", "The first beat of every bar is louder and higher.", true),
+        toggle ("metronome.recordOnly", "Metronome", "Only while recording", "The click stays silent during plain playback.", false),
+
         // Mixing
         choice ("mixing.panDepth", "Mixing", "Pan depth", "Centre attenuation of the pan law.", 1, { "-2.5 dB", "-3 dB", "-4.5 dB", "-6 dB" }),
         choice ("mixing.defaultMeterType", "Mixing", "Default meter type", "Meter type for new tracks.", 0, { "Sample Peak", "RMS", "Peak + RMS", "VU", "K-12", "K-14", "K-20" }),

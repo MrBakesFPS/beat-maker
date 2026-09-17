@@ -6,6 +6,10 @@ Arm an audio track (**R** in its header), pick its input from the I/O menu, opti
 
 The whole pass is always kept on disk, so punches are sample-accurate and never lose audio.
 
+## Metronome
+
+**Click** in the transport bar (or **K**) turns the metronome on: a click on every beat while the transport runs, louder and higher on the first beat of each bar, following the session tempo and time signature. It plays to the main outputs after the master fader and is never part of a bounce or stems. Preferences > Metronome sets its level, its sound (Beep, Click or Wood), whether the downbeat is accented, and **Only while recording**, which keeps it silent during plain playback. The on/off state is remembered between sessions.
+
 ## Record modes
 
 The **Rec** button in the transport bar chooses the mode:

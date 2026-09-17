@@ -20,6 +20,8 @@ public:
     std::function<void()> onRecord;
     std::function<void()> onBounce;
     std::function<void (bool)> onEditorToggled;
+    std::function<void (bool)> onMetronomeToggled;
+    void setMetronome (bool on) { clickButton.setToggleState (on, juce::dontSendNotification); }
     std::function<void (bool)> onControlsToggled;
     std::function<void (bool)> onMixerToggled;
     std::function<void (juce::TextButton&)> onRecordModeClicked;   // main shows the mode menu
@@ -68,6 +70,7 @@ private:
     juce::TextButton controlsButton { "Controls" };
     juce::TextButton mixerButton { "Mix" };
     juce::TextButton cycleButton { "Cycle" };
+    juce::TextButton clickButton { "Click" };
     juce::TextButton recordModeButton { "Rec: Normal" };
     juce::TextButton rollButton { "Pre/Post" };
     juce::TextButton editorButton { "Editor" };

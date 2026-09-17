@@ -42,6 +42,15 @@ Preferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Ma
 | Nudge amount follows grid | on | The , and . keys move clips by the grid value. |
 | Delete with a time selection | Delete clips in range | What Delete does when a time range is selected. Choices: Delete clips in range, Clear the range (separate first). |
 
+## Metronome
+
+| Setting | Default | What it does |
+|---|---|---|
+| Click level | -10 dB | How loud the metronome click is. Range -40 to 6. |
+| Click sound | Beep | The click's character. Choices: Beep, Click, Wood. |
+| Accent the downbeat | on | The first beat of every bar is louder and higher. |
+| Only while recording | off | The click stays silent during plain playback. |
+
 ## Mixing
 
 | Setting | Default | What it does |

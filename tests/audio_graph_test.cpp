@@ -127,3 +127,56 @@ TEST_CASE ("Replacing snapshots retires the old one without leaking or crashing"
     r.graph.collectGarbage();
     SUCCEED ("no crash; leak detector runs at shutdown in debug builds");
 }
+
+TEST_CASE ("Metronome clicks on every beat while playing, accents the downbeat, and stays out of the way otherwise")
+{
+    Transport t; t.setSampleRate (48000.0); t.setBpm (120.0); t.setBeatsPerBar (4);   // 24000 samples per beat
+    AudioGraph graph (t);
+    graph.setSnapshot (std::make_unique<RenderSnapshot>());
+    auto& click = graph.getMetronome();
+    click.setLevel (1.0f); click.setAccent (true); click.setSound (0);
+
+    auto renderBar = [&]
+    {
+        juce::AudioBuffer<float> out (2, 96000);
+        out.clear();
+        for (int pos = 0; pos < 96000; pos += 512)
+        {
+            float* ptrs[2] = { out.getWritePointer (0, pos), out.getWritePointer (1, pos) };
+            graph.renderBlock (ptrs, 2, juce::jmin (512, 96000 - pos));
+        }
+        return out;
+    };
+
+    // Off: silence
+    t.setPositionSamples (0); t.play();
+    CHECK (renderBar().getMagnitude (0, 0, 96000) == 0.0f);
+
+    // On: a click at each beat, silence between them, the downbeat louder than beat two
+    click.setEnabled (true);
+    t.setPositionSamples (0);
+    auto out = renderBar();
+    const float down = out.getMagnitude (0, 0, 4000), two = out.getMagnitude (0, 24000, 4000), three = out.getMagnitude (0, 48000, 4000);
+    CHECK (down > 0.5f); CHECK (two > 0.2f); CHECK (three > 0.2f);
+    CHECK (down > two * 1.3f);
+    CHECK (out.getMagnitude (0, 5000, 18000) == 0.0f);     // between beats
+    CHECK (out.getMagnitude (0, 29000, 18000) == 0.0f);
+    CHECK_THAT (out.getMagnitude (1, 0, 4000), Catch::Matchers::WithinAbs (down, 1e-6));   // both channels
+
+    // Stopped: nothing, even when on
+    t.stop(); t.setPositionSamples (0);
+    CHECK (renderBar().getMagnitude (0, 0, 96000) == 0.0f);
+
+    // Only while recording: silent during plain playback (no recorder is attached)
+    click.setRecordOnly (true);
+    t.setPositionSamples (0); t.play();
+    CHECK (renderBar().getMagnitude (0, 0, 96000) == 0.0f);
+    click.setRecordOnly (false);
+
+    // No accent: beat one matches beat two
+    click.setAccent (false);
+    t.setPositionSamples (0);
+    out = renderBar();
+    CHECK_THAT (out.getMagnitude (0, 0, 4000), Catch::Matchers::WithinAbs (out.getMagnitude (0, 24000, 4000), 1e-4));
+    graph.collectGarbage();
+}
