@@ -186,6 +186,7 @@ TEST_CASE ("Session files round-trip every kind of content")
         synth.instrumentParams = std::make_shared<const engine::InstrumentParams> (ip);
         s.execute (std::make_unique<AddTrackCommand> (synth));
         MidiClip mc; mc.name = "Arp"; mc.sampleRate = sr; mc.length = 48000; mc.sequence = std::make_shared<const engine::MidiSequence> (engine::MidiSequence::createDefaultArpeggio());
+        mc.fadeIn = 480; mc.fadeInShape = engine::FadeShape::sCurve; mc.fadeOut = 12000; mc.fadeOutShape = engine::FadeShape::equalPower;
         s.execute (std::make_unique<AddMidiClipCommand> (2, mc));
         Track aux; aux.name = "Verb"; aux.type = Track::Type::aux; aux.inputBus = 3;
         s.execute (std::make_unique<AddTrackCommand> (aux));
@@ -205,8 +206,6 @@ TEST_CASE ("Session files round-trip every kind of content")
     }
 
     persistence::TransportState tsOut; tsOut.bpm = 97.5; tsOut.beatsPerBar = 3; tsOut.loopStart = 100; tsOut.loopEnd = 200000; tsOut.loopEnabled = true;
-    // A track with auto-fades, last so the indices above stay
-    s.execute (std::make_unique<AddTrackCommand> ([] { Track a; a.name = "Faded"; a.type = Track::Type::audio; a.autoFadeInSeconds = 0.01; a.autoFadeOutSeconds = 0.25; a.autoFadeShape = engine::FadeShape::sCurve; return a; }()));
     REQUIRE (persistence::SessionFile::save (s, tsOut, bundle).isEmpty());
     CHECK (persistence::SessionFile::isSessionBundle (bundle));
 
@@ -222,7 +221,7 @@ TEST_CASE ("Session files round-trip every kind of content")
     CHECK (loaded.getRecordSettings().preRoll);
     CHECK_THAT (loaded.getRecordSettings().preRollSeconds, WithinAbs (1.5, 1e-9));
 
-    REQUIRE (loaded.getNumTracks() == 6);
+    REQUIRE (loaded.getNumTracks() == 5);
     const auto& vox = loaded.getTracks()[0];
     CHECK (vox.name == "Vox"); CHECK (vox.colour == juce::Colour (0xff112233)); CHECK (vox.id == s.getTracks()[0].id);
     CHECK_THAT (vox.gain, WithinAbs (0.8f, 1e-6)); CHECK_THAT (vox.pan, WithinAbs (-0.25f, 1e-6));
@@ -249,18 +248,14 @@ TEST_CASE ("Session files round-trip every kind of content")
     REQUIRE (drums.patternClips.size() == 1); CHECK (drums.patternClips[0].pattern->get (3, 7) == 77); CHECK (drums.patternClips[0].pattern->get (0, 0) == 110);
     CHECK (drums.patternClips[0].loopOffset == 100);
     CHECK (drums.patternClips[0].pattern->getLength (0, 0) == 4); CHECK (drums.patternClips[0].pattern->getLength (0, 8) == 1);
-    {
-        const Track* faded = nullptr;
-        for (const auto& tr : loaded.getTracks()) if (tr.name == "Faded") faded = &tr;
-        REQUIRE (faded != nullptr);
-        CHECK (faded->autoFadeInSeconds == 0.01); CHECK (faded->autoFadeOutSeconds == 0.25); CHECK (faded->autoFadeShape == engine::FadeShape::sCurve);
-    }
     CHECK (drums.patternClips[0].pattern->getOffset (3, 7) == 2); CHECK (drums.patternClips[0].pattern->getOffset (0, 0) == 0);
 
     const auto& keys = loaded.getTracks()[2];
     CHECK (keys.hasInstrument()); CHECK (keys.instrumentType() == engine::InstrumentType::fm);
     CHECK (keys.instrumentParams->presetName == engine::Instrument::presets (engine::InstrumentType::fm)[1].presetName);
     REQUIRE (keys.midiClips.size() == 1); CHECK (keys.midiClips[0].sequence->notes.size() == 16);
+    CHECK (keys.midiClips[0].fadeIn == 480); CHECK (keys.midiClips[0].fadeInShape == engine::FadeShape::sCurve);
+    CHECK (keys.midiClips[0].fadeOut == 12000); CHECK (keys.midiClips[0].fadeOutShape == engine::FadeShape::equalPower);
 
     CHECK (loaded.getTracks()[3].isAux()); CHECK (loaded.getTracks()[3].inputBus == 3);
     CHECK (loaded.getTracks()[3].inserts[0].type == engine::EffectType::convolution);
@@ -283,7 +278,7 @@ TEST_CASE ("Session files round-trip every kind of content")
     REQUIRE (persistence::SessionFile::load (again, tsIn, bundle, ctx, w2).isEmpty());
     CHECK (w2.size() >= 1);
     CHECK (again.getTracks()[0].clips.empty());
-    CHECK (again.getNumTracks() == 6);
+    CHECK (again.getNumTracks() == 5);
 
     bundle.deleteRecursively();
 }

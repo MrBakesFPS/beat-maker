@@ -78,6 +78,13 @@ struct PatternClip
     float gain = 1.0f;
     bool loop = false;               // repeat the pattern for the clip's length (off: it plays once)
     double loopBaseBeats = 0.0;      // the content length when Loop was switched on; what "back to normal" restores (0 = unknown)
+    juce::int64 fadeIn = 0, fadeOut = 0;   // samples: the rendered sound fades at the clip's edges (a fade-out also cuts the tail)
+    engine::FadeShape fadeInShape = engine::FadeShape::linear, fadeOutShape = engine::FadeShape::linear;
+    void clampFades() noexcept
+    {
+        fadeIn = juce::jlimit<juce::int64> (0, length, fadeIn);
+        fadeOut = juce::jlimit<juce::int64> (0, length - fadeIn, fadeOut);
+    }
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
@@ -96,6 +103,13 @@ struct MidiClip
     float gain = 1.0f;
     bool loop = false;               // repeat the sequence for the clip's length (off: it plays once)
     double loopBaseBeats = 0.0;      // the content length when Loop was switched on; what "back to normal" restores (0 = unknown)
+    juce::int64 fadeIn = 0, fadeOut = 0;   // samples: the rendered sound fades at the clip's edges (a fade-out also cuts the tail)
+    engine::FadeShape fadeInShape = engine::FadeShape::linear, fadeOutShape = engine::FadeShape::linear;
+    void clampFades() noexcept
+    {
+        fadeIn = juce::jlimit<juce::int64> (0, length, fadeIn);
+        fadeOut = juce::jlimit<juce::int64> (0, length - fadeIn, fadeOut);
+    }
 
     double getStartSeconds() const noexcept  { return (double) timelineStart / sampleRate; }
     double getLengthSeconds() const noexcept { return (double) length / sampleRate; }
@@ -306,16 +320,6 @@ struct Track
     int delayOffset = 0;     // user delay-compensation offset, samples
 
     // Auto-fades: every clip that lands on the track by recording or import gets these fades (0 = none)
-    double autoFadeInSeconds = 0.0, autoFadeOutSeconds = 0.0;
-    engine::FadeShape autoFadeShape = engine::FadeShape::linear;
-    void applyAutoFades (AudioClip& clip) const noexcept
-    {
-        if (autoFadeInSeconds <= 0.0 && autoFadeOutSeconds <= 0.0) return;
-        const auto half = clip.length / 2;
-        clip.fadeIn  = juce::jlimit<juce::int64> (0, half, (juce::int64) std::llround (autoFadeInSeconds * clip.sampleRate));
-        clip.fadeOut = juce::jlimit<juce::int64> (0, half, (juce::int64) std::llround (autoFadeOutSeconds * clip.sampleRate));
-        clip.fadeInShape = clip.fadeOutShape = autoFadeShape;
-    }
 
     bool isInstrument() const noexcept  { return type == Type::instrument; }
     bool isDrumMachine() const noexcept { return isInstrument() && instrumentKind == InstrumentKind::drumMachine; }
@@ -420,7 +424,6 @@ private:
     friend class SetTrackMidiPropsCommand;
     friend class RenameTrackCommand;
     friend class SetTrackColourCommand;
-    friend class SetTrackAutoFadesCommand;
     friend class FreezeTrackCommand;
     friend class UnfreezeTrackCommand;
     friend class RemoveMarkerCommand;
@@ -1099,26 +1102,6 @@ private:
     juce::Colour colour, old;
 };
 
-// The fades a track gives clips that land on it (recording, import); undoable, saved with the session
-class SetTrackAutoFadesCommand final : public Command
-{
-public:
-    SetTrackAutoFadesCommand (int trackIndex, double fadeInSeconds, double fadeOutSeconds, engine::FadeShape shape)
-        : index (trackIndex), in (juce::jmax (0.0, fadeInSeconds)), out (juce::jmax (0.0, fadeOutSeconds)), newShape (shape) {}
-    juce::String getName() const override { return "Track Auto-Fades"; }
-    void execute (Session& s) override
-    {
-        if (auto* t = EditAccess::trackOrMaster (s, index)) { oldIn = t->autoFadeInSeconds; oldOut = t->autoFadeOutSeconds; oldShape = t->autoFadeShape; t->autoFadeInSeconds = in; t->autoFadeOutSeconds = out; t->autoFadeShape = newShape; }
-    }
-    void undo (Session& s) override
-    {
-        if (auto* t = EditAccess::trackOrMaster (s, index)) { t->autoFadeInSeconds = oldIn; t->autoFadeOutSeconds = oldOut; t->autoFadeShape = oldShape; }
-    }
-private:
-    int index;
-    double in, out, oldIn = 0.0, oldOut = 0.0;
-    engine::FadeShape newShape, oldShape = engine::FadeShape::linear;
-};
 
 class FreezeTrackCommand final : public Command
 {

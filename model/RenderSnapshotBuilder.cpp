@@ -165,6 +165,8 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
             rp.gain          = clip.gain;
             rp.loop          = clip.loop;
             rp.strip         = i;
+            rp.fadeIn        = clip.fadeIn;   rp.fadeInShape  = clip.fadeInShape;
+            rp.fadeOut       = clip.fadeOut;  rp.fadeOutShape = clip.fadeOutShape;
             snapshot->patterns.push_back (std::move (rp));
         }
 
@@ -184,6 +186,9 @@ std::unique_ptr<engine::RenderSnapshot> buildRenderSnapshot (const Session& sess
                 rm.gain          = clip.gain;
                 rm.props         = track.midiProps;
                 rm.loop          = clip.loop;
+                rm.strip         = i;
+                rm.fadeIn        = clip.fadeIn;   rm.fadeInShape  = clip.fadeInShape;
+                rm.fadeOut       = clip.fadeOut;  rm.fadeOutShape = clip.fadeOutShape;
                 snapshot->midiClips.push_back (std::move (rm));
             }
         }

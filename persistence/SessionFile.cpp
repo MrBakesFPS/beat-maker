@@ -155,6 +155,7 @@ namespace
         auto o = obj();
         set (o, "name", c.name); set (o, "sampleRate", c.sampleRate); set (o, "start", c.timelineStart); set (o, "length", c.length);
         set (o, "loopOffset", c.loopOffset); set (o, "gain", (double) c.gain); set (o, "loop", c.loop); set (o, "loopBaseBeats", c.loopBaseBeats);
+        set (o, "fadeIn", c.fadeIn); set (o, "fadeOut", c.fadeOut); set (o, "fadeInShape", (int) c.fadeInShape); set (o, "fadeOutShape", (int) c.fadeOutShape);
         if (c.pattern != nullptr)
         {
             auto p = obj();
@@ -203,6 +204,8 @@ namespace
         c.name = get (v, "name", "Pattern").toString(); c.sampleRate = (double) get (v, "sampleRate", 48000.0);
         c.timelineStart = (juce::int64) get (v, "start", 0); c.length = (juce::int64) get (v, "length", 0);
         c.loopOffset = (juce::int64) get (v, "loopOffset", 0); c.gain = (float) (double) get (v, "gain", 1.0); c.loop = get (v, "loop", true); c.loopBaseBeats = (double) get (v, "loopBaseBeats", 0.0);   // older files looped
+        c.fadeIn = (juce::int64) get (v, "fadeIn", 0); c.fadeOut = (juce::int64) get (v, "fadeOut", 0);
+        c.fadeInShape = (engine::FadeShape) juce::jlimit (0, 2, (int) get (v, "fadeInShape", 0)); c.fadeOutShape = (engine::FadeShape) juce::jlimit (0, 2, (int) get (v, "fadeOutShape", 0));
         auto pattern = std::make_shared<engine::StepPattern>();
         const auto p = get (v, "pattern");
         pattern->numSteps = juce::jlimit (1, engine::StepPattern::maxSteps, (int) get (p, "numSteps", 16));
@@ -237,6 +240,7 @@ namespace
         auto o = obj();
         set (o, "name", c.name); set (o, "sampleRate", c.sampleRate); set (o, "start", c.timelineStart); set (o, "length", c.length);
         set (o, "loopOffset", c.loopOffset); set (o, "gain", (double) c.gain); set (o, "loop", c.loop); set (o, "loopBaseBeats", c.loopBaseBeats);
+        set (o, "fadeIn", c.fadeIn); set (o, "fadeOut", c.fadeOut); set (o, "fadeInShape", (int) c.fadeInShape); set (o, "fadeOutShape", (int) c.fadeOutShape);
         if (c.sequence != nullptr)
         {
             auto seq = obj();
@@ -254,6 +258,8 @@ namespace
         c.name = get (v, "name", "MIDI").toString(); c.sampleRate = (double) get (v, "sampleRate", 48000.0);
         c.timelineStart = (juce::int64) get (v, "start", 0); c.length = (juce::int64) get (v, "length", 0);
         c.loopOffset = (juce::int64) get (v, "loopOffset", 0); c.gain = (float) (double) get (v, "gain", 1.0); c.loop = get (v, "loop", true); c.loopBaseBeats = (double) get (v, "loopBaseBeats", 0.0);   // older files looped
+        c.fadeIn = (juce::int64) get (v, "fadeIn", 0); c.fadeOut = (juce::int64) get (v, "fadeOut", 0);
+        c.fadeInShape = (engine::FadeShape) juce::jlimit (0, 2, (int) get (v, "fadeInShape", 0)); c.fadeOutShape = (engine::FadeShape) juce::jlimit (0, 2, (int) get (v, "fadeOutShape", 0));
         auto seq = std::make_shared<engine::MidiSequence>();
         const auto s = get (v, "sequence");
         seq->lengthBeats = (double) get (s, "lengthBeats", 8.0);
@@ -276,7 +282,6 @@ namespace
         set (o, "automationMode", (int) t.automationMode);
         set (o, "armed", t.armed); set (o, "monitor", t.monitor); set (o, "firstInput", t.firstInput); set (o, "numInputs", t.numInputs);
         set (o, "inputPath", t.inputPath); set (o, "outputPath", t.outputPath); set (o, "delayOffset", t.delayOffset);
-        set (o, "autoFadeIn", t.autoFadeInSeconds); set (o, "autoFadeOut", t.autoFadeOutSeconds); set (o, "autoFadeShape", (int) t.autoFadeShape);
 
         auto clips = arr();
         for (const auto& c : t.clips) push (clips, audioClipToVar (c, bundle, audioDir, error));
@@ -381,8 +386,6 @@ namespace
         t.vcaTrackId = (int) get (v, "vcaTrackId", -1); t.automationMode = (AutomationMode) (int) get (v, "automationMode", 1);
         t.armed = get (v, "armed", false); t.monitor = get (v, "monitor", false); t.firstInput = (int) get (v, "firstInput", 0); t.numInputs = (int) get (v, "numInputs", 1);
         t.inputPath = (int) get (v, "inputPath", -1); t.outputPath = (int) get (v, "outputPath", 0); t.delayOffset = (int) get (v, "delayOffset", 0);
-        t.autoFadeInSeconds = (double) get (v, "autoFadeIn", 0.0); t.autoFadeOutSeconds = (double) get (v, "autoFadeOut", 0.0);
-        t.autoFadeShape = (engine::FadeShape) juce::jlimit (0, 2, (int) get (v, "autoFadeShape", 0));
 
         const auto clips = get (v, "clips");
         for (int i = 0; i < count (clips); ++i) { AudioClip c; if (audioClipFrom (clips[i], bundle, ctx, c, warnings, true)) t.clips.push_back (std::move (c)); }

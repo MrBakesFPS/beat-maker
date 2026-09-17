@@ -140,8 +140,9 @@ private:
     ClipRef ref, copy;
 };
 
-// Audio clips only: set fade lengths (samples) and shapes. Lengths are
-// clamped so the fades fit the clip.
+// Any clip: set fade lengths (samples) and shapes. Lengths are clamped so
+// the fades fit the clip. On MIDI and pattern clips the fades shape the
+// instrument's rendered sound at the clip's edges.
 class SetClipFadesCommand final : public Command
 {
 public:
@@ -156,7 +157,7 @@ private:
     engine::FadeShape inShape, outShape, oldInShape = engine::FadeShape::linear, oldOutShape = engine::FadeShape::linear;
 };
 
-// Audio clips only: static clip gain (linear, clamped to -inf..+12 dB).
+// Any clip: static clip gain (linear, clamped to -inf..+12 dB).
 class SetClipGainCommand final : public Command
 {
 public:

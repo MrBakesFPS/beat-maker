@@ -641,12 +641,75 @@ void AudioGraph::renderStripSources (int stripIndex, const float* const* inputs,
         mixClips (stripIndex, pos, numSamples);
 
     float* outs[2] = { stripBuffer.getWritePointer (0), stripBuffer.getWritePointer (1) };
-    drums.render (outs, 2, numSamples, stripIndex);
-    for (auto& slot : instrumentSlots)
-        if (slot.id >= 0 && slot.strip == stripIndex)
-            slot.instance->render (outs, 2, numSamples, *slot.params);
+    // The clips' audio sits in the buffer already; the kit and instruments render on top, and a MIDI or pattern
+    // clip's fades shape only what they add. So they render into the scratch and are enveloped before the mix.
+    if (playing && stripHasClipFades (stripIndex))
+    {
+        clipFadeScratch.clear (0, numSamples);
+        float* scratch[2] = { clipFadeScratch.getWritePointer (0), clipFadeScratch.getWritePointer (1) };
+        drums.render (scratch, 2, numSamples, stripIndex);
+        for (auto& slot : instrumentSlots)
+            if (slot.id >= 0 && slot.strip == stripIndex)
+                slot.instance->render (scratch, 2, numSamples, *slot.params);
+        applyClipFades (stripIndex, pos, numSamples, scratch);
+        for (int ch = 0; ch < 2; ++ch) juce::FloatVectorOperations::add (outs[ch], scratch[ch], numSamples);
+    }
+    else
+    {
+        drums.render (outs, 2, numSamples, stripIndex);
+        for (auto& slot : instrumentSlots)
+            if (slot.id >= 0 && slot.strip == stripIndex)
+                slot.instance->render (outs, 2, numSamples, *slot.params);
+    }
 
     mixMonitoredInputs (stripIndex, inputs, numInputs, numSamples);
+}
+
+bool AudioGraph::stripHasClipFades (int stripIndex) const noexcept
+{
+    for (const auto& rp : current->patterns)  if (rp.strip == stripIndex && (rp.fadeIn > 0 || rp.fadeOut > 0)) return true;
+    for (const auto& rm : current->midiClips) if (rm.strip == stripIndex && (rm.fadeIn > 0 || rm.fadeOut > 0)) return true;
+    return false;
+}
+
+// MIDI and pattern clip fades: the strip's rendered instrument and kit sound is enveloped like an audio clip's
+// samples are. A fade-out ends at silence, so at the clip's end the sound that would ring on (releases, long
+// drum samples) is cut too: the block's remainder is silenced and the voices killed, which is inaudible at zero.
+void AudioGraph::applyClipFades (int stripIndex, juce::int64 pos, int numSamples, float* const* outs) noexcept
+{
+    const juce::int64 blockEnd = pos + numSamples;
+    auto envelope = [&] (juce::int64 start, juce::int64 length, juce::int64 fadeIn, FadeShape inShape, juce::int64 fadeOut, FadeShape outShape) -> bool
+    {
+        const juce::int64 end = start + length;
+        const juce::int64 from = juce::jmax (pos, start), to = juce::jmin (blockEnd, end);
+        for (juce::int64 i = from; i < to; ++i)
+        {
+            const juce::int64 rel = i - start;
+            if ((fadeIn > 0 && rel < fadeIn) || (fadeOut > 0 && rel >= length - fadeOut))
+            {
+                const float g = clipEnvelopeAt (rel, length, fadeIn, inShape, fadeOut, outShape);
+                const int n = (int) (i - pos);
+                outs[0][n] *= g; outs[1][n] *= g;
+            }
+        }
+        // The clip ended inside this block with a fade-out: silence what follows and report it for the kill
+        if (fadeOut > 0 && end > pos && end < blockEnd)
+        {
+            const int n = (int) (end - pos);
+            juce::FloatVectorOperations::clear (outs[0] + n, numSamples - n);
+            juce::FloatVectorOperations::clear (outs[1] + n, numSamples - n);
+            return true;
+        }
+        return false;
+    };
+    for (const auto& rp : current->patterns)
+        if (rp.strip == stripIndex && rp.length > 0 && (rp.fadeIn > 0 || rp.fadeOut > 0))
+            if (envelope (rp.timelineStart, rp.length, rp.fadeIn, rp.fadeInShape, rp.fadeOut, rp.fadeOutShape))
+                drums.chokeStrip (stripIndex);
+    for (const auto& rm : current->midiClips)
+        if (rm.strip == stripIndex && rm.length > 0 && (rm.fadeIn > 0 || rm.fadeOut > 0))
+            if (envelope (rm.timelineStart, rm.length, rm.fadeIn, rm.fadeInShape, rm.fadeOut, rm.fadeOutShape))
+                if (auto* slot = slotForId (rm.instrumentId)) slot->instance->allNotesOff (true);
 }
 
 const AutomationLane* AudioGraph::laneFor (const RenderStrip& strip, const ParamId& param) noexcept

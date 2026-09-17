@@ -3,6 +3,7 @@
 #include <ClipEdits.h>
 #include <RenderSnapshotBuilder.h>
 #include <dsp/Fades.h>
+#include <dsp/Instrument.h>
 #include <graph/AudioGraph.h>
 
 using namespace beatmaker::engine;
@@ -76,6 +77,49 @@ TEST_CASE ("Graph renders fades sample-accurately across block boundaries and le
     CHECK_THAT (out.getSample (0, 1050), WithinAbs (0.8f * 0.70710678f, 1e-5));     // halfway through the fade-out
     CHECK_THAT (out.getSample (0, 1099), WithinAbs (0.8f * fadeGain (FadeShape::equalPower, 1.0 / 100.0), 1e-5));
     CHECK (out.getSample (0, 1100) == 0.0f);                                        // after the clip
+    graph.collectGarbage();
+}
+
+TEST_CASE ("A MIDI clip's fades envelope the instrument's rendered sound and a fade-out cuts the tail")
+{
+    Transport transport; transport.setSampleRate (48000.0); transport.setBpm (120.0);
+    AudioGraph graph (transport);
+    auto inst = std::shared_ptr<Instrument> (Instrument::create (InstrumentType::subtractive, 48000.0));
+    auto params = std::make_shared<InstrumentParams> (Instrument::defaultParams (InstrumentType::subtractive));
+    params->values[SubtractiveParams::wave] = 3.0f; params->values[SubtractiveParams::osc2] = 0.0f; params->values[SubtractiveParams::cutoff] = 20000.0f;
+    params->values[SubtractiveParams::attack] = 0.0f; params->values[SubtractiveParams::sustain] = 1.0f; params->values[SubtractiveParams::level] = 1.0f;
+    params->values[SubtractiveParams::filterEnv] = 0.0f; params->values[SubtractiveParams::release] = 2.0f;   // a long tail
+    auto seq = std::make_shared<MidiSequence>(); seq->lengthBeats = 8.0; seq->notes.push_back ({ 69, 127, 0.0, 8.0 });   // held past the clip
+    auto snap = std::make_unique<RenderSnapshot>();
+    snap->instruments.push_back ({ 1, inst, params, 0 });
+    RenderMidiClip clip; clip.sequence = seq; clip.instrumentId = 1; clip.strip = 0; clip.timelineStart = 0; clip.length = 48000;
+    clip.fadeIn = 12000; clip.fadeInShape = FadeShape::linear; clip.fadeOut = 12000; clip.fadeOutShape = FadeShape::linear;
+    snap->midiClips.push_back (clip);
+    graph.setSnapshot (std::move (snap));
+    transport.play();
+    juce::AudioBuffer<float> out (1, 72000);
+    out.setSize (1, 72000, false, true, true);
+    for (int pos = 0; pos < 72000; pos += 512) { float* ptr = out.getWritePointer (0, pos); graph.renderBlock (&ptr, 1, juce::jmin (512, 72000 - pos)); }
+    const float early = out.getMagnitude (0, 500, 2000), mid = out.getMagnitude (0, 20000, 8000), late = out.getMagnitude (0, 45500, 2000);
+    CHECK (mid > 0.5f);
+    CHECK (early < mid * 0.35f);           // fading in
+    CHECK (late < mid * 0.35f);            // fading out
+    CHECK (early > 0.01f); CHECK (late > 0.01f);
+    CHECK (out.getMagnitude (0, 48000, 24000) == 0.0f);   // the release tail is cut with the fade-out
+    graph.collectGarbage();
+
+    // Without a fade-out the tail rings on past the clip
+    auto snap2 = std::make_unique<RenderSnapshot>();
+    auto inst2 = std::shared_ptr<Instrument> (Instrument::create (InstrumentType::subtractive, 48000.0));
+    snap2->instruments.push_back ({ 1, inst2, params, 0 });
+    clip.fadeIn = 0; clip.fadeOut = 0;
+    snap2->midiClips.push_back (clip);
+    transport.stop(); transport.setPositionSamples (0);
+    graph.setSnapshot (std::move (snap2));
+    transport.play();
+    out.clear();
+    for (int pos = 0; pos < 72000; pos += 512) { float* ptr = out.getWritePointer (0, pos); graph.renderBlock (&ptr, 1, juce::jmin (512, 72000 - pos)); }
+    CHECK (out.getMagnitude (0, 49000, 4000) > 0.05f);
     graph.collectGarbage();
 }
 

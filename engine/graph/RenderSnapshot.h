@@ -64,6 +64,10 @@ struct RenderPattern
     int strip                 = 0;
     juce::int64 loopOffset    = 0;    // pattern position at timelineStart
     bool loop                 = true; // off: the pattern plays once from the origin
+    juce::int64 fadeIn        = 0;    // samples: the strip's rendered sound fades at the clip's edges
+    juce::int64 fadeOut       = 0;    //   (a fade-out also cuts the tail: the kit is choked at the clip end)
+    FadeShape fadeInShape     = FadeShape::linear;
+    FadeShape fadeOutShape    = FadeShape::linear;
 };
 
 // An instrument track: the stateful voice pool lives in the model (like an
@@ -88,6 +92,11 @@ struct RenderMidiClip
     juce::int64 loopOffset    = 0;    // sequence position at timelineStart
     MidiRealtimeProps props;          // track real-time properties
     bool loop                 = true; // off: the sequence plays once from the origin
+    int strip                 = 0;
+    juce::int64 fadeIn        = 0;    // samples: the instrument's rendered sound fades at the clip's edges
+    juce::int64 fadeOut       = 0;    //   (a fade-out also cuts the tail: voices are killed at the clip end)
+    FadeShape fadeInShape     = FadeShape::linear;
+    FadeShape fadeOutShape    = FadeShape::linear;
 };
 
 // Pass a device input straight to the outputs (input monitoring).

@@ -1,5 +1,6 @@
 // FadesDialog: Pro Tools-style Fades window (Ctrl+F). Sets fade-in and
-// fade-out length and shape plus clip gain for every selected audio clip.
+// fade-out length and shape plus clip gain for every selected clip (audio,
+// MIDI or pattern: on the latter two the fades shape the instrument's sound).
 #pragma once
 
 #include "../shared/Theme.h"

@@ -29,6 +29,7 @@ public:
     std::function<void (std::unique_ptr<model::Command>, bool replacePrevious)> onCommand;
     std::function<void (int trackIndex)> onSelectTrack;
     std::function<void (int groupId)> onEditGroup;   // open the group dialog
+    std::function<void (int trackIndex, int view)> onLaneViewChanged;   // Automation > Show Lane: 0 clips, 1 clip gain, 2 volume, 3 pan, 4 mute, 5 + send
     // Automation hooks (track index, parameter, value, gestureActive)
     std::function<void (int, const engine::ParamId&, float, bool)> onParameterChanged;
     std::function<void (int, const engine::ParamId&)> onGestureEnded;

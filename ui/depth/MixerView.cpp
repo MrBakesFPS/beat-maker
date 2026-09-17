@@ -1,5 +1,6 @@
 #include "MixerView.h"
 #include "EffectEditor.h"
+#include "../shared/ClickButton.h"
 #include "../shared/UiProfiler.h"
 #include <dsp/PitchCorrection.h>
 #include <array>
@@ -24,11 +25,13 @@ public:
     {
         for (int i = 0; i < model::Track::numInsertSlots; ++i)   // every slot has a button; the first five show, more as they fill
         {
-            auto* b = insertButtons.add (new juce::TextButton());
+            auto* b = insertButtons.add (new ClickButton());
             b->setVisible (i < visibleInserts);
             b->setColour (juce::TextButton::buttonColourId, theme::background);
             b->setColour (juce::TextButton::textColourOffId, theme::text);
-            b->onClick = [this, i] { insertClicked (i); };
+            b->setTooltip ("Click: the effect on or off (an empty slot: add one). Right-click: edit, bypass, remove or replace it.");
+            b->onClick = [this, i] { insertClicked (i, false); };
+            b->onRightClick = [this, i] { insertClicked (i, true); };
             addAndMakeVisible (b);
         }
         if (! isMaster())
@@ -54,6 +57,7 @@ public:
         if (! isMaster())
         {
             addAndMakeVisible (pan);
+            pan.onRightClick = [this] { showPanMenu(); };
             pan.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
             pan.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             pan.setRange (-1.0, 1.0, 0.0);
@@ -292,12 +296,13 @@ public:
 
     // A click on an empty slot offers the effects; a click on an effect switches it on or off; a right-click on an
     // effect offers Edit, Replace With, Bypass and Remove.
-    void insertClicked (int slot)
+    // Click: an effect toggles on/off, an empty slot offers the chooser. Right-click: the same Edit / Bypass / Remove
+    // menu the track header's FX button gives, plus Replace With.
+    void insertClicked (int slot, bool rightClick)
     {
         auto* t = track();
         if (t == nullptr) return;
         const auto& ins = t->inserts[(size_t) slot];
-        const bool rightClick = juce::ModifierKeys::getCurrentModifiers().isPopupMenu();
 
         if (! ins.isEmpty() && ! rightClick)
         {
@@ -334,10 +339,10 @@ public:
         else
         {
             menu.addItem (102, ins.isPlugin() ? "Open Plugin Window..." : "Edit...");
+            menu.addItem (100, "Bypass", true, ins.bypass);
+            menu.addItem (101, "Remove");
             menu.addSeparator();
             menu.addSubMenu ("Replace With", chooser);
-            menu.addItem (100, "Bypass", true, ins.bypass);
-            menu.addItem (101, "Remove Insert");
         }
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (insertButtons[slot]), [this, slot, plugins] (int result)
         {
@@ -584,6 +589,69 @@ public:
         bool syncing = false;
     };
 
+    // Pan positions and the automation mode / shown lane, the track header's Pan and Automation submenus on the strip.
+    // Ids: 1 + position (pan); 100 + mode; 200 + lane view.
+    static constexpr float panPositions[] = { -1.0f, -0.75f, -0.5f, -0.25f, 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
+    static juce::String panName (float p)
+    {
+        const int pct = (int) std::round (std::abs (p) * 100.0f);
+        if (pct == 0) return "Centre";
+        if (pct >= 100) return p < 0.0f ? "Hard Left" : "Hard Right";
+        return (p < 0.0f ? "L" : "R") + juce::String (pct);
+    }
+    juce::PopupMenu buildPanMenu()
+    {
+        juce::PopupMenu menu;
+        auto* t = track();
+        if (t == nullptr) return menu;
+        for (int i = 0; i < (int) std::size (panPositions); ++i)
+            menu.addItem (1 + i, panName (panPositions[i]), true, std::abs (t->pan - panPositions[i]) < 0.01f);
+        menu.addSeparator();
+        menu.addItem (50, "Now: " + panName (t->pan) + "   (the knob sets any value)", false);
+        return menu;
+    }
+    juce::PopupMenu buildAutomationMenu()
+    {
+        juce::PopupMenu menu;
+        auto* t = track();
+        if (t == nullptr) return menu;
+        juce::PopupMenu modes;
+        for (auto m : { model::AutomationMode::off, model::AutomationMode::read, model::AutomationMode::touch, model::AutomationMode::latch,
+                        model::AutomationMode::write, model::AutomationMode::trim })
+            modes.addItem (100 + (int) m, model::automationModeName (m), true, t->automationMode == m);
+        menu.addSubMenu (juce::String ("Mode:  ") + model::automationModeName (t->automationMode), modes);
+        juce::PopupMenu lanes;
+        lanes.addItem (200, "Clips");
+        if (t->isAudio()) lanes.addItem (201, "Clip Gain");
+        lanes.addItem (202, "Volume");
+        if (! t->isVca()) lanes.addItem (203, "Pan");
+        lanes.addItem (204, "Mute");
+        if (! t->isVca())
+            for (int sIdx = 0; sIdx < model::Track::numSendSlots; ++sIdx)
+                lanes.addItem (205 + sIdx, engine::ParamId::send (sIdx).getName());
+        menu.addSubMenu ("Show Lane  (in the track's row)", lanes);
+        return menu;
+    }
+    void handleStripMenu (int r)
+    {
+        auto* t = track();
+        if (t == nullptr || r == 0) return;
+        if (r >= 1 && r <= (int) std::size (panPositions)) { issue (std::make_unique<model::SetTrackMixCommand> (index, t->gain, panPositions[r - 1])); report (engine::ParamId::pan(), panPositions[r - 1]); }
+        else if (r >= 100 && r < 106) issue (std::make_unique<model::SetAutomationModeCommand> (index, (model::AutomationMode) (r - 100)));
+        else if (r >= 200 && r < 205 + model::Track::numSendSlots) { if (mixer.onLaneViewChanged) mixer.onLaneViewChanged (index, r - 200); }
+    }
+    void showStripMenu (const juce::MouseEvent& e)
+    {
+        juce::PopupMenu menu;
+        if (! isVca()) menu.addSubMenu ("Pan", buildPanMenu());
+        menu.addSubMenu ("Automation", buildAutomationMenu());
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }), [this] (int r) { handleStripMenu (r); });
+    }
+    void showPanMenu()
+    {
+        buildPanMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&pan), [this] (int r) { handleStripMenu (r); });
+    }
+
     // Where the panel goes in the Mix view: beside the strip's SENDS button, kept inside the view
     juce::Rectangle<int> sendsPanelAnchor() const { return mixer.getLocalArea (&sendsButton, sendsButton.getLocalBounds()); }
 
@@ -636,6 +704,7 @@ public:
 
         if (isMaster()) return;
         if (mixer.onSelectTrack) mixer.onSelectTrack (index);
+        if (e.mods.isPopupMenu()) { showStripMenu (e); return; }
 
         // Group badges: toggle, edit, leave, delete
         if (e.y >= 2 && e.y < 20)
@@ -893,10 +962,19 @@ private:
     static constexpr int visibleInserts = 5;
     MixerView& mixer;
     int index;
-    juce::OwnedArray<juce::TextButton> insertButtons, sendButtons;
+    juce::OwnedArray<ClickButton> insertButtons;
+    juce::OwnedArray<juce::TextButton> sendButtons;
     juce::TextButton sendsButton;
     juce::Component::SafePointer<SendsPanel> sendsPanel;   // the mixer owns it; set while it shows for this strip
-    juce::Slider pan, fader;
+    // A knob whose right-click is a menu of positions (a Slider's own right-click would start a drag)
+    struct PanKnob final : public juce::Slider
+    {
+        std::function<void()> onRightClick;
+        void mouseDown (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu()) { if (onRightClick) onRightClick(); return; } juce::Slider::mouseDown (e); }
+        void mouseUp (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu()) return; juce::Slider::mouseUp (e); }
+    };
+    PanKnob pan;
+    juce::Slider fader;
     juce::TextButton mute { "M" }, solo { "S" };
     juce::ComboBox output, autoMode, vcaBox;
     juce::Rectangle<int> meterBounds, dbBounds, panLabelBounds, clipBounds, loudnessBounds;

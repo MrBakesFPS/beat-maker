@@ -122,6 +122,8 @@ private:
     void mixClips (int stripIndex, juce::int64 rangeStart, int numSamples);
     void mixClipsScrub (int stripIndex, int numSamples);
     void mixMonitoredInputs (int stripIndex, const float* const* inputs, int numInputs, int numSamples);
+    bool stripHasClipFades (int stripIndex) const noexcept;
+    void applyClipFades (int stripIndex, juce::int64 pos, int numSamples, float* const* outs) noexcept;   // MIDI/pattern clip fades
     void scheduleSequencer (juce::int64 rangeStart, int numSamples);
     void scheduleMidi (juce::int64 rangeStart, int numSamples);
     void rebindInstrumentSlots();
@@ -146,6 +148,7 @@ private:
 
     // Mixer buffers (allocated once; blocks are chunked to maxBlock)
     juce::AudioBuffer<float> stripBuffer { 2, maxBlock };
+    juce::AudioBuffer<float> clipFadeScratch { 2, maxBlock };   // instrument/kit sound while a clip's fades envelope it
     juce::AudioBuffer<float> mainBuffer { 2, maxBlock };
     std::array<juce::AudioBuffer<float>, numBuses> busBuffers;
     struct Meter

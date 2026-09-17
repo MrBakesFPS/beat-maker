@@ -8,6 +8,8 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - A message-thread profiler: System Usage shows interface stalls and the costliest operations, and `--profile-ui[=seconds]` prints the profile.
 
 ### Changed
+- The Mix window and the editor panel take turns: opening one closes the other.
+- The track header's FX button: a click switches every effect on the track on or off (lit while any is on); a right-click opens the effects menu. Right-clicking an insert in the Mix window gives Edit..., Bypass and Remove (plus Replace With); a click still toggles it.
 - The note and drum editors show every clip of the track, with an active clip that edits and clicks switch between; a note or step in empty time creates a new clip. Add Clip for Selection (Ctrl+Alt+M, or right-click an empty lane) makes an empty clip covering the time selection on instrument tracks.
 - New pattern and MIDI clips play their content once: a one-bar beat and a two-bar arpeggio. Loop is chosen per clip (editor header button or right-click menu): it adds one pass, growing the clip by its own length or up to the next clip, and the extension can then be trimmed longer or shorter; switching Loop off or trimming the clip back to its content returns it to its original state.
 - Smart Controls sit above the tracks instead of between the tracks and the editor panel.
@@ -17,6 +19,8 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - Join Selected Clips (Ctrl+J, and in the clip menus): MIDI and pattern clips merge into one with their contents written out (loops included), audio clips heal when adjacent pieces of one file. Split at Playhead is in the clip menus too.
 
 ### Added
+- Fades on every clip: MIDI and pattern clips have fade in/out and shapes like audio clips (Smart Tool corners, Ctrl+F, Fades for All Clips on Selected Track). The instrument's or kit's rendered sound is enveloped at the clip's edges and a fade-out cuts the tail. Saved with the session. The per-track auto-fade setting (Fades submenu, `--auto-fade`) is gone.
+- Pan and Automation on the Mix window's strips: right-click the pan knob for the nine positions, right-click the strip for Pan and Automation (mode, and which lane the track's row shows).
 - Pan and Automation in the track header's menu: nine pan positions, the automation mode and which lane the track shows. The Mix window's SENDS button opens a sends panel over the strips with every send on a wide dB scale (typed levels, bus and pre/post per send); it stays open while a bus is chosen or a level dragged and closes on a click elsewhere. The strip's small send sliders are gone: each send button shows its bus and level. `--pan=<track>,<-100..100>` and `--sends-panel=<track>` flags.
 - Sends and buses in the track header's menu: each of the five sends with its bus, pre/post and level; each bus with Rename... and New Aux Track reading it; aux tracks pick their input bus under I/O. Non-audio tracks show the Fades entry greyed with a note. `--send=<track>,<slot>,<bus>[,<dB>[,pre]]` flag.
 - Per-track I/O and fades in the track header's menu: I/O sets the input path, the output (Main, an output path or a bus), input monitoring and opens I/O Setup; Fades sets auto-fades (2 to 250 ms, three shapes) that every recorded or imported clip on the track lands with, saved with the session, and opens the Fades window for every clip on the track at once. `--auto-fade=<track>,<ms>` flag.

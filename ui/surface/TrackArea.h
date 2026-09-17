@@ -68,8 +68,6 @@ public:
     // I/O and fades from the track header's context menu
     std::function<void (int trackIndex, int outputBus, int outputPath)> onOutputChanged;   // bus >= 0, else a path (0 = Main)
     std::function<void()> onOpenIOSetup;
-    std::function<void (int trackIndex, double fadeInSeconds, double fadeOutSeconds, engine::FadeShape)> onAutoFadesChanged;
-    std::function<void (int trackIndex)> onTrackFadesDialog;                                // Fades for every clip on the track
     std::function<void (int trackIndex, int bus)> onInputBusChanged;                         // aux tracks: the bus they read
     std::function<void (int trackIndex, int slot, model::Send)> onSendChanged;               // a send slot's bus, level or pre/post
     std::function<void (int trackIndex, float pan)> onPanChanged;                             // Pan submenu (-1 left .. 1 right)
@@ -118,9 +116,14 @@ public:
 
     // Fades window support
     struct FadeValues { double fadeInMs = 0.0, fadeOutMs = 0.0; engine::FadeShape inShape = engine::FadeShape::linear, outShape = engine::FadeShape::linear; float gainDb = 0.0f; };
-    std::optional<FadeValues> currentFadeValues() const;           // from the first selected audio clip
+    std::optional<FadeValues> fadeValuesFor (const model::ClipRef&) const;   // any clip kind
+    std::optional<FadeValues> currentFadeValues() const;           // from the first selected clip
     void applyFadesToSelection (const FadeValues&);
-    int numSelectedAudioClips() const;
+    int applyFadesTo (const std::vector<model::ClipRef>&, const FadeValues&, const juce::String& actionName);   // returns how many clips
+    int numSelectedClips() const { return (int) selectedClips.size(); }
+
+    // Which lane a track's row shows: 0 clips, 1 clip gain, 2 volume, 3 pan, 4 mute, 5 + send slot (the mixer's menu lands here)
+    void setLaneView (int trackIndex, int view);
 
     bool keyPressed (const juce::KeyPress&) override;
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
@@ -200,8 +203,7 @@ private:
     juce::PopupMenu buildEffectsMenu (int trackIndex);
     void handleEffectsMenu (int trackIndex, int result);
     juce::PopupMenu buildIoMenu (int trackIndex);
-    juce::PopupMenu buildFadesMenu (int trackIndex);
-    void handleIoFadesMenu (int trackIndex, int result);
+    void handleIoMenu (int trackIndex, int result);
     static juce::String panName (float pan);   // "L50", "Centre", "Hard Right"
     juce::PopupMenu buildPanMenu (int trackIndex);
     juce::PopupMenu buildAutomationMenu (int trackIndex);
@@ -293,6 +295,10 @@ private:
     void updateCursor (const juce::MouseEvent&);
     juce::Rectangle<float> clipRectFor (double startSeconds, double endSeconds, juce::Rectangle<int> lane) const;
     void paintClipFrame (juce::Graphics&, juce::Rectangle<float>, const model::Track&, const juce::String& name);
+    void paintFades (juce::Graphics&, juce::Rectangle<float> area, double sampleRate, juce::int64 fadeIn, engine::FadeShape, juce::int64 fadeOut, engine::FadeShape);
+    // A clip's fade and gain fields, whatever its kind
+    struct ClipFades { double sampleRate = 48000.0; juce::int64 fadeIn = 0, fadeOut = 0; engine::FadeShape inShape = engine::FadeShape::linear, outShape = engine::FadeShape::linear; float gain = 1.0f; };
+    std::optional<ClipFades> clipFades (const model::ClipRef&) const;
 
     model::Session& session;
     engine::Transport& transport;

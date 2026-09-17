@@ -1,4 +1,5 @@
 #include "TrackArea.h"
+#include "../shared/ClickButton.h"
 #include <dsp/DrumKitFactory.h>
 #include <ClipLoop.h>
 #include <ClipJoin.h>
@@ -13,6 +14,14 @@
 
 namespace beatmaker::ui
 {
+
+// The FX button lights while an effect on the track is actually running (present and not bypassed)
+static bool anyEffectOn (const model::Track& t)
+{
+    for (const auto& ins : t.inserts) if (! ins.isEmpty() && ! ins.bypass) return true;
+    return false;
+}
+
 
 TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGraph& g, juce::AudioFormatManager& fm, EditSettings& es)
     : session (s), transport (t), formatManager (fm), graph (g), edit (es)
@@ -286,12 +295,13 @@ void TrackArea::rebuildTrackControls()
         c.mute->setTooltip ("Mute (Solo on another track also silences this one)");
         c.solo->setTooltip ("Solo");
 
-        c.fx = std::make_unique<juce::TextButton> ("FX");
-        c.fx->setTooltip ("Effects on this track: add an EQ, compressor or any built-in effect, edit, bypass or remove them (the Mix window has the same slots, and plugins)");
-        c.fx->setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
-        bool anyInsert = false; for (const auto& ins : track.inserts) anyInsert = anyInsert || ! ins.isEmpty();
-        c.fx->setToggleState (anyInsert, juce::dontSendNotification);
-        c.fx->onClick = [this, i] { showTrackEffectsMenu (i); };
+        auto fx = std::make_unique<ClickButton> ("FX");
+        fx->setTooltip ("Click: every effect on this track on or off. Right-click: add an EQ, compressor or any built-in effect, edit, bypass or remove them (the Mix window has the same slots, and plugins)");
+        fx->setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.45f));
+        fx->setToggleState (anyEffectOn (track), juce::dontSendNotification);
+        fx->onClick = [this, i] { if (onTrackEffect) onTrackEffect (i, "toggle", -1, engine::EffectType::none, getHeaderBounds (i).translated (getScreenX(), getScreenY())); };
+        fx->onRightClick = [this, i] { showTrackEffectsMenu (i); };
+        c.fx = std::move (fx);
         addAndMakeVisible (*c.fx);
         c.mute->onClick = [this, i, b = c.mute.get()] { if (onMuteChanged) onMuteChanged (i, b->getToggleState()); };
         c.solo->onClick = [this, i, b = c.solo.get()] { if (onSoloChanged) onSoloChanged (i, b->getToggleState()); };
@@ -1015,6 +1025,7 @@ void TrackArea::paintMidiClip (juce::Graphics& g, const model::Track& track, con
         }
     }
 
+    paintFades (g, clipRect.reduced (1.0f).withTrimmedTop (16.0f), clip.sampleRate, clip.fadeIn, clip.fadeInShape, clip.fadeOut, clip.fadeOutShape);
     paintClipFrame (g, clipRect, track, clip.name);
 }
 
@@ -1056,6 +1067,33 @@ juce::Rectangle<float> TrackArea::clipRectFor (double startSeconds, double endSe
     return { x1, (float) r.getY() + 4.0f, x2 - x1, (float) r.getHeight() - 9.0f };
 }
 
+// Fade curves: shaded region above the curve, like Pro Tools. The same on audio, MIDI and pattern clips.
+void TrackArea::paintFades (juce::Graphics& g, juce::Rectangle<float> area, double sampleRate, juce::int64 fadeIn, engine::FadeShape inShape, juce::int64 fadeOut, engine::FadeShape outShape)
+{
+    auto drawFade = [&] (juce::int64 samples, engine::FadeShape shape, bool in)
+    {
+        if (samples <= 0 || sampleRate <= 0.0) return;
+        const float w = juce::jmin (area.getWidth(), (float) (samples / sampleRate * pixelsPerSecond));
+        auto fr = in ? area.withWidth (w) : area.withLeft (area.getRight() - w);
+        juce::Path curve;
+        curve.startNewSubPath (fr.getX(), fr.getY());
+        for (int i = 0; i <= 24; ++i)
+        {
+            const double t = i / 24.0;
+            const float gain = engine::fadeGain (shape, in ? t : 1.0 - t);
+            curve.lineTo (fr.getX() + (float) t * fr.getWidth(), fr.getBottom() - gain * fr.getHeight());
+        }
+        curve.lineTo (fr.getRight(), fr.getY());
+        curve.closeSubPath();
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillPath (curve);
+        g.setColour (theme::text.withAlpha (0.9f));
+        g.strokePath (curve, juce::PathStrokeType (1.0f));
+    };
+    drawFade (fadeIn, inShape, true);
+    drawFade (fadeOut, outShape, false);
+}
+
 void TrackArea::paintClipFrame (juce::Graphics& g, juce::Rectangle<float> clipRect, const model::Track& track, const juce::String& name)
 {
     // Selected clips get a bright frame (drawn after the body below).
@@ -1090,29 +1128,7 @@ void TrackArea::paintAudioClip (juce::Graphics& g, const model::Track& track, co
                                           (double) (clip.sourceOffset + clip.length) / clip.sampleRate,
                                           juce::jlimit (0.05f, 4.0f, clip.gain));
 
-    // Fade curves: shaded region above the curve, like Pro Tools.
-    auto drawFade = [&] (juce::int64 samples, engine::FadeShape shape, bool in)
-    {
-        if (samples <= 0) return;
-        const float w = juce::jmin (waveArea.getWidth(), (float) (samples / clip.sampleRate * pixelsPerSecond));
-        auto fr = in ? waveArea.withWidth (w) : waveArea.withLeft (waveArea.getRight() - w);
-        juce::Path curve;
-        curve.startNewSubPath (fr.getX(), fr.getY());
-        for (int i = 0; i <= 24; ++i)
-        {
-            const double t = i / 24.0;
-            const float gain = engine::fadeGain (shape, in ? t : 1.0 - t);
-            curve.lineTo (fr.getX() + (float) t * fr.getWidth(), fr.getBottom() - gain * fr.getHeight());
-        }
-        curve.lineTo (fr.getRight(), fr.getY());
-        curve.closeSubPath();
-        g.setColour (juce::Colours::black.withAlpha (0.45f));
-        g.fillPath (curve);
-        g.setColour (theme::text.withAlpha (0.9f));
-        g.strokePath (curve, juce::PathStrokeType (1.0f));
-    };
-    drawFade (clip.fadeIn, clip.fadeInShape, true);
-    drawFade (clip.fadeOut, clip.fadeOutShape, false);
+    paintFades (g, waveArea, clip.sampleRate, clip.fadeIn, clip.fadeInShape, clip.fadeOut, clip.fadeOutShape);
 
     if (showsClipGain (track)) paintClipGainLine (g, track, clip, clipRect);
 
@@ -1307,6 +1323,7 @@ void TrackArea::paintPatternClip (juce::Graphics& g, const model::Track& track, 
         }
     }
 
+    paintFades (g, clipRect.reduced (1.0f).withTrimmedTop (16.0f), clip.sampleRate, clip.fadeIn, clip.fadeInShape, clip.fadeOut, clip.fadeOutShape);
     paintClipFrame (g, clipRect, track, clip.name);
 }
 
@@ -1448,8 +1465,6 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
             menu.addSubMenu ("Automation", buildAutomationMenu (track));
             if (! t.isVca()) menu.addSubMenu ("Sends", buildSendsMenu (track));
             if (! t.isVca()) menu.addSubMenu ("Buses", buildBusesMenu (track));
-            if (t.isAudio()) menu.addSubMenu ("Fades", buildFadesMenu (track));
-            else menu.addItem (997, "Fades  (audio tracks: auto-fades for recorded and imported clips)", false);
             if (t.isAudio() || t.isInstrument())
             {
                 menu.addSeparator();
@@ -1468,7 +1483,7 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
                 else if (r == 99) { if (onTrackColour) onTrackColour (track, model::Session::colourForTrackIndex (track)); }
                 else if (r == 98) { if (onTrackCustomColour) onTrackCustomColour (track); }
                 else if (r >= 200 && r < 600) handleEffectsMenu (track, r);
-                else if (r >= 600 && r < 1000) handleIoFadesMenu (track, r);
+                else if (r >= 600 && r < 1000) handleIoMenu (track, r);
                 else if (r >= 4000 && r < 5000) handlePanAutomationMenu (track, r);
                 else if (r >= 2000) handleSendsBusesMenu (track, r);
                 else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
@@ -1718,24 +1733,23 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
     ghostLength = (double) dragOriginal.length / dragOriginal.sampleRate;
     timeSelection = {};
 
-    if (hit->kind == model::ClipRef::Kind::audio)
+    if (const auto clip = clipFades (*hit))   // any kind: audio, MIDI or pattern clips all carry fades and a gain
     {
         const auto r = rectForClip (*hit);
         const bool topZone = e.y < r.getY() + 16.0f + 14.0f && e.y >= r.getY() + 16.0f;   // just under the name bar
-        const auto& clip = session.getTrack (hit->track)->clips[(size_t) hit->index];
 
         // Smart Tool corners: fade handles.
         if (edit.tool == EditSettings::Tool::smart && topZone && (nearStart || nearEnd))
         {
             drag = nearStart ? Drag::fadeIn : Drag::fadeOut;
-            ghostFadeSeconds = (double) (nearStart ? clip.fadeIn : clip.fadeOut) / clip.sampleRate;
+            ghostFadeSeconds = (double) (nearStart ? clip->fadeIn : clip->fadeOut) / clip->sampleRate;
             return;
         }
         // Ctrl+drag vertically: clip gain.
         if (e.mods.isCtrlDown() && tool == EditSettings::Tool::grabber)
         {
             drag = Drag::clipGain;
-            ghostGainDb = juce::Decibels::gainToDecibels (clip.gain, -60.0f);
+            ghostGainDb = juce::Decibels::gainToDecibels (clip->gain, -60.0f);
             return;
         }
     }
@@ -1936,13 +1950,12 @@ void TrackArea::mouseUp (const juce::MouseEvent& e)
         case Drag::fadeIn:
         case Drag::fadeOut:
             if (dragMoved)
-                if (auto* t = session.getTrack (dragClip.track); t != nullptr && dragClip.index < (int) t->clips.size())
+                if (const auto c = clipFades (dragClip))
                 {
-                    const auto& c = t->clips[(size_t) dragClip.index];
-                    const auto samples = (juce::int64) std::llround (ghostFadeSeconds * c.sampleRate);
+                    const auto samples = (juce::int64) std::llround (ghostFadeSeconds * c->sampleRate);
                     session.execute (std::make_unique<model::SetClipFadesCommand> (dragClip,
-                        finished == Drag::fadeIn ? samples : c.fadeIn, c.fadeInShape,
-                        finished == Drag::fadeOut ? samples : c.fadeOut, c.fadeOutShape));
+                        finished == Drag::fadeIn ? samples : c->fadeIn, c->inShape,
+                        finished == Drag::fadeOut ? samples : c->fadeOut, c->outShape));
                 }
             break;
 
@@ -2214,14 +2227,16 @@ void TrackArea::handlePanAutomationMenu (int trackIndex, int result)
     if (t == nullptr) return;
     if (result >= 4000 && result < 4000 + (int) std::size (panPositions)) { if (onPanChanged) onPanChanged (trackIndex, panPositions[result - 4000]); return; }
     if (result >= 4100 && result < 4100 + 6) { if (onAutomationModeChanged) onAutomationModeChanged (trackIndex, (model::AutomationMode) (result - 4100)); return; }
-    if (result >= 4200 && result < 4205 + model::Track::numSendSlots)
-    {
-        // The header's view box owns this state; setting it there keeps the two in step
-        static const int boxIds[] = { 1, 100, 2, 3, 4 };
-        const int view = result - 4200;
-        if (juce::isPositiveAndBelow (trackIndex, (int) trackControls.size()) && trackControls[(size_t) trackIndex].autoView != nullptr)
-            trackControls[(size_t) trackIndex].autoView->setSelectedId (view < 5 ? boxIds[view] : 5 + (view - 5), juce::sendNotificationSync);
-    }
+    if (result >= 4200 && result < 4205 + model::Track::numSendSlots) setLaneView (trackIndex, result - 4200);
+}
+
+void TrackArea::setLaneView (int trackIndex, int view)
+{
+    // The header's view box owns this state; setting it there keeps the box, the menus and the lane in step
+    static const int boxIds[] = { 1, 100, 2, 3, 4 };
+    if (view < 0 || view >= 5 + model::Track::numSendSlots) return;
+    if (juce::isPositiveAndBelow (trackIndex, (int) trackControls.size()) && trackControls[(size_t) trackIndex].autoView != nullptr)
+        trackControls[(size_t) trackIndex].autoView->setSelectedId (view < 5 ? boxIds[view] : 5 + (view - 5), juce::sendNotificationSync);
 }
 
 // Buses: each of the eight with Rename... and New Aux Track (an aux input reading it, where reverbs and delays live).
@@ -2264,29 +2279,7 @@ void TrackArea::handleSendsBusesMenu (int trackIndex, int result)
     onSendChanged (trackIndex, slot, send);
 }
 
-// Fades: the auto-fade every recorded or imported clip gets, its shape, and the Fades window for every clip on the track.
-// Ids: 900 + step in the length table; 950 + shape; 990 all clips.
-juce::PopupMenu TrackArea::buildFadesMenu (int trackIndex)
-{
-    juce::PopupMenu menu;
-    const auto* t = session.getTrack (trackIndex);
-    if (t == nullptr) return menu;
-    static const double lengthsMs[] = { 0.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 };
-    juce::PopupMenu lengths;
-    const double currentMs = juce::jmax (t->autoFadeInSeconds, t->autoFadeOutSeconds) * 1000.0;
-    for (int i = 0; i < (int) std::size (lengthsMs); ++i)
-        lengths.addItem (900 + i, lengthsMs[i] <= 0.0 ? "Off" : juce::String (lengthsMs[i], 0) + " ms in and out", true, std::abs (currentMs - lengthsMs[i]) < 0.01);
-    menu.addSubMenu ("Auto-Fade New Clips", lengths);
-    juce::PopupMenu shapes;
-    for (auto shape : { engine::FadeShape::linear, engine::FadeShape::equalPower, engine::FadeShape::sCurve })
-        shapes.addItem (950 + (int) shape, engine::fadeShapeName (shape), true, t->autoFadeShape == shape);
-    menu.addSubMenu ("Auto-Fade Shape", shapes);
-    menu.addSeparator();
-    menu.addItem (990, "Fades for All Clips on Track...", ! t->clips.empty());
-    return menu;
-}
-
-void TrackArea::handleIoFadesMenu (int trackIndex, int result)
+void TrackArea::handleIoMenu (int trackIndex, int result)
 {
     const auto* t = session.getTrack (trackIndex);
     if (t == nullptr) return;
@@ -2296,14 +2289,6 @@ void TrackArea::handleIoFadesMenu (int trackIndex, int result)
     else if (result >= 700 && result < 800) { if (onOutputChanged) onOutputChanged (trackIndex, -1, result - 700); }
     else if (result >= 800 && result < 800 + model::Track::numBuses) { if (onOutputChanged) onOutputChanged (trackIndex, result - 800, t->outputPath); }
     else if (result >= 850 && result < 850 + model::Track::numBuses) { if (onInputBusChanged) onInputBusChanged (trackIndex, result - 850); }
-    else if (result >= 900 && result < 950)
-    {
-        static const double lengthsMs[] = { 0.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 };
-        const double seconds = lengthsMs[juce::jlimit (0, (int) std::size (lengthsMs) - 1, result - 900)] / 1000.0;
-        if (onAutoFadesChanged) onAutoFadesChanged (trackIndex, seconds, seconds, t->autoFadeShape);
-    }
-    else if (result >= 950 && result < 960) { if (onAutoFadesChanged) onAutoFadesChanged (trackIndex, t->autoFadeInSeconds, t->autoFadeOutSeconds, (engine::FadeShape) juce::jlimit (0, 2, result - 950)); }
-    else if (result == 990) { if (onTrackFadesDialog) onTrackFadesDialog (trackIndex); }
 }
 
 void TrackArea::showTrackEffectsMenu (int trackIndex)
@@ -2531,43 +2516,58 @@ void TrackArea::nudgeClipGain (float deltaDb)
     if (! compound->isEmpty()) session.execute (std::move (compound));
 }
 
-int TrackArea::numSelectedAudioClips() const
+std::optional<TrackArea::ClipFades> TrackArea::clipFades (const model::ClipRef& ref) const
 {
-    int n = 0;
-    for (const auto& r : selectedClips) n += r.kind == model::ClipRef::Kind::audio ? 1 : 0;
-    return n;
+    const auto* t = session.getTrack (ref.track);
+    if (t == nullptr) return std::nullopt;
+    auto of = [] (const auto& c) { return ClipFades { c.sampleRate, c.fadeIn, c.fadeOut, c.fadeInShape, c.fadeOutShape, c.gain }; };
+    switch (ref.kind)
+    {
+        case model::ClipRef::Kind::audio:   if (juce::isPositiveAndBelow (ref.index, (int) t->clips.size()))        return of (t->clips[(size_t) ref.index]); break;
+        case model::ClipRef::Kind::midi:    if (juce::isPositiveAndBelow (ref.index, (int) t->midiClips.size()))    return of (t->midiClips[(size_t) ref.index]); break;
+        case model::ClipRef::Kind::pattern: if (juce::isPositiveAndBelow (ref.index, (int) t->patternClips.size())) return of (t->patternClips[(size_t) ref.index]); break;
+    }
+    return std::nullopt;
+}
+
+std::optional<TrackArea::FadeValues> TrackArea::fadeValuesFor (const model::ClipRef& ref) const
+{
+    const auto c = clipFades (ref);
+    if (! c) return std::nullopt;
+    FadeValues v;
+    v.fadeInMs = (double) c->fadeIn * 1000.0 / c->sampleRate;
+    v.fadeOutMs = (double) c->fadeOut * 1000.0 / c->sampleRate;
+    v.inShape = c->inShape; v.outShape = c->outShape;
+    v.gainDb = juce::Decibels::gainToDecibels (c->gain, -60.0f);
+    return v;
 }
 
 std::optional<TrackArea::FadeValues> TrackArea::currentFadeValues() const
 {
     for (const auto& ref : selectedClips)
-        if (ref.kind == model::ClipRef::Kind::audio)
-            if (auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
-            {
-                const auto& c = t->clips[(size_t) ref.index];
-                FadeValues v;
-                v.fadeInMs = c.fadeIn * 1000.0 / c.sampleRate;
-                v.fadeOutMs = c.fadeOut * 1000.0 / c.sampleRate;
-                v.inShape = c.fadeInShape; v.outShape = c.fadeOutShape;
-                v.gainDb = juce::Decibels::gainToDecibels (c.gain, -60.0f);
-                return v;
-            }
+        if (auto v = fadeValuesFor (ref)) return v;
     return std::nullopt;
+}
+
+int TrackArea::applyFadesTo (const std::vector<model::ClipRef>& refs, const FadeValues& v, const juce::String& actionName)
+{
+    auto compound = std::make_unique<model::CompoundCommand> (actionName);
+    int n = 0;
+    for (const auto& ref : refs)
+        if (const auto c = clipFades (ref))
+        {
+            compound->add (std::make_unique<model::SetClipFadesCommand> (ref, (juce::int64) std::llround (v.fadeInMs * c->sampleRate / 1000.0), v.inShape,
+                                                                       (juce::int64) std::llround (v.fadeOutMs * c->sampleRate / 1000.0), v.outShape));
+            compound->add (std::make_unique<model::SetClipGainCommand> (ref, juce::Decibels::decibelsToGain (v.gainDb, -60.0f)));
+            ++n;
+        }
+    if (! compound->isEmpty()) session.execute (std::move (compound));
+    return n;
 }
 
 void TrackArea::applyFadesToSelection (const FadeValues& v)
 {
-    auto compound = std::make_unique<model::CompoundCommand> (numSelectedAudioClips() > 1 ? "Batch Fades" : "Fades");
-    for (const auto& ref : selectedClips)
-        if (ref.kind == model::ClipRef::Kind::audio)
-            if (auto* t = session.getTrack (ref.track); t != nullptr && ref.index < (int) t->clips.size())
-            {
-                const double sr = t->clips[(size_t) ref.index].sampleRate;
-                compound->add (std::make_unique<model::SetClipFadesCommand> (ref, (juce::int64) std::llround (v.fadeInMs * sr / 1000.0), v.inShape,
-                                                                           (juce::int64) std::llround (v.fadeOutMs * sr / 1000.0), v.outShape));
-                compound->add (std::make_unique<model::SetClipGainCommand> (ref, juce::Decibels::decibelsToGain (v.gainDb, -60.0f)));
-            }
-    if (! compound->isEmpty()) session.execute (std::move (compound));
+    applyFadesTo (selectedClips, v, selectedClips.size() > 1 ? "Batch Fades" : "Fades");
 }
 
 void TrackArea::zoomToFit()
@@ -2696,7 +2696,7 @@ void TrackArea::timerCallback()
     for (int i = 0; i < (int) trackControls.size() && i < session.getNumTracks(); ++i)
         if (auto& fx = trackControls[(size_t) i].fx)
         {
-            bool any = false; for (const auto& ins : session.getTracks()[(size_t) i].inserts) any = any || ! ins.isEmpty();
+            const bool any = anyEffectOn (session.getTracks()[(size_t) i]);
             if (fx->getToggleState() != any) fx->setToggleState (any, juce::dontSendNotification);
         }
     // Repaint only what changed: the playhead's columns, or everything when the

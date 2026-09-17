@@ -231,15 +231,9 @@ public:
             if (bus < 0) session.execute (std::make_unique<model::SetTrackPathsCommand> (i, t->inputPath, path));
         };
         trackArea.onOpenIOSetup = [this] { showIOSetupDialog(); };
-        trackArea.onAutoFadesChanged = [this] (int i, double in, double out, engine::FadeShape shape)
-        {
-            session.execute (std::make_unique<model::SetTrackAutoFadesCommand> (i, in, out, shape));
-            statusMessage = in > 0.0 || out > 0.0 ? "New clips on this track fade " + juce::String (juce::roundToInt (in * 1000.0)) + " ms in and " + juce::String (juce::roundToInt (out * 1000.0)) + " ms out (" + engine::fadeShapeName (shape) + ")"
-                                                   : "Auto-fades off for this track"; updateStatus();
-        };
-        trackArea.onTrackFadesDialog = [this] (int i) { showTrackFadesDialog (i); };
         trackArea.onInputBusChanged = [this] (int i, int bus) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackRoutingCommand> (i, bus, t->outputBus)); };
         trackArea.onSendChanged = [this] (int i, int slot, model::Send send) { session.execute (std::make_unique<model::SetSendCommand> (i, slot, send)); };
+        mixerView.onLaneViewChanged = [this] (int i, int view) { trackArea.setLaneView (i, view); };
         trackArea.onPanChanged = [this] (int i, float pan) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackMixCommand> (i, t->gain, pan)); };
         trackArea.onRenameBus = [this] (int bus) { promptRenameBus (bus); };
         trackArea.onNewAuxForBus = [this] (int bus) { addAuxTrack (bus); };
@@ -488,13 +482,6 @@ public:
     {
         const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
         importAudioFile (juce::File::getCurrentWorkingDirectory().getChildFile (spec.fromFirstOccurrenceOf (",", false, false)), track, engine.getTransport().getPositionSeconds());
-    }
-    void setAutoFadeFromCommandLine (const juce::String& spec)   // --auto-fade=<track>,<ms>[,<shape 0-2>]
-    {
-        const auto parts = juce::StringArray::fromTokens (spec, ",", {});
-        if (parts.size() < 2) return;
-        const double seconds = parts[1].getDoubleValue() / 1000.0;
-        session.execute (std::make_unique<model::SetTrackAutoFadesCommand> (parts[0].getIntValue() - 1, seconds, seconds, (engine::FadeShape) juce::jlimit (0, 2, parts.size() > 2 ? parts[2].getIntValue() : 0)));
     }
     void addTrackEffectFromCommandLine (const juce::String& spec)   // --add-effect=<track>,<effect name>
     {
@@ -949,7 +936,6 @@ public:
         clip.sampleRate    = loaded->sampleRate;
         clip.timelineStart = (juce::int64) std::llround (startSeconds * loaded->sampleRate);
         clip.length        = loaded->numSamples;
-        if (const auto* tr = session.getTrack (trackIndex)) tr->applyAutoFades (clip);   // the track's auto-fades
 
         session.execute (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
 
@@ -1307,7 +1293,6 @@ private:
         clip.timelineStart = (juce::int64) std::llround (start * loaded->sampleRate);
         clip.length        = loaded->audio->getNumSamples();
         clip.sourceBpm     = info.bpm;
-        if (const auto* tr = session.getTrack (trackIndex)) tr->applyAutoFades (clip);
         auto add = std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip));
         session.execute (std::move (add));
         const model::ClipRef ref { trackIndex, model::ClipRef::Kind::audio, (int) session.getTracks()[(size_t) trackIndex].clips.size() - 1 };
@@ -1336,6 +1321,7 @@ private:
     void setMixerVisible (bool visible)
     {
         mixerVisible = visible;
+        if (visible && editorVisible) { editorVisible = false; transportBar.setEditorVisible (false); }   // one or the other
         mixerView.setVisible (visible);
         transportBar.setMixerVisible (visible);
         updateSequencerTarget();
@@ -1600,11 +1586,13 @@ private:
     void showTrackFadesDialog (int trackIndex)
     {
         const auto* t = session.getTrack (trackIndex);
-        if (t == nullptr || t->clips.empty()) return;
+        if (t == nullptr) return;
+        const auto refs = model::ClipEdits::allClips (session, trackIndex);
+        if (refs.empty()) return;
         ui::FadesDialog::Values initial;
-        initial.fadeInMs = (double) t->clips[0].fadeIn / t->clips[0].sampleRate * 1000.0; initial.fadeOutMs = (double) t->clips[0].fadeOut / t->clips[0].sampleRate * 1000.0;
-        initial.inShape = t->clips[0].fadeInShape; initial.outShape = t->clips[0].fadeOutShape; initial.gainDb = juce::Decibels::gainToDecibels (t->clips[0].gain);
-        auto* dialog = new ui::FadesDialog (initial, (int) t->clips.size());
+        if (const auto first = trackArea.fadeValuesFor (refs.front()))
+        { initial.fadeInMs = first->fadeInMs; initial.fadeOutMs = first->fadeOutMs; initial.inShape = first->inShape; initial.outShape = first->outShape; initial.gainDb = first->gainDb; }
+        auto* dialog = new ui::FadesDialog (initial, (int) refs.size());
         juce::DialogWindow::LaunchOptions options;
         options.content.setOwned (dialog);
         options.dialogTitle = "Fades: every clip on " + t->name;
@@ -1619,17 +1607,10 @@ private:
             window->setVisible (false);
             const auto* tr = session.getTrack (trackIndex);
             if (tr == nullptr) return;
-            auto compound = std::make_unique<model::CompoundCommand> ("Fades on Track");
-            for (int c = 0; c < (int) tr->clips.size(); ++c)
-            {
-                const auto& clip = tr->clips[(size_t) c];
-                const model::ClipRef ref { trackIndex, model::ClipRef::Kind::audio, c };
-                compound->add (std::make_unique<model::SetClipFadesCommand> (ref, (juce::int64) std::llround (v.fadeInMs / 1000.0 * clip.sampleRate), v.inShape,
-                                                                              (juce::int64) std::llround (v.fadeOutMs / 1000.0 * clip.sampleRate), v.outShape));
-                compound->add (std::make_unique<model::SetClipGainCommand> (ref, juce::Decibels::decibelsToGain (v.gainDb)));
-            }
-            session.execute (std::move (compound));
-            statusMessage = "Fades set on " + juce::String (tr->clips.size()) + " clip(s) of " + tr->name; updateStatus();
+            ui::TrackArea::FadeValues fv;
+            fv.fadeInMs = v.fadeInMs; fv.fadeOutMs = v.fadeOutMs; fv.inShape = v.inShape; fv.outShape = v.outShape; fv.gainDb = v.gainDb;
+            const int n = trackArea.applyFadesTo (model::ClipEdits::allClips (session, trackIndex), fv, "Fades on Track");
+            statusMessage = "Fades set on " + juce::String (n) + " clip(s) of " + tr->name; updateStatus();
             grabKeyboardFocus();
         };
     }
@@ -1639,7 +1620,7 @@ private:
         const auto values = trackArea.currentFadeValues();
         if (! values)
         {
-            statusMessage = "Select one or more audio clips first (Fades applies to the selection)";
+            statusMessage = "Select one or more clips first (Fades applies to the selection)";
             updateStatus();
             return;
         }
@@ -1648,7 +1629,7 @@ private:
         initial.fadeInMs = values->fadeInMs; initial.fadeOutMs = values->fadeOutMs;
         initial.inShape = values->inShape; initial.outShape = values->outShape; initial.gainDb = values->gainDb;
 
-        auto* dialog = new ui::FadesDialog (initial, trackArea.numSelectedAudioClips());
+        auto* dialog = new ui::FadesDialog (initial, trackArea.numSelectedClips());
         juce::DialogWindow::LaunchOptions options;
         options.content.setOwned (dialog);
         options.dialogTitle = "Fades";
@@ -2040,7 +2021,6 @@ private:
                     // Punch ranges all land on the main playlist as separate clips.
                     // The final pass lands on the main playlist (Pro Tools behaviour); earlier passes are alternates.
                     if (loopRecording && passes.size() > 1) compound->add (std::make_unique<model::NewPlaylistCommand> (trackIndex, model::defaultPlaylistName (*track, existingTakes + (int) passes.size())));
-                    track->applyAutoFades (clip);   // a recorded clip gets the track's auto-fades
                     compound->add (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
                 }
                 else
@@ -2282,6 +2262,7 @@ private:
     void setEditorVisible (bool visible)
     {
         editorVisible = visible;
+        if (visible && mixerVisible) { mixerVisible = false; mixerView.setVisible (false); transportBar.setMixerVisible (false); }   // one or the other
         transportBar.setEditorVisible (visible);
         updateSequencerTarget();
         resized();
@@ -3064,6 +3045,19 @@ private:
             // The Mix window shows the new insert in its slot, with its knobs open there
             setMixerVisible (true);
             juce::Timer::callAfterDelay (120, [this, trackIndex, empty] { mixerView.openInsertEditor (trackIndex, empty); });
+            return;
+        }
+        if (action == "toggle")   // the header's FX button: all inserts off if any is on, else all on
+        {
+            bool anyOn = false;
+            for (const auto& ins : t->inserts) anyOn = anyOn || (! ins.isEmpty() && ! ins.bypass);
+            auto compound = std::make_unique<model::CompoundCommand> (anyOn ? "Bypass Effects" : "Enable Effects");
+            for (int i = 0; i < (int) t->inserts.size(); ++i)
+                if (! t->inserts[(size_t) i].isEmpty() && t->inserts[(size_t) i].bypass != anyOn)
+                    compound->add (std::make_unique<model::SetInsertBypassCommand> (trackIndex, i, anyOn));
+            if (compound->isEmpty()) { statusMessage = "No effects on " + t->name + " (right-click FX to add one)"; updateStatus(); return; }
+            session.execute (std::move (compound));
+            statusMessage = (anyOn ? "Effects off on " : "Effects on for ") + t->name; updateStatus();
             return;
         }
         if (! juce::isPositiveAndBelow (slot, model::Track::numInsertSlots) || t->inserts[(size_t) slot].isEmpty()) return;
@@ -4059,7 +4053,6 @@ public:
             else if (arg.startsWith ("--session=")) main.openSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--track-colour=")) main.setTrackColourFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--add-effect=")) main.addTrackEffectFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
-            else if (arg.startsWith ("--auto-fade=")) main.setAutoFadeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--import=")) main.importToTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--send=")) main.setSendFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--pan=")) main.setPanFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));

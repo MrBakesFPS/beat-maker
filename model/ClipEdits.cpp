@@ -191,11 +191,8 @@ void TrimClipCommand::execute (Session& s)
         if (maxLen > 0) length = juce::jmin (length, maxLen);
         c.length = juce::jmax<juce::int64> (1, length);
 
-        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>)
-        {
-            oldFadeIn = c.fadeIn; oldFadeOut = c.fadeOut;
-            c.clampFades();
-        }
+        oldFadeIn = c.fadeIn; oldFadeOut = c.fadeOut;
+        c.clampFades();
     });
 }
 
@@ -204,7 +201,7 @@ void TrimClipCommand::undo (Session& s)
     withClip (s, ref, [&] (auto& c)
     {
         c.timelineStart = old.start; c.length = old.length; offsetOf (c) = old.offset;
-        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>) { c.fadeIn = oldFadeIn; c.fadeOut = oldFadeOut; }
+        c.fadeIn = oldFadeIn; c.fadeOut = oldFadeOut;
     });
 }
 
@@ -253,12 +250,9 @@ void SplitClipCommand::execute (Session& s)
         tail.length = c.length - head;
         offsetOf (tail) += head;
         c.length = head;
-        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>)
-        {
-            oldFadeOut = c.fadeOut;
-            c.fadeOut = 0;  c.clampFades();      // the join is now a hard cut
-            tail.fadeIn = 0; tail.clampFades();
-        }
+        oldFadeOut = c.fadeOut;
+        c.fadeOut = 0;  c.clampFades();      // the join is now a hard cut
+        tail.fadeIn = 0; tail.clampFades();
         list.push_back (tail);
         second = { ref.track, ref.kind, (int) list.size() - 1 };
         didSplit = true;
@@ -279,8 +273,8 @@ void SplitClipCommand::undo (Session& s)
     switch (ref.kind)
     {
         case ClipRef::Kind::audio:   t.clips.pop_back();        t.clips[(size_t) ref.index].length = oldLength; t.clips[(size_t) ref.index].fadeOut = oldFadeOut; break;
-        case ClipRef::Kind::pattern: t.patternClips.pop_back(); t.patternClips[(size_t) ref.index].length = oldLength; break;
-        case ClipRef::Kind::midi:    t.midiClips.pop_back();    t.midiClips[(size_t) ref.index].length = oldLength; break;
+        case ClipRef::Kind::pattern: t.patternClips.pop_back(); t.patternClips[(size_t) ref.index].length = oldLength; t.patternClips[(size_t) ref.index].fadeOut = oldFadeOut; break;
+        case ClipRef::Kind::midi:    t.midiClips.pop_back();    t.midiClips[(size_t) ref.index].length = oldLength; t.midiClips[(size_t) ref.index].fadeOut = oldFadeOut; break;
     }
 }
 
@@ -291,30 +285,23 @@ void SetClipFadesCommand::execute (Session& s)
 {
     withClip (s, ref, [&] (auto& c)
     {
-        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>)
-        {
-            oldIn = c.fadeIn; oldOut = c.fadeOut; oldInShape = c.fadeInShape; oldOutShape = c.fadeOutShape;
-            c.fadeIn = juce::jmax<juce::int64> (0, in); c.fadeOut = juce::jmax<juce::int64> (0, out);
-            c.fadeInShape = inShape; c.fadeOutShape = outShape;
-            c.clampFades();
-        }
+        oldIn = c.fadeIn; oldOut = c.fadeOut; oldInShape = c.fadeInShape; oldOutShape = c.fadeOutShape;
+        c.fadeIn = juce::jmax<juce::int64> (0, in); c.fadeOut = juce::jmax<juce::int64> (0, out);
+        c.fadeInShape = inShape; c.fadeOutShape = outShape;
+        c.clampFades();
     });
 }
 
 void SetClipFadesCommand::undo (Session& s)
 {
-    withClip (s, ref, [&] (auto& c)
-    {
-        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>)
-        { c.fadeIn = oldIn; c.fadeOut = oldOut; c.fadeInShape = oldInShape; c.fadeOutShape = oldOutShape; }
-    });
+    withClip (s, ref, [&] (auto& c) { c.fadeIn = oldIn; c.fadeOut = oldOut; c.fadeInShape = oldInShape; c.fadeOutShape = oldOutShape; });
 }
 
 void SetClipGainCommand::execute (Session& s)
 {
     withClip (s, ref, [&] (auto& c)
     {
-        if constexpr (std::is_same_v<std::decay_t<decltype (c)>, AudioClip>) { oldGain = c.gain; c.gain = gain; }
+        oldGain = c.gain; c.gain = gain;
     });
 }
 

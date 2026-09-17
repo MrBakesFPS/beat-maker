@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <RenderSnapshotBuilder.h>
 #include <Session.h>
+#include <ClipEdits.h>
 #include <MixerCommands.h>
 
 using namespace beatmaker::model;
@@ -295,23 +296,42 @@ TEST_CASE ("A track's first empty insert slot is where a new effect goes")
     CHECK (s.getTracks()[0].firstEmptyInsert() == -1);
 }
 
-TEST_CASE ("A track's auto-fades apply to clips that land on it, and the setting is undoable")
+TEST_CASE ("MIDI and pattern clips carry their own fades: set, clamped to the clip, undone, and cut by a split")
 {
     using namespace beatmaker;
     model::Session s;
-    model::Track t; t.name = "Vox"; t.type = model::Track::Type::audio;
-    s.execute (std::make_unique<model::AddTrackCommand> (t));
-    model::AudioClip clip; clip.sampleRate = 48000.0; clip.length = 96000;
-    s.getTracks()[0].applyAutoFades (clip);
-    CHECK (clip.fadeIn == 0); CHECK (clip.fadeOut == 0);                          // off by default
-    s.execute (std::make_unique<model::SetTrackAutoFadesCommand> (0, 0.02, 0.05, engine::FadeShape::equalPower));
-    CHECK (s.getTracks()[0].autoFadeInSeconds == 0.02);
-    CHECK (s.getHistory().getUndoName() == "Track Auto-Fades");
-    s.getTracks()[0].applyAutoFades (clip);
-    CHECK (clip.fadeIn == 960); CHECK (clip.fadeOut == 2400); CHECK (clip.fadeInShape == engine::FadeShape::equalPower);
-    model::AudioClip tiny; tiny.sampleRate = 48000.0; tiny.length = 100;       // shorter than the fades: each takes at most half
-    s.getTracks()[0].applyAutoFades (tiny);
-    CHECK (tiny.fadeIn == 50); CHECK (tiny.fadeOut == 50);
+    model::Track keys; keys.name = "Keys"; keys.type = model::Track::Type::instrument;
+    s.execute (std::make_unique<model::AddTrackCommand> (keys));
+    model::MidiClip mc; mc.sampleRate = 48000.0; mc.length = 96000; mc.sequence = std::make_shared<const engine::MidiSequence> (engine::MidiSequence::createDefaultArpeggio());
+    s.execute (std::make_unique<model::AddMidiClipCommand> (0, mc));
+    model::Track drums; drums.name = "Drums"; drums.type = model::Track::Type::instrument; drums.instrumentKind = model::Track::InstrumentKind::drumMachine;
+    s.execute (std::make_unique<model::AddTrackCommand> (drums));
+    model::PatternClip pc; pc.sampleRate = 48000.0; pc.length = 48000; pc.pattern = std::make_shared<const engine::StepPattern> (engine::StepPattern::createDefaultBeat());
+    s.execute (std::make_unique<model::AddPatternClipCommand> (1, pc));
+
+    const model::ClipRef midi { 0, model::ClipRef::Kind::midi, 0 }, pattern { 1, model::ClipRef::Kind::pattern, 0 };
+    CHECK (s.getTracks()[0].midiClips[0].fadeIn == 0); CHECK (s.getTracks()[1].patternClips[0].fadeOut == 0);   // none by default
+
+    s.execute (std::make_unique<model::SetClipFadesCommand> (midi, 4800, engine::FadeShape::sCurve, 9600, engine::FadeShape::equalPower));
+    CHECK (s.getTracks()[0].midiClips[0].fadeIn == 4800); CHECK (s.getTracks()[0].midiClips[0].fadeOut == 9600);
+    CHECK (s.getTracks()[0].midiClips[0].fadeInShape == engine::FadeShape::sCurve); CHECK (s.getTracks()[0].midiClips[0].fadeOutShape == engine::FadeShape::equalPower);
+    CHECK (s.getHistory().getUndoName() == "Fades");
+    s.execute (std::make_unique<model::SetClipFadesCommand> (pattern, 40000, engine::FadeShape::linear, 40000, engine::FadeShape::linear));
+    CHECK (s.getTracks()[1].patternClips[0].fadeIn == 40000); CHECK (s.getTracks()[1].patternClips[0].fadeOut == 8000);   // the two can't overlap
     s.undo();
-    CHECK (s.getTracks()[0].autoFadeInSeconds == 0.0);
+    CHECK (s.getTracks()[1].patternClips[0].fadeIn == 0);
+
+    // A split makes a hard cut: the head loses its fade-out, the tail has no fade-in, and undo restores it
+    s.execute (std::make_unique<model::SplitClipCommand> (midi, 48000));
+    REQUIRE (s.getTracks()[0].midiClips.size() == 2);
+    CHECK (s.getTracks()[0].midiClips[0].fadeOut == 0); CHECK (s.getTracks()[0].midiClips[0].fadeIn == 4800);
+    CHECK (s.getTracks()[0].midiClips[1].fadeIn == 0);
+    s.undo();
+    CHECK (s.getTracks()[0].midiClips.size() == 1); CHECK (s.getTracks()[0].midiClips[0].fadeOut == 9600);
+
+    // Trimming shorter than the fades pulls them in
+    s.execute (std::make_unique<model::TrimClipCommand> (midi, 0, 6000));
+    CHECK (s.getTracks()[0].midiClips[0].fadeIn == 4800); CHECK (s.getTracks()[0].midiClips[0].fadeOut == 1200);
+    s.undo();
+    CHECK (s.getTracks()[0].midiClips[0].fadeOut == 9600);
 }
