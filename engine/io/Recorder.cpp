@@ -139,7 +139,7 @@ void Recorder::processInput (const float* const* inputs, int numInputs, int numS
     busy.store (true);
     auto* session = active.load();
 
-    if (session != nullptr && transport.isPlaying() && numSamples > 0)
+    if (session != nullptr && transport.isRolling() && numSamples > 0)   // a count-in is not part of the take
     {
         const juce::int64 pos = transport.getPositionSamples();
         juce::int64 expected = -1;

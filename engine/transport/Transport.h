@@ -23,10 +23,21 @@ public:
     static constexpr int ticksPerBeat = 960;
 
     // ---- Playback state (any thread) ----
-    void play() noexcept                  { playing.store (true,  std::memory_order_release); }
-    void stop() noexcept                  { playing.store (false, std::memory_order_release); }
-    void togglePlay() noexcept            { playing.store (! isPlaying(), std::memory_order_release); }
+    void play() noexcept                  { countIn.store (0, std::memory_order_release); playing.store (true,  std::memory_order_release); }
+    void stop() noexcept                  { playing.store (false, std::memory_order_release); countIn.store (0, std::memory_order_release); }
+    void togglePlay() noexcept            { if (isPlaying()) stop(); else play(); }
     bool isPlaying() const noexcept       { return playing.load (std::memory_order_acquire); }
+
+    // A count-in: play, but hold the position for `samples` first. The metronome clicks through them; the
+    // position, the clips and the recorder wait. Stop during the count-in cancels it.
+    void playWithCountIn (juce::int64 samples) noexcept
+    {
+        countIn.store (juce::jmax<juce::int64> (0, samples), std::memory_order_release);
+        playing.store (true, std::memory_order_release);
+    }
+    bool isCountingIn() const noexcept            { return isPlaying() && countIn.load (std::memory_order_acquire) > 0; }
+    bool isRolling() const noexcept               { return isPlaying() && countIn.load (std::memory_order_acquire) <= 0; }   // playing and moving
+    juce::int64 getCountInRemaining() const noexcept { return juce::jmax<juce::int64> (0, countIn.load (std::memory_order_acquire)); }
 
     void returnToStart() noexcept         { position.store (0, std::memory_order_release); }
 
@@ -55,6 +66,14 @@ public:
     // Called by the audio thread once per block.
     void advance (int numSamples) noexcept
     {
+        const auto remaining = countIn.load (std::memory_order_acquire);
+        if (remaining > 0)   // the count-in eats the block first; what is left of the block moves the position
+        {
+            const auto used = juce::jmin<juce::int64> (remaining, numSamples);
+            countIn.store (remaining - used, std::memory_order_release);
+            numSamples -= (int) used;
+            if (numSamples <= 0) return;
+        }
         position.fetch_add (numSamples, std::memory_order_acq_rel);
     }
 
@@ -101,6 +120,7 @@ public:
 
 private:
     std::atomic<bool> playing { false };
+    std::atomic<juce::int64> countIn { 0 };   // samples still to count in before the position moves
     std::atomic<bool> recordEnabled { false };
     std::atomic<juce::int64> position { 0 };
     std::atomic<bool> loopEnabled { false };

@@ -53,6 +53,8 @@ std::vector<PrefDef> Preferences::definitions()
         choice ("metronome.sound", "Metronome", "Click sound", "The click's character.", 0, { "Beep", "Click", "Wood" }),
         toggle ("metronome.accent", "Metronome", "Accent the downbeat", "The first beat of every bar is louder and higher.", true),
         toggle ("metronome.recordOnly", "Metronome", "Only while recording", "The click stays silent during plain playback.", false),
+        choice ("metronome.countIn", "Metronome", "Count-in", "Bars of click before the transport starts; clips and the recorder wait for it.", 0, { "Off", "1 bar", "2 bars", "4 bars" }),
+        choice ("metronome.countInFor", "Metronome", "Count in for", "When the count-in happens.", 0, { "Recording only", "Recording and playback" }),
 
         // Mixing
         choice ("mixing.panDepth", "Mixing", "Pan depth", "Centre attenuation of the pan law.", 1, { "-2.5 dB", "-3 dB", "-4.5 dB", "-6 dB" }),

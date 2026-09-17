@@ -50,6 +50,8 @@ Preferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Ma
 | Click sound | Beep | The click's character. Choices: Beep, Click, Wood. |
 | Accent the downbeat | on | The first beat of every bar is louder and higher. |
 | Only while recording | off | The click stays silent during plain playback. |
+| Count-in | Off | Bars of click before the transport starts; clips and the recorder wait for it. Choices: Off, 1 bar, 2 bars, 4 bars. |
+| Count in for | Recording only | When the count-in happens. Choices: Recording only, Recording and playback. |
 
 ## Mixing
 

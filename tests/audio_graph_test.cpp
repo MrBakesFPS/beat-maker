@@ -180,3 +180,45 @@ TEST_CASE ("Metronome clicks on every beat while playing, accents the downbeat, 
     CHECK_THAT (out.getMagnitude (0, 0, 4000), Catch::Matchers::WithinAbs (out.getMagnitude (0, 24000, 4000), 1e-4));
     graph.collectGarbage();
 }
+
+TEST_CASE ("Count-in: the click counts the bars down while the position, the clips and the metronome setting wait")
+{
+    Transport t; t.setSampleRate (48000.0); t.setBpm (120.0); t.setBeatsPerBar (4);   // 24000 samples per beat, 96000 per bar
+    AudioGraph graph (t);
+    auto snap = std::make_unique<RenderSnapshot>();
+    RenderClip rc; rc.audio = makeRamp (1, 480000, 0.0f); rc.timelineStart = 0; rc.length = 480000;
+    {   // a DC clip so the source is easy to spot
+        juce::AudioBuffer<float> b (1, 480000); juce::FloatVectorOperations::fill (b.getWritePointer (0), 0.5f, 480000);
+        rc.audio = std::make_shared<const juce::AudioBuffer<float>> (std::move (b));
+    }
+    snap->clips.push_back (rc);
+    graph.setSnapshot (std::move (snap));
+    graph.getMetronome().setEnabled (false);   // the count-in clicks anyway
+    graph.getMetronome().setLevel (1.0f);
+
+    t.setPositionSamples (0);
+    t.playWithCountIn (96000);   // one bar
+    CHECK (t.isPlaying()); CHECK (t.isCountingIn()); CHECK_FALSE (t.isRolling());
+
+    juce::AudioBuffer<float> out (2, 144000);
+    out.clear();
+    for (int pos = 0; pos < 144000; pos += 512)
+    {
+        float* ptrs[2] = { out.getWritePointer (0, pos), out.getWritePointer (1, pos) };
+        graph.renderBlock (ptrs, 2, juce::jmin (512, 144000 - pos));
+    }
+    // During the bar of count-in: clicks on the four beats, nothing between them, no clip audio
+    CHECK (out.getMagnitude (0, 0, 3000) > 0.3f);
+    CHECK (out.getMagnitude (0, 24000, 3000) > 0.1f);
+    CHECK (out.getMagnitude (0, 6000, 16000) == 0.0f);
+    CHECK (out.getMagnitude (0, 78000, 16000) == 0.0f);
+    // Then the clip plays from its start and the position has moved only for the part after the count-in
+    CHECK_THAT (out.getSample (0, 100000), Catch::Matchers::WithinAbs (0.5f, 1e-6));
+    CHECK (t.getPositionSamples() == 144000 - 96000);
+    CHECK (t.isRolling()); CHECK_FALSE (t.isCountingIn());
+
+    // Stop cancels a count-in
+    t.stop(); t.playWithCountIn (96000); t.stop();
+    CHECK_FALSE (t.isCountingIn()); CHECK (t.getCountInRemaining() == 0);
+    graph.collectGarbage();
+}

@@ -10,6 +10,8 @@ The whole pass is always kept on disk, so punches are sample-accurate and never 
 
 **Click** in the transport bar (or **K**) turns the metronome on: a click on every beat while the transport runs, louder and higher on the first beat of each bar, following the session tempo and time signature. It plays to the main outputs after the master fader and is never part of a bounce or stems. Preferences > Metronome sets its level, its sound (Beep, Click or Wood), whether the downbeat is accented, and **Only while recording**, which keeps it silent during plain playback. The on/off state is remembered between sessions.
 
+**Count-in** (Preferences > Metronome: off, 1, 2 or 4 bars) plays that many bars of click before the transport starts moving: the bars and beats readout counts down, clips stay silent and the recorder waits, so the take begins exactly on the downbeat. It counts in for recording, or for recording and playback (**Count in for**), and clicks whether or not the metronome button is on. Stop during the count-in cancels it.
+
 ## Record modes
 
 The **Rec** button in the transport bar chooses the mode:

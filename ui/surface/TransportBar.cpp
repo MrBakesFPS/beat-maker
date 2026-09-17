@@ -30,7 +30,7 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     stopButton.setTooltip ("Stop (Space)");
     rtzButton.setTooltip ("Return to start (Return)");
 
-    playButton.onClick = [this] { transport.play(); };
+    playButton.onClick = [this] { if (onPlay) onPlay(); else transport.play(); };
     stopButton.onClick = [this]
     {
         if (transport.isPlaying()) transport.stop();
@@ -267,6 +267,15 @@ void TransportBar::timerCallback()
 void TransportBar::updateDisplay()
 {
     const auto bb = transport.getBarBeat();
+    if (transport.isCountingIn())
+    {
+        // Counting down to the start: "-2 | 3" is two bars and three beats to go
+        const double beatsLeft = (double) transport.getCountInRemaining() / (transport.getSampleRate() * 60.0 / transport.getBpm());
+        const int bpb = juce::jmax (1, transport.getBeatsPerBar());
+        const int beatsInt = (int) std::ceil (beatsLeft - 1.0e-6);
+        barsBeatsLcd.setText (juce::String::formatted ("-%d | %d | count-in", juce::jmax (0, (beatsInt - 1) / bpb), ((beatsInt - 1) % bpb) + 1), juce::dontSendNotification);
+    }
+    else
     barsBeatsLcd.setText (juce::String::formatted ("%03d | %d | %03d", bb.bar, bb.beat, bb.tick), juce::dontSendNotification);
 
     const double secs = transport.getPositionSeconds();

@@ -892,7 +892,8 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
     swapInPendingSnapshot();
     swapInPendingAudition();
 
-    const bool playing = transport.isPlaying();
+    const bool countingIn = transport.isCountingIn();
+    const bool playing = transport.isPlaying() && ! countingIn;   // during a count-in nothing rolls but the click
     if (wasPlaying && ! playing)
         releaseAllInstruments (false);  // stop: let held notes release
     wasPlaying = playing;
@@ -984,8 +985,9 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
 
     mixPreview (outputs, numOutputs, numSamples);
     renderAudition (outputs, numOutputs, numSamples);
-    metronome.render (outputs, numOutputs, numSamples, transport.getPositionSamples(), transport.getSampleRate(), transport.getBpm(),
-                      transport.getBeatsPerBar(), playing, recorder != nullptr && recorder->isRecording());
+    // The count-in clicks on the beats leading up to the start position, whether or not the metronome is on
+    metronome.render (outputs, numOutputs, numSamples, transport.getPositionSamples() - transport.getCountInRemaining(), transport.getSampleRate(),
+                      transport.getBpm(), transport.getBeatsPerBar(), playing || countingIn, recorder != nullptr && recorder->isRecording(), countingIn);
 
     if (scrubNow)
         transport.setPositionSamples ((juce::int64) std::llround (scrubPosition));
@@ -995,8 +997,8 @@ void AudioGraph::renderRange (const float* const* inputs, int numInputs, float* 
             outputPeak[(size_t) ch].store (juce::FloatVectorOperations::findMaximum (outputs[ch], numSamples),
                                            std::memory_order_relaxed);
 
-    if (playing)
-        transport.advance (numSamples);
+    if (transport.isPlaying())
+        transport.advance (numSamples);   // the transport consumes a count-in before moving
 }
 
 void AudioGraph::renderBlock (const float* const* inputs, int numInputs,

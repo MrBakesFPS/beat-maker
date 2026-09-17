@@ -243,6 +243,7 @@ public:
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
         transportBar.onMetronomeToggled = [this] (bool on) { setMetronome (on); };
+        transportBar.onPlay = [this] { startTransport (false); };
         transportBar.onControlsToggled = [this] (bool visible) { setControlsVisible (visible); };
         transportBar.onMixerToggled = [this] (bool visible) { setMixerVisible (visible); };
 
@@ -644,7 +645,22 @@ public:
         if (index < 0) { addInstrumentTrack (engine::InstrumentType::sampler); index = trackArea.getSelectedTrack(); }
         loadSamplerSample (index, file);
     }
-    void startPlayback() { engine.getTransport().play(); }
+    void startPlayback() { startTransport (false); }
+
+    // Play or record with the count-in Preferences > Metronome asks for: the transport clicks through the bars
+    // before its position moves (Transport::playWithCountIn), and the recorder waits with it.
+    void startTransport (bool forRecording)
+    {
+        auto& transport = engine.getTransport();
+        static const int barsFor[] = { 0, 1, 2, 4 };
+        const int bars = barsFor[juce::jlimit (0, 3, prefs.getInt ("metronome.countIn"))];
+        const bool wanted = bars > 0 && (forRecording || prefs.getInt ("metronome.countInFor") == 1);
+        if (! wanted || transport.isPlaying()) { if (! transport.isPlaying()) transport.play(); return; }
+        const auto samples = (juce::int64) std::llround (bars * transport.getBeatsPerBar() * 60.0 / transport.getBpm() * transport.getSampleRate());
+        transport.playWithCountIn (samples);
+        statusMessage = "Count-in: " + juce::String (bars) + (bars == 1 ? " bar" : " bars"); updateStatus();
+    }
+    void togglePlayback() { auto& t = engine.getTransport(); if (t.isPlaying()) t.stop(); else startTransport (false); }
     void addArmedAudioTrackAndRecord()
     {
         const int index = addTrack ("Audio " + juce::String (countTracks (model::Track::Type::audio) + 1));
@@ -1024,7 +1040,7 @@ public:
         // Transport
         add ("transport.setTempo", "Transport", "Set Tempo...", juce::KeyPress ('t', M::commandModifier | M::shiftModifier, 0), 0, [this] { showTempoDialog(); });
         add ("transport.tapTempo", "Transport", "Tap Tempo", juce::KeyPress ('t', M::commandModifier | M::altModifier, 0), 0, [this] { tapTempo(); });
-        add ("transport.playStop", "Transport", "Play / Stop", juce::KeyPress (juce::KeyPress::spaceKey), 0, [&transport] { transport.togglePlay(); });
+        add ("transport.playStop", "Transport", "Play / Stop", juce::KeyPress (juce::KeyPress::spaceKey), 0, [this] { togglePlayback(); });
         add ("transport.returnToStart", "Transport", "Return to Start", juce::KeyPress (juce::KeyPress::returnKey), 0, [&transport] { transport.returnToStart(); });
         add ("transport.returnToStartHome", "Transport", "Return to Start (Home)", juce::KeyPress (juce::KeyPress::homeKey), 0, [&transport] { transport.returnToStart(); });
         add ("transport.record", "Transport", "Record / Punch", juce::KeyPress ('r'), 0, [this] { toggleRecord(); });
@@ -2003,7 +2019,7 @@ private:
         transport.setRecordEnabled (! manual);
         transportBar.setWaitingForPunch (manual);
         if (! transport.isPlaying())
-            transport.play();
+            startTransport (true);
 
         statusMessage = (loopRecording ? "Loop recording " : manual ? juce::String (model::recordModeName (rs.mode)) + ": rolling, " : "Recording ")
                       + juce::String (slots.size()) + (slots.size() == 1 ? " track" : " tracks")

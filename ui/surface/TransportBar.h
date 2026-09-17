@@ -18,6 +18,7 @@ public:
 
     std::function<void()> onOpenFile;
     std::function<void()> onRecord;
+    std::function<void()> onPlay;   // set: the app starts playback (with a count-in when configured); unset: the transport plays
     std::function<void()> onBounce;
     std::function<void (bool)> onEditorToggled;
     std::function<void (bool)> onMetronomeToggled;

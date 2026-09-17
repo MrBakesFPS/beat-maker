@@ -31,9 +31,9 @@ public:
 
     // Audio thread. Adds the clicks whose beats fall in [pos, pos + numSamples) to the first two outputs.
     void render (float* const* outs, int numOuts, int numSamples, juce::int64 pos, double sampleRate, double bpm, int beatsPerBar,
-                 bool playing, bool recording) noexcept
+                 bool playing, bool recording, bool force = false) noexcept   // force: a count-in clicks whatever the settings say
     {
-        if (! playing || ! isEnabled() || (recordOnly.load (std::memory_order_relaxed) && ! recording) || bpm <= 0.0 || sampleRate <= 0.0)
+        if (! playing || bpm <= 0.0 || sampleRate <= 0.0 || (! force && (! isEnabled() || (recordOnly.load (std::memory_order_relaxed) && ! recording))))
         {
             voice = -1;
             return;
