@@ -2,9 +2,13 @@
 
 ## The Mix window
 
-**X** opens a Pro Tools-style Mix window with one channel strip per track plus a Master strip. When the strips do not fit, the wheel over them or the scrollbar underneath scrolls sideways; the Master stays at the right. Each strip has 10 insert slots (five shown, and more as they fill) hosting the built-in effects or plugins (click an empty slot to add one, click an effect to switch it on or off, right-click it to edit its knobs in a callout, replace or remove it), 5 sends to 8 stereo buses with pre/post-fader switching and level (the **SENDS** button above them opens the sends panel: every send on a wide dB scale with a typed level, its bus and its pre/post switch; the strip's small controls follow it and it follows them), a pan knob, a fader with a post-fader meter, mute and solo, and output routing (Main or a bus). Aux Input tracks read a bus and can carry inserts and sends of their own. Every knob and fader gesture is one undo step, and the same strip pipeline runs live and in Bounce.
+**X** opens a Pro Tools-style Mix window with one channel strip per track plus a Master strip. When the strips do not fit, the wheel over them or the scrollbar underneath scrolls sideways; the Master stays at the right. Each strip has 10 insert slots (five shown, and more as they fill) hosting the built-in effects or plugins (click an empty slot to add one, click an effect to switch it on or off, right-click it to edit its knobs in a callout, replace or remove it), 5 sends to 8 stereo buses (each send is a button showing its bus, pre/post and level; click it for the bus, pre-fader or no send), a pan knob, a fader with a post-fader meter, mute and solo, and output routing (Main or a bus). Aux Input tracks read a bus and can carry inserts and sends of their own. Every knob and fader gesture is one undo step, and the same strip pipeline runs live and in Bounce.
 
 The pan law is centre-compensated; the depth (-2.5, -3, -4.5 or -6 dB) is a preference and goes through the engine.
+
+### The sends panel
+
+The **SENDS** button above a strip's sends opens the sends panel over the strips: every send on a wide dB scale with a scale drawn under it, a level you can drag or type in dB (-inf to +6), its bus and its pre/post switch. Levels are set here (the strip's send buttons show them). A drag is one undo step and writes automation like the fader does, and in Read mode the panel follows the lane. The panel stays open while you work in it, including while a bus is being chosen, and closes on a click anywhere else, its close button, Escape, or a second click on SENDS.
 
 ## Built-in effects
 

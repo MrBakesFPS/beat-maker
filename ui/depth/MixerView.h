@@ -44,11 +44,13 @@ public:
 
     // Opens an insert's knobs by its slot on a track's strip, scrolling the strip into view (a track menu's Add Effect lands here)
     void openInsertEditor (int trackIndex, int slot);
-    void openSendsPanel (int trackIndex);   // the strip's sends on a wide dB scale, in a callout
+    void openSendsPanel (int trackIndex);   // the strip's sends on a wide dB scale, a panel over the strips (toggles)
+    void closeSendsPanel();
 
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    void visibilityChanged() override;
 
     static constexpr int preferredHeight = 440;
 
@@ -57,6 +59,7 @@ private:
     void sessionChanged (model::Session&) override;
     void timerCallback() override;
     void rebuildStrips();
+    void placeSendsPanel();
 
     model::Session& session;
     engine::AudioGraph& graph;
@@ -65,6 +68,8 @@ private:
     juce::Component stripHolder;
     juce::OwnedArray<ChannelStrip> strips;
     std::unique_ptr<ChannelStrip> masterStrip;
+    std::unique_ptr<juce::Component> sendsPanel;   // the open sends panel, if any
+    int sendsPanelTrack = -1;
     std::vector<model::StripDelayInfo> delays;
 
     engine::LoudnessAnalyser loudness;

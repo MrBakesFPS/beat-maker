@@ -37,7 +37,7 @@ public:
             sendsButton.setTooltip ("Open the sends panel: every send on a wide dB scale with its bus and pre/post switch");
             sendsButton.setColour (juce::TextButton::buttonColourId, theme::background);
             sendsButton.setColour (juce::TextButton::textColourOffId, theme::text);
-            sendsButton.onClick = [this] { openSendsPanel(); };
+            sendsButton.onClick = [this] { mixer.openSendsPanel (index); };   // a second click closes it
             addAndMakeVisible (sendsButton);
         }
         if (! isMaster())
@@ -46,28 +46,9 @@ public:
                 auto* b = sendButtons.add (new juce::TextButton());
                 b->setColour (juce::TextButton::buttonColourId, theme::background);
                 b->setColour (juce::TextButton::textColourOffId, theme::text);
+                b->setTooltip ("Click: the bus, pre/post or no send. The level is set in the sends panel (SENDS button).");
                 b->onClick = [this, i] { sendClicked (i); };
                 addAndMakeVisible (b);
-
-                auto* s = sendLevels.add (new juce::Slider (juce::Slider::LinearHorizontal, juce::Slider::NoTextBox));
-                s->setRange (0.0, 2.0, 0.0);
-                s->setSkewFactorFromMidPoint (1.0);
-                s->setColour (juce::Slider::trackColourId, theme::accent.darker (0.4f));
-                s->setColour (juce::Slider::backgroundColourId, theme::background);
-                s->onDragStart = [this] { gesture = true; changed = false; };
-                s->onDragEnd = [this, i] { endGesture (engine::ParamId::send (i)); };
-                s->onValueChange = [this, i, s]
-                {
-                    if (syncing) return;
-                    if (auto* t = track(); t != nullptr && t->sends[(size_t) i].isActive())
-                    {
-                        auto send = t->sends[(size_t) i];
-                        send.gain = (float) s->getValue();
-                        issue (std::make_unique<model::SetSendCommand> (index, i, send));
-                        report (engine::ParamId::send (i), send.gain);
-                    }
-                };
-                addAndMakeVisible (s);
             }
 
         if (! isMaster())
@@ -245,9 +226,7 @@ public:
         if (! isMaster())
         {
             if (auto v = mixer.automatedValue (index, engine::ParamId::pan()))    pan.setValue (*v, juce::dontSendNotification);
-            for (int i = 0; i < sendLevels.size(); ++i)
-                if (auto v = mixer.automatedValue (index, engine::ParamId::send (i))) sendLevels[i]->setValue (*v, juce::dontSendNotification);
-            if (sendsPanel != nullptr) sendsPanel->follow();
+            if (sendsPanel != nullptr) sendsPanel->follow();   // the send levels live in the panel
         }
         syncing = false;
     }
@@ -276,10 +255,8 @@ public:
         for (int i = 0; i < sendButtons.size(); ++i)
         {
             const auto& send = t->sends[(size_t) i];
-            sendButtons[i]->setButtonText (send.isActive() ? (send.preFader ? "Pre " : "") + mixer.session.busName (send.bus).replace ("Bus ", "B") : "-");
+            sendButtons[i]->setButtonText (send.isActive() ? (send.preFader ? "Pre " : "") + mixer.session.busName (send.bus).replace ("Bus ", "B") + "  " + dbText (send.gain) : "-");
             sendButtons[i]->setColour (juce::TextButton::buttonColourId, send.isActive() ? theme::accent.darker (0.6f) : theme::background);
-            sendLevels[i]->setValue (send.gain, juce::dontSendNotification);
-            sendLevels[i]->setEnabled (send.isActive());
         }
         if (sendsPanel != nullptr) sendsPanel->refresh();
         if (! isMaster())
@@ -297,7 +274,6 @@ public:
             const bool vca = t->isVca();
             for (auto* b : insertButtons) b->setVisible (! vca);
             for (auto* b : sendButtons) b->setVisible (! vca);
-            for (auto* sl : sendLevels) sl->setVisible (! vca);
             pan.setVisible (! vca);
             output.setVisible (! vca);
             vcaBox.setVisible (! vca);
@@ -401,8 +377,10 @@ public:
     }
 
     // The sends panel: the strip's five sends on a wide dB scale, each with its bus, pre/post switch and a typed level.
-    // It is the strip's own controls at a larger size, so a change here is the same command (and automation pass)
-    // as a drag on the small slider, and the small controls follow it.
+    // A change here is the same command (and automation pass) as the strip's own send buttons make, and the strip
+    // follows it. It is a child of the Mix view, not a desktop callout: a callout is dismissed whenever the main
+    // window reports losing focus, which happens under some compositors when a combo popup opens or a drag grabs
+    // the pointer. This panel closes only on a click elsewhere, its close button, Escape, or a second SENDS click.
     class SendsPanel final : public juce::Component
     {
     public:
@@ -412,6 +390,17 @@ public:
             title.setColour (juce::Label::textColourId, theme::text);
             title.setFont (juce::FontOptions (14.0f, juce::Font::bold));
             addAndMakeVisible (title);
+            closeButton.setButtonText ("x");
+            closeButton.setTooltip ("Close (clicking anywhere outside the panel closes it too)");
+            closeButton.setColour (juce::TextButton::buttonColourId, theme::background);
+            closeButton.setColour (juce::TextButton::textColourOffId, theme::text);
+            closeButton.onClick = [this] { strip.mixer.closeSendsPanel(); };
+            addAndMakeVisible (closeButton);
+            setWantsKeyboardFocus (true);
+            dismisser.onOutsideClick = [this] { strip.mixer.closeSendsPanel(); };
+            dismisser.panel = this;
+            dismisser.keep = &strip.sendsButton;
+            juce::Desktop::getInstance().addGlobalMouseListener (&dismisser);
             for (int i = 0; i < model::Track::numSendSlots; ++i)
             {
                 auto& r = rows[(size_t) i];
@@ -482,6 +471,14 @@ public:
             refresh();
         }
 
+        ~SendsPanel() override { juce::Desktop::getInstance().removeGlobalMouseListener (&dismisser); }
+
+        bool keyPressed (const juce::KeyPress& k) override
+        {
+            if (k == juce::KeyPress::escapeKey) { strip.mixer.closeSendsPanel(); return true; }
+            return false;
+        }
+
         // The model's values into the controls (a command ran, or the strip re-synced)
         void refresh()
         {
@@ -520,6 +517,8 @@ public:
         void paint (juce::Graphics& g) override
         {
             g.fillAll (theme::panel);
+            g.setColour (theme::accent.withAlpha (0.7f));
+            g.drawRect (getLocalBounds(), 1);
             // A dB scale under the sliders, so a level can be read against it
             if (scale.isEmpty()) return;
             g.setColour (theme::text.withAlpha (0.55f));
@@ -537,7 +536,9 @@ public:
         void resized() override
         {
             auto area = getLocalBounds().reduced (10, 8);
-            title.setBounds (area.removeFromTop (22));
+            auto titleRow = area.removeFromTop (22);
+            closeButton.setBounds (titleRow.removeFromRight (22).reduced (0, 2));
+            title.setBounds (titleRow);
             area.removeFromTop (4);
             for (auto& r : rows)
             {
@@ -557,21 +558,34 @@ public:
         }
 
     private:
+        // Closes the panel on a mouse-down anywhere else in the app. A click inside the panel, on a popup menu
+        // (a bus being chosen), or on the SENDS button that toggles it is left alone.
+        struct Dismisser final : public juce::MouseListener
+        {
+            void mouseDown (const juce::MouseEvent& e) override
+            {
+                auto* c = e.eventComponent;
+                if (c == nullptr || panel == nullptr) return;
+                if (c == panel || panel->isParentOf (c) || c == keep || (keep != nullptr && keep->isParentOf (c))) return;
+                if (juce::Component::getCurrentlyModalComponent() != nullptr) return;   // a popup menu is up
+                if (onOutsideClick) juce::MessageManager::callAsync (onOutsideClick);   // not from inside the event
+            }
+            juce::Component* panel = nullptr;
+            juce::Component* keep = nullptr;
+            std::function<void()> onOutsideClick;
+        };
         ChannelStrip& strip;
         juce::Label title;
+        juce::TextButton closeButton;
+        Dismisser dismisser;
         struct Row { juce::Label name; juce::ComboBox bus; juce::TextButton pre; juce::Slider level; };
         std::array<Row, (size_t) model::Track::numSendSlots> rows;
         juce::Rectangle<int> scale;
         bool syncing = false;
     };
 
-    void openSendsPanel()
-    {
-        if (track() == nullptr || sendsPanel != nullptr) return;
-        auto panel = std::make_unique<SendsPanel> (*this);
-        sendsPanel = panel.get();
-        juce::CallOutBox::launchAsynchronously (std::move (panel), sendsButton.getScreenBounds(), nullptr);
-    }
+    // Where the panel goes in the Mix view: beside the strip's SENDS button, kept inside the view
+    juce::Rectangle<int> sendsPanelAnchor() const { return mixer.getLocalArea (&sendsButton, sendsButton.getLocalBounds()); }
 
     void sendClicked (int sendIndex)
     {
@@ -832,13 +846,9 @@ public:
             sendsButton.setVisible (! isVca());
             sendsButton.setBounds (area.removeFromTop (13));
             area.removeFromTop (1);
-            sendsY = area.getY();
             for (int i = 0; i < sendButtons.size(); ++i)
             {
-                auto row = area.removeFromTop (15);
-                sendButtons[i]->setBounds (row.removeFromLeft (44));
-                row.removeFromLeft (2);
-                sendLevels[i]->setBounds (row);
+                sendButtons[i]->setBounds (area.removeFromTop (15));
                 area.removeFromTop (1);
             }
             area.removeFromTop (4);
@@ -879,18 +889,17 @@ public:
     }
 
 private:
+    friend class MixerView;   // opens and places the sends panel by the strip's button
     static constexpr int visibleInserts = 5;
     MixerView& mixer;
     int index;
     juce::OwnedArray<juce::TextButton> insertButtons, sendButtons;
-    juce::OwnedArray<juce::Slider> sendLevels;
     juce::TextButton sendsButton;
-    juce::Component::SafePointer<SendsPanel> sendsPanel;   // open while its callout shows
+    juce::Component::SafePointer<SendsPanel> sendsPanel;   // the mixer owns it; set while it shows for this strip
     juce::Slider pan, fader;
     juce::TextButton mute { "M" }, solo { "S" };
     juce::ComboBox output, autoMode, vcaBox;
     juce::Rectangle<int> meterBounds, dbBounds, panLabelBounds, clipBounds, loudnessBounds;
-    int sendsY = 0;
     float heldL = 0.0f, heldR = 0.0f;
     bool clipHeld = false;
     bool trimming = false;
@@ -917,7 +926,7 @@ MixerView::MixerView (model::Session& s, engine::AudioGraph& g, std::function<do
     startTimerHz (30);
 }
 
-MixerView::~MixerView() { session.removeListener (this); }
+MixerView::~MixerView() { closeSendsPanel(); session.removeListener (this); }
 
 void MixerView::openInsertEditor (int trackIndex, int slot)
 {
@@ -934,14 +943,43 @@ void MixerView::openSendsPanel (int trackIndex)
 {
     if (! juce::isPositiveAndBelow (trackIndex, strips.size())) return;
     auto* strip = strips[trackIndex];
+    const bool wasOpenHere = strip->sendsPanel != nullptr;
+    closeSendsPanel();
+    if (wasOpenHere || strip->track() == nullptr) return;   // the SENDS button toggles
     const auto area = viewport.getViewArea();
     if (strip->getRight() > area.getRight() || strip->getX() < area.getX())
         viewport.setViewPosition (juce::jmax (0, strip->getX() - 20), viewport.getViewPositionY());
-    strip->openSendsPanel();
+    auto panel = std::make_unique<ChannelStrip::SendsPanel> (*strip);
+    strip->sendsPanel = panel.get();
+    sendsPanelTrack = trackIndex;
+    sendsPanel = std::move (panel);
+    addAndMakeVisible (*sendsPanel);
+    placeSendsPanel();
+    sendsPanel->grabKeyboardFocus();
+}
+
+void MixerView::closeSendsPanel()
+{
+    sendsPanel.reset();
+    sendsPanelTrack = -1;
+}
+
+void MixerView::placeSendsPanel()
+{
+    if (sendsPanel == nullptr || ! juce::isPositiveAndBelow (sendsPanelTrack, strips.size())) return;
+    const auto anchor = strips[sendsPanelTrack]->sendsPanelAnchor();
+    const int w = sendsPanel->getWidth(), h = sendsPanel->getHeight();
+    int x = anchor.getRight() + 6;
+    if (x + w > getWidth()) x = anchor.getX() - 6 - w;   // no room on the right: the left
+    x = juce::jlimit (0, juce::jmax (0, getWidth() - w), x);
+    const int y = juce::jlimit (0, juce::jmax (0, getHeight() - h), anchor.getY());
+    sendsPanel->setBounds (x, y, w, h);
+    sendsPanel->toFront (false);
 }
 
 void MixerView::rebuildStrips()
 {
+    closeSendsPanel();   // it points at a strip
     strips.clear();
     for (int i = 0; i < session.getNumTracks(); ++i)
         stripHolder.addAndMakeVisible (strips.add (new ChannelStrip (*this, i)));
@@ -995,6 +1033,12 @@ void MixerView::resized()
     stripHolder.setSize (juce::jmax (area.getWidth(), strips.size() * ChannelStrip::width), area.getHeight() - (viewport.isHorizontalScrollBarShown() ? 12 : 0));
     for (int i = 0; i < strips.size(); ++i)
         strips[i]->setBounds (i * ChannelStrip::width, 0, ChannelStrip::width, stripHolder.getHeight());
+    placeSendsPanel();
+}
+
+void MixerView::visibilityChanged()
+{
+    if (! isVisible()) closeSendsPanel();
 }
 
 } // namespace beatmaker::ui
