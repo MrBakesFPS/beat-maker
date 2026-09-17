@@ -1085,11 +1085,11 @@ public:
         add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
         add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { if (auto* ed = focusedEditor()) ed->zoomToFit(); else trackArea.zoomToSelection(); });
         add ("view.editor", "View", "Editor panel", juce::KeyPress ('e'), 0, [this] { setEditorVisible (! editorVisible); });
-        add ("track.addFromLibrary", "Track", "Add from Preset Library...", juce::KeyPress ('l'), 0, [this] { showLibraryWindow(); });
+        add ("track.addFromLibrary", "Track", "Add from Sample Library...", juce::KeyPress ('l'), 0, [this] { showLibraryWindow(); });
         add ("view.controls", "View", "Smart Controls", juce::KeyPress ('b'), 0, [this] { setControlsVisible (! controlsVisible); });
         add ("view.mixer", "View", "Mix window", juce::KeyPress ('x'), 0, [this] { setMixerVisible (! mixerVisible); });
         add ("view.editorCtrl", "View", "Editor panel (Ctrl+Shift+E)", juce::KeyPress ('e', M::commandModifier | M::shiftModifier, 0), 0, [this] { setEditorVisible (! editorVisible); });
-        add ("track.addFromLibraryCtrl", "Track", "Add from Preset Library... (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { showLibraryWindow(); });
+        add ("track.addFromLibraryCtrl", "Track", "Add from Sample Library... (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { showLibraryWindow(); });
         add ("view.controlsCtrl", "View", "Smart Controls (Ctrl+Shift+B)", juce::KeyPress ('b', M::commandModifier | M::shiftModifier, 0), 0, [this] { setControlsVisible (! controlsVisible); });
         add ("view.mixerCtrl", "View", "Mix window (Ctrl+Shift+X)", juce::KeyPress ('x', M::commandModifier | M::shiftModifier, 0), 0, [this] { setMixerVisible (! mixerVisible); });
 
@@ -1486,7 +1486,7 @@ private:
         resized();
     }
 
-    // The Preset Library: a window over the loop browser, opened from + Track (or L). Choosing a loop adds a track.
+    // The Sample Library: a window over the loop browser, opened from + Track (or L). Choosing a loop adds a track.
     void showLibraryWindow()
     {
         if (libraryWindow == nullptr)
@@ -2694,7 +2694,7 @@ private:
     {
         std::vector<ui::TourOverlay::Step> steps;
         steps.push_back ({ "Transport", "Space plays and stops, R records (arm a track first), C turns Cycle on. The Rec menu picks Normal, QuickPunch, TrackPunch or Loop record; Pre/Post sets pre- and post-roll.", [this] { return (juce::Component*) &transportBar; }, {} });
-        steps.push_back ({ "Tracks", "+ Track adds audio, Drum Machine, any instrument, an aux input, a VCA, or a loop from the Preset Library (L): click a loop there to audition it, double-click to add it at the playhead, conformed to the session tempo. Right-click a header to rename, freeze or commit. The strip above the ruler holds memory locations and arrangement sections (M adds a marker).", [this] { return (juce::Component*) &trackArea; }, {} });
+        steps.push_back ({ "Tracks", "+ Track adds audio, Drum Machine, any instrument, an aux input, a VCA, or a loop from the Sample Library (L): click a loop there to audition it, double-click to add it at the playhead, conformed to the session tempo. Right-click a header to rename, freeze or commit. The strip above the ruler holds memory locations and arrangement sections (M adds a marker).", [this] { return (juce::Component*) &trackArea; }, {} });
         steps.push_back ({ "Edit modes and tools", "Shuffle / Slip / Spot / Grid and the Zoomer, Trimmer, Selector, Grabber, Scrubber, Pencil and Smart Tool (F1-F11). TCE makes the Trimmer stretch; a-z turns on single-key edit commands.", [this] { return (juce::Component*) &editToolbar; }, {} });
         steps.push_back ({ "Editor panel", "The step sequencer for drum tracks and the piano roll for instruments, with presets. E hides and shows it.", [this] { return (juce::Component*) (sequencer.isVisible() ? (juce::Component*) &sequencer : (juce::Component*) &pianoRoll); }, [this] { setEditorVisible (true); } });
         steps.push_back ({ "Smart Controls", "Macro knobs for the selected track: volume and pan, every instrument parameter, drum pad levels. A drag is one undo step.", [this] { return (juce::Component*) &smartControls; }, [this] { setControlsVisible (true); } });
@@ -3920,7 +3920,7 @@ private:
     struct LibraryWindow final : public juce::DocumentWindow
     {
         LibraryWindow (juce::Component& content, std::function<void()> onClose)
-            : juce::DocumentWindow ("Preset Library", ui::theme::panel, juce::DocumentWindow::closeButton), close (std::move (onClose))
+            : juce::DocumentWindow ("Sample Library", ui::theme::panel, juce::DocumentWindow::closeButton), close (std::move (onClose))
         {
             setUsingNativeTitleBar (true);
             setContentNonOwned (&content, false);

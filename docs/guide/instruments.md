@@ -89,6 +89,6 @@ The editor shares the edit window's settings, so the toolbar means the same thin
 
 **Ctrl+Alt+E** lists every note of the selected instrument track in time order with bar|beat|tick start, note name, velocity, length and clip, all editable in place (type F#3 or a note number). Click a row to locate, Delete removes selected events, Insert Note adds one at the playhead. Above the list, the track's **Real-Time Properties** (Quantize with grid and strength, Transpose, Velocity scale and offset, Delay, Duration) apply while playing and leave the stored notes untouched.
 
-## Preset Library
+## Sample Library
 
-**+ Track > Add from Preset Library...** (or **L**) opens a GarageBand-style browser window over the bundled loops plus `~/Music/Beat Maker/Loops` and any folders you add. Tempo, key and category are read from the file names, with the tempo estimated from the length when missing. Click a loop to audition it, double-click to add it at the playhead, or drag it onto a track. Loops are conformed to the session tempo with Elastic Audio (Rhythmic for drum loops, Polyphonic for everything else, so the pitch stays put), remember their source tempo and snap to the beat grid.
+**+ Track > Add from Sample Library...** (or **L**) opens a GarageBand-style browser window over the bundled loops plus `~/Music/Beat Maker/Loops` and any folders you add. Tempo, key and category are read from the file names, with the tempo estimated from the length when missing. Click a loop to audition it, double-click to add it at the playhead, or drag it onto a track. Loops are conformed to the session tempo with Elastic Audio (Rhythmic for drum loops, Polyphonic for everything else, so the pitch stays put), remember their source tempo and snap to the beat grid.

@@ -125,8 +125,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 
 | Command | Shortcut | Focus key |
 |---|---|---|
-| Add from Preset Library... | `L` |  |
-| Add from Preset Library... (Ctrl+Shift+L) | `ctrl + shift + L` |  |
+| Add from Sample Library... | `L` |  |
+| Add from Sample Library... (Ctrl+Shift+L) | `ctrl + shift + L` |  |
 | New Audio Track | `ctrl + shift + N` |  |
 | New Drum Machine Track | `ctrl + shift + D` |  |
 | New Synth Track | `ctrl + I` |  |

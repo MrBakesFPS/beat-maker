@@ -158,7 +158,7 @@ public:
     void clearLiveThumbnails();
     std::function<double()> getRecordStartSeconds;   // -1 when not yet started
     std::function<void (model::Track::Type, model::Track::InstrumentKind, engine::InstrumentType)> onAddTrack;
-    std::function<void()> onAddFromLibrary;   // + Track > Add from Preset Library...
+    std::function<void()> onAddFromLibrary;   // + Track > Add from Sample Library...
     std::function<void()> onChooseInstrument;   // Instrument Track > Other...: open the instrument chooser
     std::function<void (const juce::String& kitName)> onAddDrumTrack;   // Drum Machine Track > a kit
     std::function<void()> onChooseKit;          // Drum Machine Track > Other...: open the kit chooser
