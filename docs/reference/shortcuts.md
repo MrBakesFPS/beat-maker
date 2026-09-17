@@ -115,11 +115,9 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 | Zoom Out | `ctrl + R` | `R` |
 | Zoom to Fit / Selection | `alt + Z` | `E` |
 | Editor panel | `E` |  |
-| Loop Library | `L` |  |
 | Smart Controls | `B` |  |
 | Mix window | `X` |  |
 | Editor panel (Ctrl+Shift+E) | `ctrl + shift + E` |  |
-| Loop Library (Ctrl+Shift+L) | `ctrl + shift + L` |  |
 | Smart Controls (Ctrl+Shift+B) | `ctrl + shift + B` |  |
 | Mix window (Ctrl+Shift+X) | `ctrl + shift + X` |  |
 
@@ -127,6 +125,8 @@ Every shortcut is a registered command; the command palette (Ctrl+Shift+P) lists
 
 | Command | Shortcut | Focus key |
 |---|---|---|
+| Add from Preset Library... | `L` |  |
+| Add from Preset Library... (Ctrl+Shift+L) | `ctrl + shift + L` |  |
 | New Audio Track | `ctrl + shift + N` |  |
 | New Drum Machine Track | `ctrl + shift + D` |  |
 | New Synth Track | `ctrl + I` |  |

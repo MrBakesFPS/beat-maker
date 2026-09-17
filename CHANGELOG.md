@@ -8,6 +8,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 - A message-thread profiler: System Usage shows interface stalls and the costliest operations, and `--profile-ui[=seconds]` prints the profile.
 
 ### Changed
+- The loop library is no longer a sidebar with a Library button in the toolbar: **+ Track > Add from Preset Library...** (or L) opens it as a window, and a loop chosen there becomes a new track at the playhead as before. `--library` flag.
 - The Mix window and the editor panel take turns: opening one closes the other.
 - The track header's FX button: a click switches every effect on the track on or off (lit while any is on); a right-click opens the effects menu. Right-clicking an insert in the Mix window gives Edit..., Bypass and Remove (plus Replace With); a click still toggles it.
 - The note and drum editors show every clip of the track, with an active clip that edits and clicks switch between; a note or step in empty time creates a new clip. Add Clip for Selection (Ctrl+Alt+M, or right-click an empty lane) makes an empty clip covering the time selection on instrument tracks.

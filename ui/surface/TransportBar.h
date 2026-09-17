@@ -20,7 +20,6 @@ public:
     std::function<void()> onRecord;
     std::function<void()> onBounce;
     std::function<void (bool)> onEditorToggled;
-    std::function<void (bool)> onLibraryToggled;
     std::function<void (bool)> onControlsToggled;
     std::function<void (bool)> onMixerToggled;
     std::function<void (juce::TextButton&)> onRecordModeClicked;   // main shows the mode menu
@@ -39,7 +38,6 @@ public:
     void setMixerVisible (bool visible) { mixerButton.setToggleState (visible, juce::dontSendNotification); }
 
     void setEditorVisible (bool visible)  { editorButton.setToggleState (visible, juce::dontSendNotification); }
-    void setLibraryVisible (bool visible) { libraryButton.setToggleState (visible, juce::dontSendNotification); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -67,7 +65,6 @@ private:
     double dragStartBpm = 0.0, previewBpm = 0.0; bool draggingTempo = false, tempoPreviewing = false;
     int wheelCommitTicks = 0;
     void showTimeSignatureMenu();
-    juce::TextButton libraryButton { "Library" };
     juce::TextButton controlsButton { "Controls" };
     juce::TextButton mixerButton { "Mix" };
     juce::TextButton cycleButton { "Cycle" };

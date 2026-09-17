@@ -105,7 +105,7 @@ void LoopBrowser::paint (juce::Graphics& g)
 
     g.setColour (theme::text);
     g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
-    g.drawText ("Library", 12, 6, getWidth() - 24, 20, juce::Justification::centredLeft);
+    g.drawText ("Preset Library", 12, 6, getWidth() - 24, 20, juce::Justification::centredLeft);
 }
 
 void LoopBrowser::resized()

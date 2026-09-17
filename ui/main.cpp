@@ -204,7 +204,6 @@ public:
         {
             session.execute (std::make_unique<model::SetAutomationModeCommand> (t, m));
         };
-        addAndMakeVisible (loopBrowser);
         addAndMakeVisible (statusLabel);
 
         setupLoopLibrary();
@@ -243,7 +242,6 @@ public:
         transportBar.onRecord = [this] { toggleRecord(); };
         transportBar.onBounce = [this] { showBounceDialogImpl(); };
         transportBar.onEditorToggled = [this] (bool visible) { setEditorVisible (visible); };
-        transportBar.onLibraryToggled = [this] (bool visible) { setLibraryVisible (visible); };
         transportBar.onControlsToggled = [this] (bool visible) { setControlsVisible (visible); };
         transportBar.onMixerToggled = [this] (bool visible) { setMixerVisible (visible); };
 
@@ -279,6 +277,7 @@ public:
                 trackIndex = -1; // subsequent files each get their own track
             }
         };
+        trackArea.onAddFromLibrary = [this] { showLibraryWindow(); };
         trackArea.onAddTrack = [this] (model::Track::Type type, model::Track::InstrumentKind kind, engine::InstrumentType instrument)
         {
             if (type == model::Track::Type::vca)                              addVcaTrack();
@@ -650,6 +649,7 @@ public:
     void setCycleEnabled (bool on) { engine.getTransport().setLoopEnabled (on); }
     void showBounceDialog();
     void setMixerVisibleFromCommandLine (bool v) { setMixerVisible (v); }
+    void showLibraryWindowFromCommandLine() { showLibraryWindow(); }   // --library
     void showIOSetupDialogFromCommandLine() { showIOSetupDialog(); }
     void openSendsPanelFromCommandLine (int track)   // --sends-panel=<track>: the Mix window with that strip's sends panel open
     {
@@ -981,8 +981,6 @@ public:
             smartControls.setBounds (area.removeFromTop (ui::SmartControls::preferredHeight));   // above the tracks
             area.removeFromTop (2);
         }
-        if (libraryVisible)
-            loopBrowser.setBounds (area.removeFromLeft (juce::jmin (280, area.getWidth() / 3)));
         trackArea.setBounds (area);
     }
 
@@ -1087,11 +1085,11 @@ public:
         add ("view.zoomOut", "View", "Zoom Out", juce::KeyPress ('r', M::commandModifier, 0), 'r', [this] { if (auto* ed = focusedEditor()) ed->zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); else trackArea.zoomBy (1.0 / prefs.getDouble ("display.zoomSensitivity")); });
         add ("view.zoomToFit", "View", "Zoom to Fit / Selection", juce::KeyPress ('z', M::altModifier, 0), 'e', [this] { if (auto* ed = focusedEditor()) ed->zoomToFit(); else trackArea.zoomToSelection(); });
         add ("view.editor", "View", "Editor panel", juce::KeyPress ('e'), 0, [this] { setEditorVisible (! editorVisible); });
-        add ("view.library", "View", "Loop Library", juce::KeyPress ('l'), 0, [this] { setLibraryVisible (! libraryVisible); });
+        add ("track.addFromLibrary", "Track", "Add from Preset Library...", juce::KeyPress ('l'), 0, [this] { showLibraryWindow(); });
         add ("view.controls", "View", "Smart Controls", juce::KeyPress ('b'), 0, [this] { setControlsVisible (! controlsVisible); });
         add ("view.mixer", "View", "Mix window", juce::KeyPress ('x'), 0, [this] { setMixerVisible (! mixerVisible); });
         add ("view.editorCtrl", "View", "Editor panel (Ctrl+Shift+E)", juce::KeyPress ('e', M::commandModifier | M::shiftModifier, 0), 0, [this] { setEditorVisible (! editorVisible); });
-        add ("view.libraryCtrl", "View", "Loop Library (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { setLibraryVisible (! libraryVisible); });
+        add ("track.addFromLibraryCtrl", "Track", "Add from Preset Library... (Ctrl+Shift+L)", juce::KeyPress ('l', M::commandModifier | M::shiftModifier, 0), 0, [this] { showLibraryWindow(); });
         add ("view.controlsCtrl", "View", "Smart Controls (Ctrl+Shift+B)", juce::KeyPress ('b', M::commandModifier | M::shiftModifier, 0), 0, [this] { setControlsVisible (! controlsVisible); });
         add ("view.mixerCtrl", "View", "Mix window (Ctrl+Shift+X)", juce::KeyPress ('x', M::commandModifier | M::shiftModifier, 0), 0, [this] { setMixerVisible (! mixerVisible); });
 
@@ -1488,13 +1486,13 @@ private:
         resized();
     }
 
-    void setLibraryVisible (bool visible)
+    // The Preset Library: a window over the loop browser, opened from + Track (or L). Choosing a loop adds a track.
+    void showLibraryWindow()
     {
-        libraryVisible = visible;
-        loopBrowser.setVisible (visible);
-        transportBar.setLibraryVisible (visible);
-        if (! visible) loopBrowser.stopPreview();
-        resized();
+        if (libraryWindow == nullptr)
+            libraryWindow = std::make_unique<LibraryWindow> (loopBrowser, [this] { loopBrowser.stopPreview(); if (libraryWindow) libraryWindow->setVisible (false); });
+        libraryWindow->setVisible (true);
+        libraryWindow->toFront (true);
     }
 
     //==========================================================================
@@ -2696,8 +2694,7 @@ private:
     {
         std::vector<ui::TourOverlay::Step> steps;
         steps.push_back ({ "Transport", "Space plays and stops, R records (arm a track first), C turns Cycle on. The Rec menu picks Normal, QuickPunch, TrackPunch or Loop record; Pre/Post sets pre- and post-roll.", [this] { return (juce::Component*) &transportBar; }, {} });
-        steps.push_back ({ "Loop Library", "Loops are conformed to the session tempo with Elastic Audio when you drag them in. Click a loop to audition it, double-click to add it at the playhead.", [this] { return (juce::Component*) &loopBrowser; }, [this] { setLibraryVisible (true); } });
-        steps.push_back ({ "Tracks", "+ Track adds audio, Drum Machine, any instrument, an aux input or a VCA. Right-click a header to rename, freeze or commit. The strip above the ruler holds memory locations and arrangement sections (M adds a marker).", [this] { return (juce::Component*) &trackArea; }, {} });
+        steps.push_back ({ "Tracks", "+ Track adds audio, Drum Machine, any instrument, an aux input, a VCA, or a loop from the Preset Library (L): click a loop there to audition it, double-click to add it at the playhead, conformed to the session tempo. Right-click a header to rename, freeze or commit. The strip above the ruler holds memory locations and arrangement sections (M adds a marker).", [this] { return (juce::Component*) &trackArea; }, {} });
         steps.push_back ({ "Edit modes and tools", "Shuffle / Slip / Spot / Grid and the Zoomer, Trimmer, Selector, Grabber, Scrubber, Pencil and Smart Tool (F1-F11). TCE makes the Trimmer stretch; a-z turns on single-key edit commands.", [this] { return (juce::Component*) &editToolbar; }, {} });
         steps.push_back ({ "Editor panel", "The step sequencer for drum tracks and the piano roll for instruments, with presets. E hides and shows it.", [this] { return (juce::Component*) (sequencer.isVisible() ? (juce::Component*) &sequencer : (juce::Component*) &pianoRoll); }, [this] { setEditorVisible (true); } });
         steps.push_back ({ "Smart Controls", "Macro knobs for the selected track: volume and pan, every instrument parameter, drum pad levels. A drag is one undo step.", [this] { return (juce::Component*) &smartControls; }, [this] { setControlsVisible (true); } });
@@ -3920,9 +3917,23 @@ private:
     bool mixerVisible = false;
     persistence::LoopLibrary loopLibrary { loader.getFormatManager() };
     ui::LoopBrowser loopBrowser { loopLibrary };
+    struct LibraryWindow final : public juce::DocumentWindow
+    {
+        LibraryWindow (juce::Component& content, std::function<void()> onClose)
+            : juce::DocumentWindow ("Preset Library", ui::theme::panel, juce::DocumentWindow::closeButton), close (std::move (onClose))
+        {
+            setUsingNativeTitleBar (true);
+            setContentNonOwned (&content, false);
+            setResizable (true, false);
+            setResizeLimits (260, 320, 1000, 1600);
+            centreWithSize (340, 560);
+        }
+        void closeButtonPressed() override { if (close) close(); }
+        std::function<void()> close;
+    };
+    std::unique_ptr<LibraryWindow> libraryWindow;   // after loopBrowser: it shows the browser and must go first
     std::unique_ptr<juce::PropertiesFile> appSettings;
     std::shared_ptr<const juce::AudioBuffer<float>> previewAudio;
-    bool libraryVisible = true;
     std::shared_ptr<const engine::DrumKit> defaultKit;
     std::map<juce::String, std::shared_ptr<const engine::DrumKit>> kitCache;
     juce::Component::SafePointer<ui::DrumKitChooser> kitChooser;
@@ -4111,6 +4122,7 @@ public:
                                                                     .getChildFile (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg == "--bounce-dialog") main.showBounceDialog();
             else if (arg == "--mixer")  main.setMixerVisibleFromCommandLine (true);
+            else if (arg == "--library") main.showLibraryWindowFromCommandLine();
             else if (arg.startsWith ("--sends-panel=")) main.openSendsPanelFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false).getIntValue() - 1);
             else if (arg == "--automation-demo") main.automationDemoFromCommandLine();
             else if (arg == "--io-setup") main.showIOSetupDialogFromCommandLine();

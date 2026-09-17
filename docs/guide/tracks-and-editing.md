@@ -2,7 +2,7 @@
 
 ## Track types
 
-- **Audio tracks** hold waveform clips: import files with the open dialog, drag and drop, the Library or the command line.
+- **Audio tracks** hold waveform clips: import files with the open dialog, drag and drop, the Preset Library (+ Track) or the command line.
 - **Drum Machine tracks** hold pattern clips played by a synthesised 16-pad kit, edited in the step sequencer panel.
 - **Instrument tracks** hold MIDI clips played by one of six bundled instruments, edited in the piano roll.
 - **Aux Input tracks** read a bus and can carry inserts and sends of their own.

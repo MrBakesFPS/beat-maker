@@ -32,7 +32,7 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
     setDescription ("Tracks and clips. Up and Down select a track, Left and Right move the playhead by the grid, Shift with arrows extends the selection, Shift+Return selects the track's clips.");
     addTrackButton.setTitle ("Add track");
     addAndMakeVisible (addTrackButton);
-    addTrackButton.setTooltip ("Add a track: audio, Drum Machine, any bundled instrument, aux input or VCA master");
+    addTrackButton.setTooltip ("Add a track: audio, Drum Machine, any bundled instrument, aux input, VCA master, or a loop from the Preset Library");
     addTrackButton.onClick = [this]
     {
         juce::PopupMenu menu;
@@ -60,11 +60,14 @@ TrackArea::TrackArea (model::Session& s, engine::Transport& t, engine::AudioGrap
         menu.addSubMenu ("Instrument Track", instruments);
         menu.addItem (4, "Aux Input");
         menu.addItem (5, "VCA Master");
+        menu.addSeparator();
+        menu.addItem (6, "Add from Preset Library...  (L)");   // the loop browser: a loop becomes a new track at the playhead
         menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
                             [this] (int result)
                             {
                                 using K = model::Track::InstrumentKind;
                                 using T = model::Track::Type;
+                                if (result == 6) { if (onAddFromLibrary) onAddFromLibrary(); return; }
                                 if (! onAddTrack) return;
                                 const auto& all = engine::Instrument::availableTypes();
                                 if (result == 5)      onAddTrack (T::vca, K::none, engine::InstrumentType::none);

@@ -75,7 +75,6 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
         if (bpm >= 20.0 && bpm <= 400.0 && onTempoEdited) onTempoEdited (bpm, transport.getBeatsPerBar());
         updateDisplay();
     };
-    libraryButton.setTooltip ("Loop Library (L)");
     controlsButton.setTooltip ("Smart Controls for the selected track (B)");
     mixerButton.setTooltip ("Mix window: inserts, sends, faders, meters (X)");
     editorButton.setTooltip ("Editor panel: step sequencer or piano roll for the selected track (E)");
@@ -105,12 +104,6 @@ TransportBar::TransportBar (engine::Transport& t) : transport (t)
     rollButton.setTooltip ("Pre-roll / post-roll around the punch points");
     rollButton.onClick = [this] { if (onRollClicked) onRollClicked (rollButton); };
 
-    addAndMakeVisible (libraryButton);
-    libraryButton.setClickingTogglesState (true);
-    libraryButton.setToggleState (true, juce::dontSendNotification);
-    libraryButton.setColour (juce::TextButton::buttonOnColourId, theme::accent.darker (0.4f));
-    libraryButton.setTooltip ("Show or hide the loop library (L)");
-    libraryButton.onClick = [this] { if (onLibraryToggled) onLibraryToggled (libraryButton.getToggleState()); };
 
     addAndMakeVisible (controlsButton);
     controlsButton.setClickingTogglesState (true);
@@ -165,8 +158,6 @@ void TransportBar::resized()
     mixerButton.setBounds (area.removeFromRight (46).reduced (0, 8));
     area.removeFromRight (6);
     controlsButton.setBounds (area.removeFromRight (74).reduced (0, 8));
-    area.removeFromRight (6);
-    libraryButton.setBounds (area.removeFromRight (68).reduced (0, 8));
     area.removeFromRight (16);
 
     // LCDs share whatever is left, shrinking proportionally on narrow windows.

@@ -13,7 +13,7 @@ It is free software under the GNU General Public License v3.0 or later. Time str
 
 ## The two views
 
-The **Surface** is what opens by default: transport bar, Library, tracks with waveform and pattern clips, Smart Controls and an editor panel for the selected track. The **Depth** windows sit behind it and open on demand: the Mix window, I/O Setup, Memory Locations, MIDI Event List, Synchronization, Beat Detective, Preferences, the Script Console, the System Usage window and the export dialogs. Both are views on the same session document, and every change in either is one undo step.
+The **Surface** is what opens by default: transport bar, tracks with waveform and pattern clips, Smart Controls and an editor panel for the selected track. The **Depth** windows sit behind it and open on demand: the Mix window, I/O Setup, Memory Locations, MIDI Event List, Synchronization, Beat Detective, Preferences, the Script Console, the System Usage window and the export dialogs. Both are views on the same session document, and every change in either is one undo step.
 
 ## Conventions in this guide
 
