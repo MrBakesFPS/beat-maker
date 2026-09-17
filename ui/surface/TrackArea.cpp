@@ -1444,7 +1444,10 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
             menu.addSubMenu ("Colour", colours);
             menu.addSubMenu ("Effects", buildEffectsMenu (track));
             if (! t.isVca()) menu.addSubMenu ("I/O", buildIoMenu (track));
+            if (! t.isVca()) menu.addSubMenu ("Sends", buildSendsMenu (track));
+            if (! t.isVca()) menu.addSubMenu ("Buses", buildBusesMenu (track));
             if (t.isAudio()) menu.addSubMenu ("Fades", buildFadesMenu (track));
+            else menu.addItem (997, "Fades  (audio tracks: auto-fades for recorded and imported clips)", false);
             if (t.isAudio() || t.isInstrument())
             {
                 menu.addSeparator();
@@ -1464,6 +1467,7 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
                 else if (r == 98) { if (onTrackCustomColour) onTrackCustomColour (track); }
                 else if (r >= 200 && r < 600) handleEffectsMenu (track, r);
                 else if (r >= 600 && r < 1000) handleIoFadesMenu (track, r);
+                else if (r >= 2000) handleSendsBusesMenu (track, r);
                 else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
                 else if (r == 3) onTrackAction (track, "commit");
                 else if (r == 4) onTrackAction (track, "delete");
@@ -2112,9 +2116,83 @@ juce::PopupMenu TrackArea::buildIoMenu (int trackIndex)
     outputs.addSeparator();
     for (int b = 0; b < model::Track::numBuses; ++b) outputs.addItem (800 + b, session.busName (b), true, t->outputBus == b);
     menu.addSubMenu ("Output", outputs);
+    if (t->isAux())
+    {
+        juce::PopupMenu inBus;
+        for (int b = 0; b < model::Track::numBuses; ++b) inBus.addItem (850 + b, session.busName (b), true, t->inputBus == b);
+        menu.addSubMenu ("Input Bus  (what this aux reads)", inBus);
+    }
     menu.addSeparator();
     menu.addItem (691, "I/O Setup...  (paths, buses, delay compensation)");
     return menu;
+}
+
+// Sends: five slots, each a bus (or none), pre or post fader, and a level in steps.
+// Ids: 2000 + slot * 20 + { 0..7 bus, 8 no send, 9 pre/post toggle, 10..16 level step }.
+juce::PopupMenu TrackArea::buildSendsMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return menu;
+    static const float levelsDb[] = { -100.0f, -24.0f, -18.0f, -12.0f, -6.0f, -3.0f, 0.0f };
+    for (int slot = 0; slot < model::Track::numSendSlots; ++slot)
+    {
+        const auto& send = t->sends[(size_t) slot];
+        const int base = 2000 + slot * 20;
+        juce::PopupMenu one;
+        for (int b = 0; b < model::Track::numBuses; ++b) one.addItem (base + b, session.busName (b), true, send.bus == b);
+        one.addItem (base + 8, "No Send", true, ! send.isActive());
+        one.addSeparator();
+        one.addItem (base + 9, "Pre-fader  (else post-fader)", send.isActive(), send.preFader);
+        juce::PopupMenu level;
+        const float currentDb = juce::Decibels::gainToDecibels (send.gain, -100.0f);
+        for (int l = 0; l < (int) std::size (levelsDb); ++l)
+            level.addItem (base + 10 + l, levelsDb[l] <= -99.0f ? "-inf dB" : juce::String (levelsDb[l], 0) + " dB", send.isActive(), std::abs (currentDb - levelsDb[l]) < 0.5f);
+        one.addSubMenu ("Level  (the mixer's send knob sets any value)", level);
+        const juce::String label = "Send " + juce::String (slot + 1) + ": " + (send.isActive() ? session.busName (send.bus) + (send.preFader ? "  pre" : "") + "  " + (currentDb <= -99.0f ? juce::String ("-inf") : juce::String (currentDb, 1)) + " dB" : juce::String ("off"));
+        menu.addSubMenu (label, one);
+    }
+    return menu;
+}
+
+// Buses: each of the eight with Rename... and New Aux Track (an aux input reading it, where reverbs and delays live).
+// Ids: 3000 + bus rename; 3100 + bus new aux.
+juce::PopupMenu TrackArea::buildBusesMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    juce::ignoreUnused (trackIndex);
+    for (int b = 0; b < model::Track::numBuses; ++b)
+    {
+        int readers = 0, senders = 0;
+        for (const auto& tr : session.getTracks())
+        {
+            if (tr.isAux() && tr.inputBus == b) ++readers;
+            for (const auto& sd : tr.sends) if (sd.bus == b) ++senders;
+            if (tr.outputBus == b) ++senders;
+        }
+        juce::PopupMenu one;
+        one.addItem (3000 + b, "Rename...");
+        one.addItem (3100 + b, "New Aux Track reading this bus");
+        menu.addSubMenu (session.busName (b) + "   (" + juce::String (senders) + " in, " + juce::String (readers) + " aux)", one);
+    }
+    return menu;
+}
+
+void TrackArea::handleSendsBusesMenu (int trackIndex, int result)
+{
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return;
+    if (result >= 3100 && result < 3100 + model::Track::numBuses) { if (onNewAuxForBus) onNewAuxForBus (result - 3100); return; }
+    if (result >= 3000 && result < 3000 + model::Track::numBuses) { if (onRenameBus) onRenameBus (result - 3000); return; }
+    if (result < 2000 || result >= 2000 + model::Track::numSendSlots * 20 || ! onSendChanged) return;
+    const int slot = (result - 2000) / 20, item = (result - 2000) % 20;
+    auto send = t->sends[(size_t) slot];
+    static const float levelsDb[] = { -100.0f, -24.0f, -18.0f, -12.0f, -6.0f, -3.0f, 0.0f };
+    if (item < 8) send.bus = item;
+    else if (item == 8) send.bus = -1;
+    else if (item == 9) send.preFader = ! send.preFader;
+    else if (item - 10 < (int) std::size (levelsDb)) send.gain = levelsDb[item - 10] <= -99.0f ? 0.0f : juce::Decibels::decibelsToGain (levelsDb[item - 10]);
+    onSendChanged (trackIndex, slot, send);
 }
 
 // Fades: the auto-fade every recorded or imported clip gets, its shape, and the Fades window for every clip on the track.
@@ -2148,6 +2226,7 @@ void TrackArea::handleIoFadesMenu (int trackIndex, int result)
     else if (result == 691) { if (onOpenIOSetup) onOpenIOSetup(); }
     else if (result >= 700 && result < 800) { if (onOutputChanged) onOutputChanged (trackIndex, -1, result - 700); }
     else if (result >= 800 && result < 800 + model::Track::numBuses) { if (onOutputChanged) onOutputChanged (trackIndex, result - 800, t->outputPath); }
+    else if (result >= 850 && result < 850 + model::Track::numBuses) { if (onInputBusChanged) onInputBusChanged (trackIndex, result - 850); }
     else if (result >= 900 && result < 950)
     {
         static const double lengthsMs[] = { 0.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 };

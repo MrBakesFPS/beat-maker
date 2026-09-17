@@ -70,6 +70,10 @@ public:
     std::function<void()> onOpenIOSetup;
     std::function<void (int trackIndex, double fadeInSeconds, double fadeOutSeconds, engine::FadeShape)> onAutoFadesChanged;
     std::function<void (int trackIndex)> onTrackFadesDialog;                                // Fades for every clip on the track
+    std::function<void (int trackIndex, int bus)> onInputBusChanged;                         // aux tracks: the bus they read
+    std::function<void (int trackIndex, int slot, model::Send)> onSendChanged;               // a send slot's bus, level or pre/post
+    std::function<void (int bus)> onRenameBus;
+    std::function<void (int bus)> onNewAuxForBus;                                            // an aux track reading the bus
     std::function<void (int trackIndex)> onTrackCustomColour;           // Colour > Custom...: the colour picker
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
@@ -197,6 +201,9 @@ private:
     juce::PopupMenu buildIoMenu (int trackIndex);
     juce::PopupMenu buildFadesMenu (int trackIndex);
     void handleIoFadesMenu (int trackIndex, int result);
+    juce::PopupMenu buildSendsMenu (int trackIndex);
+    juce::PopupMenu buildBusesMenu (int trackIndex);
+    void handleSendsBusesMenu (int trackIndex, int result);
 
     // Automation display state per track id: which parameter lane is shown (nullopt = clips)
     std::map<int, engine::ParamId> automationView;

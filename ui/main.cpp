@@ -238,6 +238,10 @@ public:
                                                    : "Auto-fades off for this track"; updateStatus();
         };
         trackArea.onTrackFadesDialog = [this] (int i) { showTrackFadesDialog (i); };
+        trackArea.onInputBusChanged = [this] (int i, int bus) { if (auto* t = session.getTrack (i)) session.execute (std::make_unique<model::SetTrackRoutingCommand> (i, bus, t->outputBus)); };
+        trackArea.onSendChanged = [this] (int i, int slot, model::Send send) { session.execute (std::make_unique<model::SetSendCommand> (i, slot, send)); };
+        trackArea.onRenameBus = [this] (int bus) { promptRenameBus (bus); };
+        trackArea.onNewAuxForBus = [this] (int bus) { addAuxTrack (bus); };
         trackArea.onTrackEffect = [this] (int i, const juce::String& action, int slot, engine::EffectType type, juce::Rectangle<int> anchor) { trackEffect (i, action, slot, type, anchor); };
         trackArea.onTrackCustomColour = [this] (int i) { promptTrackColour (i); };
         transportBar.onRecord = [this] { toggleRecord(); };
@@ -464,6 +468,15 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    void setSendFromCommandLine (const juce::String& spec)   // --send=<track>,<slot>,<bus>[,<dB>[,pre]]
+    {
+        const auto p = juce::StringArray::fromTokens (spec, ",", {});
+        if (p.size() < 3) return;
+        model::Send send; send.bus = p[2].getIntValue() - 1;
+        if (p.size() > 3) send.gain = p[3].getFloatValue() <= -99.0f ? 0.0f : juce::Decibels::decibelsToGain (p[3].getFloatValue());
+        send.preFader = p.size() > 4 && p[4].trim() == "pre";
+        session.execute (std::make_unique<model::SetSendCommand> (p[0].getIntValue() - 1, juce::jlimit (0, model::Track::numSendSlots - 1, p[1].getIntValue() - 1), send));
+    }
     void importToTrackFromCommandLine (const juce::String& spec)   // --import=<track>,<file>: onto an existing track at the playhead
     {
         const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
@@ -1453,13 +1466,13 @@ private:
         };
     }
 
-    void addAuxTrack()
+    void addAuxTrack (int inputBus = 0)
     {
         model::Track track;
-        track.name   = "Aux " + juce::String (countTracks (model::Track::Type::aux) + 1);
+        track.name   = (inputBus > 0 ? session.busName (inputBus) + " Aux " : juce::String ("Aux ")) + juce::String (countTracks (model::Track::Type::aux) + 1);
         track.type   = model::Track::Type::aux;
         track.colour = model::Session::colourForTrackIndex (session.getNumTracks());
-        track.inputBus = 0;   // Bus 1-2 by default; change it in the mixer
+        track.inputBus = juce::jlimit (0, model::Track::numBuses - 1, inputBus);   // the bus it reads; the track menu or mixer can change it
         auto cmd = std::make_unique<model::AddTrackCommand> (std::move (track));
         auto* raw = cmd.get();
         session.execute (std::move (cmd));
@@ -3098,6 +3111,27 @@ private:
         }), true);
     }
 
+    void promptRenameBus (int bus)
+    {
+        if (! juce::isPositiveAndBelow (bus, model::Track::numBuses)) return;
+        auto* window = new juce::AlertWindow ("Rename Bus", "Name of " + session.busName (bus) + ":", juce::MessageBoxIconType::NoIcon);
+        window->addTextEditor ("name", session.busName (bus));
+        window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, bus] (int result)
+        {
+            const auto name = window->getTextEditorContents ("name").trim();
+            if (result == 1 && name.isNotEmpty())
+            {
+                auto io = session.getIO();
+                io.busNames.resize ((size_t) model::Track::numBuses);
+                io.busNames[(size_t) bus] = name;
+                session.execute (std::make_unique<model::SetIOSetupCommand> (io));
+            }
+            grabKeyboardFocus();
+        }), true);
+    }
+
     void promptRenameTrack (int trackIndex)
     {
         const auto* t = session.getTrack (trackIndex);
@@ -4015,6 +4049,7 @@ public:
             else if (arg.startsWith ("--add-effect=")) main.addTrackEffectFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--auto-fade=")) main.setAutoFadeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--import=")) main.importToTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--send=")) main.setSendFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
