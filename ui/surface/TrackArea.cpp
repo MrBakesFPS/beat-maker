@@ -1443,6 +1443,8 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
             colours.addItem (98, "Custom...");
             menu.addSubMenu ("Colour", colours);
             menu.addSubMenu ("Effects", buildEffectsMenu (track));
+            if (! t.isVca()) menu.addSubMenu ("I/O", buildIoMenu (track));
+            if (t.isAudio()) menu.addSubMenu ("Fades", buildFadesMenu (track));
             if (t.isAudio() || t.isInstrument())
             {
                 menu.addSeparator();
@@ -1460,7 +1462,8 @@ void TrackArea::mouseDown (const juce::MouseEvent& e)
                 else if (r >= 100 && r < 100 + (int) model::Session::trackPalette().size()) { if (onTrackColour) onTrackColour (track, model::Session::trackPalette()[(size_t) (r - 100)]); }
                 else if (r == 99) { if (onTrackColour) onTrackColour (track, model::Session::colourForTrackIndex (track)); }
                 else if (r == 98) { if (onTrackCustomColour) onTrackCustomColour (track); }
-                else if (r >= 200 && r < 900) handleEffectsMenu (track, r);
+                else if (r >= 200 && r < 600) handleEffectsMenu (track, r);
+                else if (r >= 600 && r < 1000) handleIoFadesMenu (track, r);
                 else if (r == 2) onTrackAction (track, tt->isFrozen() ? "unfreeze" : "freeze");
                 else if (r == 3) onTrackAction (track, "commit");
                 else if (r == 4) onTrackAction (track, "delete");
@@ -2083,6 +2086,76 @@ void TrackArea::handleEffectsMenu (int trackIndex, int result)
     else if (result < 400) onTrackEffect (trackIndex, "edit", result - 300, engine::EffectType::none, anchor);
     else if (result < 500) onTrackEffect (trackIndex, "bypass", result - 400, engine::EffectType::none, anchor);
     else if (result < 600) onTrackEffect (trackIndex, "remove", result - 500, engine::EffectType::none, anchor);
+}
+
+// I/O: the input path (audio tracks), the output (Main, an output path or a bus), input monitoring, and I/O Setup.
+// Ids: 600 + input path; 700 + output path; 800 + bus; 690 monitor; 691 I/O Setup.
+juce::PopupMenu TrackArea::buildIoMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return menu;
+    const auto& io = session.getIO();
+    if (t->isAudio())
+    {
+        juce::PopupMenu inputs;
+        for (int i = 0; i < (int) io.inputs.size(); ++i)
+            inputs.addItem (600 + i, io.inputs[(size_t) i].name, true, t->inputPath == i || (t->inputPath < 0 && io.inputs[(size_t) i].firstChannel == t->firstInput && io.inputs[(size_t) i].numChannels == t->numInputs));
+        if (io.inputs.empty()) inputs.addItem (699, "No inputs (see I/O Setup)", false);
+        menu.addSubMenu ("Input", inputs);
+        menu.addItem (690, "Monitor Input  (hear the input through the track)", true, t->monitor);
+    }
+    juce::PopupMenu outputs;
+    for (int i = 0; i < (int) io.outputs.size(); ++i)
+        outputs.addItem (700 + i, io.outputs[(size_t) i].name, true, t->outputBus < 0 && t->outputPath == i);
+    if (io.outputs.empty()) outputs.addItem (700, "Main", true, t->outputBus < 0);
+    outputs.addSeparator();
+    for (int b = 0; b < model::Track::numBuses; ++b) outputs.addItem (800 + b, session.busName (b), true, t->outputBus == b);
+    menu.addSubMenu ("Output", outputs);
+    menu.addSeparator();
+    menu.addItem (691, "I/O Setup...  (paths, buses, delay compensation)");
+    return menu;
+}
+
+// Fades: the auto-fade every recorded or imported clip gets, its shape, and the Fades window for every clip on the track.
+// Ids: 900 + step in the length table; 950 + shape; 990 all clips.
+juce::PopupMenu TrackArea::buildFadesMenu (int trackIndex)
+{
+    juce::PopupMenu menu;
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return menu;
+    static const double lengthsMs[] = { 0.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 };
+    juce::PopupMenu lengths;
+    const double currentMs = juce::jmax (t->autoFadeInSeconds, t->autoFadeOutSeconds) * 1000.0;
+    for (int i = 0; i < (int) std::size (lengthsMs); ++i)
+        lengths.addItem (900 + i, lengthsMs[i] <= 0.0 ? "Off" : juce::String (lengthsMs[i], 0) + " ms in and out", true, std::abs (currentMs - lengthsMs[i]) < 0.01);
+    menu.addSubMenu ("Auto-Fade New Clips", lengths);
+    juce::PopupMenu shapes;
+    for (auto shape : { engine::FadeShape::linear, engine::FadeShape::equalPower, engine::FadeShape::sCurve })
+        shapes.addItem (950 + (int) shape, engine::fadeShapeName (shape), true, t->autoFadeShape == shape);
+    menu.addSubMenu ("Auto-Fade Shape", shapes);
+    menu.addSeparator();
+    menu.addItem (990, "Fades for All Clips on Track...", ! t->clips.empty());
+    return menu;
+}
+
+void TrackArea::handleIoFadesMenu (int trackIndex, int result)
+{
+    const auto* t = session.getTrack (trackIndex);
+    if (t == nullptr) return;
+    if (result >= 600 && result < 690) { if (onInputPathChanged) onInputPathChanged (trackIndex, result - 600); }
+    else if (result == 690) { if (onMonitorChanged) onMonitorChanged (trackIndex, ! t->monitor); }
+    else if (result == 691) { if (onOpenIOSetup) onOpenIOSetup(); }
+    else if (result >= 700 && result < 800) { if (onOutputChanged) onOutputChanged (trackIndex, -1, result - 700); }
+    else if (result >= 800 && result < 800 + model::Track::numBuses) { if (onOutputChanged) onOutputChanged (trackIndex, result - 800, t->outputPath); }
+    else if (result >= 900 && result < 950)
+    {
+        static const double lengthsMs[] = { 0.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0 };
+        const double seconds = lengthsMs[juce::jlimit (0, (int) std::size (lengthsMs) - 1, result - 900)] / 1000.0;
+        if (onAutoFadesChanged) onAutoFadesChanged (trackIndex, seconds, seconds, t->autoFadeShape);
+    }
+    else if (result >= 950 && result < 960) { if (onAutoFadesChanged) onAutoFadesChanged (trackIndex, t->autoFadeInSeconds, t->autoFadeOutSeconds, (engine::FadeShape) juce::jlimit (0, 2, result - 950)); }
+    else if (result == 990) { if (onTrackFadesDialog) onTrackFadesDialog (trackIndex); }
 }
 
 void TrackArea::showTrackEffectsMenu (int trackIndex)

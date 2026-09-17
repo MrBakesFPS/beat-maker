@@ -65,6 +65,11 @@ public:
     // first empty slot), "bypass" / "remove" / "edit" with a slot; edit gets the header's screen rectangle to anchor its callout
     std::function<void (int trackIndex, const juce::String& action, int slot, engine::EffectType, juce::Rectangle<int> anchor)> onTrackEffect;
     void showTrackEffectsMenu (int trackIndex);
+    // I/O and fades from the track header's context menu
+    std::function<void (int trackIndex, int outputBus, int outputPath)> onOutputChanged;   // bus >= 0, else a path (0 = Main)
+    std::function<void()> onOpenIOSetup;
+    std::function<void (int trackIndex, double fadeInSeconds, double fadeOutSeconds, engine::FadeShape)> onAutoFadesChanged;
+    std::function<void (int trackIndex)> onTrackFadesDialog;                                // Fades for every clip on the track
     std::function<void (int trackIndex)> onTrackCustomColour;           // Colour > Custom...: the colour picker
     void clearSelection();
     std::function<void()> onTimeSelectionChanged;
@@ -189,6 +194,9 @@ private:
     void showPlaylistMenu (int trackIndex);
     juce::PopupMenu buildEffectsMenu (int trackIndex);
     void handleEffectsMenu (int trackIndex, int result);
+    juce::PopupMenu buildIoMenu (int trackIndex);
+    juce::PopupMenu buildFadesMenu (int trackIndex);
+    void handleIoFadesMenu (int trackIndex, int result);
 
     // Automation display state per track id: which parameter lane is shown (nullopt = clips)
     std::map<int, engine::ParamId> automationView;

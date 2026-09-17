@@ -276,6 +276,7 @@ namespace
         set (o, "automationMode", (int) t.automationMode);
         set (o, "armed", t.armed); set (o, "monitor", t.monitor); set (o, "firstInput", t.firstInput); set (o, "numInputs", t.numInputs);
         set (o, "inputPath", t.inputPath); set (o, "outputPath", t.outputPath); set (o, "delayOffset", t.delayOffset);
+        set (o, "autoFadeIn", t.autoFadeInSeconds); set (o, "autoFadeOut", t.autoFadeOutSeconds); set (o, "autoFadeShape", (int) t.autoFadeShape);
 
         auto clips = arr();
         for (const auto& c : t.clips) push (clips, audioClipToVar (c, bundle, audioDir, error));
@@ -380,6 +381,8 @@ namespace
         t.vcaTrackId = (int) get (v, "vcaTrackId", -1); t.automationMode = (AutomationMode) (int) get (v, "automationMode", 1);
         t.armed = get (v, "armed", false); t.monitor = get (v, "monitor", false); t.firstInput = (int) get (v, "firstInput", 0); t.numInputs = (int) get (v, "numInputs", 1);
         t.inputPath = (int) get (v, "inputPath", -1); t.outputPath = (int) get (v, "outputPath", 0); t.delayOffset = (int) get (v, "delayOffset", 0);
+        t.autoFadeInSeconds = (double) get (v, "autoFadeIn", 0.0); t.autoFadeOutSeconds = (double) get (v, "autoFadeOut", 0.0);
+        t.autoFadeShape = (engine::FadeShape) juce::jlimit (0, 2, (int) get (v, "autoFadeShape", 0));
 
         const auto clips = get (v, "clips");
         for (int i = 0; i < count (clips); ++i) { AudioClip c; if (audioClipFrom (clips[i], bundle, ctx, c, warnings, true)) t.clips.push_back (std::move (c)); }

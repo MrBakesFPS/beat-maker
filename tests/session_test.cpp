@@ -294,3 +294,24 @@ TEST_CASE ("A track's first empty insert slot is where a new effect goes")
     for (int i = 0; i < model::Track::numInsertSlots; ++i) if (s.getTracks()[0].inserts[(size_t) i].isEmpty()) s.execute (std::make_unique<model::SetInsertCommand> (0, i, engine::EffectType::delay, 48000.0));
     CHECK (s.getTracks()[0].firstEmptyInsert() == -1);
 }
+
+TEST_CASE ("A track's auto-fades apply to clips that land on it, and the setting is undoable")
+{
+    using namespace beatmaker;
+    model::Session s;
+    model::Track t; t.name = "Vox"; t.type = model::Track::Type::audio;
+    s.execute (std::make_unique<model::AddTrackCommand> (t));
+    model::AudioClip clip; clip.sampleRate = 48000.0; clip.length = 96000;
+    s.getTracks()[0].applyAutoFades (clip);
+    CHECK (clip.fadeIn == 0); CHECK (clip.fadeOut == 0);                          // off by default
+    s.execute (std::make_unique<model::SetTrackAutoFadesCommand> (0, 0.02, 0.05, engine::FadeShape::equalPower));
+    CHECK (s.getTracks()[0].autoFadeInSeconds == 0.02);
+    CHECK (s.getHistory().getUndoName() == "Track Auto-Fades");
+    s.getTracks()[0].applyAutoFades (clip);
+    CHECK (clip.fadeIn == 960); CHECK (clip.fadeOut == 2400); CHECK (clip.fadeInShape == engine::FadeShape::equalPower);
+    model::AudioClip tiny; tiny.sampleRate = 48000.0; tiny.length = 100;       // shorter than the fades: each takes at most half
+    s.getTracks()[0].applyAutoFades (tiny);
+    CHECK (tiny.fadeIn == 50); CHECK (tiny.fadeOut == 50);
+    s.undo();
+    CHECK (s.getTracks()[0].autoFadeInSeconds == 0.0);
+}

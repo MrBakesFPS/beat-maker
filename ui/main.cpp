@@ -223,6 +223,21 @@ public:
             else if (action == "rename") promptRenameTrack (i);
         };
         trackArea.onTrackColour = [this] (int i, juce::Colour c) { setTrackColour (i, c); };
+        trackArea.onOutputChanged = [this] (int i, int bus, int path)
+        {
+            auto* t = session.getTrack (i);
+            if (t == nullptr) return;
+            session.execute (std::make_unique<model::SetTrackRoutingCommand> (i, t->inputBus, bus));
+            if (bus < 0) session.execute (std::make_unique<model::SetTrackPathsCommand> (i, t->inputPath, path));
+        };
+        trackArea.onOpenIOSetup = [this] { showIOSetupDialog(); };
+        trackArea.onAutoFadesChanged = [this] (int i, double in, double out, engine::FadeShape shape)
+        {
+            session.execute (std::make_unique<model::SetTrackAutoFadesCommand> (i, in, out, shape));
+            statusMessage = in > 0.0 || out > 0.0 ? "New clips on this track fade " + juce::String (juce::roundToInt (in * 1000.0)) + " ms in and " + juce::String (juce::roundToInt (out * 1000.0)) + " ms out (" + engine::fadeShapeName (shape) + ")"
+                                                   : "Auto-fades off for this track"; updateStatus();
+        };
+        trackArea.onTrackFadesDialog = [this] (int i) { showTrackFadesDialog (i); };
         trackArea.onTrackEffect = [this] (int i, const juce::String& action, int slot, engine::EffectType type, juce::Rectangle<int> anchor) { trackEffect (i, action, slot, type, anchor); };
         trackArea.onTrackCustomColour = [this] (int i) { promptTrackColour (i); };
         transportBar.onRecord = [this] { toggleRecord(); };
@@ -449,6 +464,18 @@ public:
         }
     }
     bool openSessionFromCommandLine (const juce::File& f) { return openSessionBundle (f); }
+    void importToTrackFromCommandLine (const juce::String& spec)   // --import=<track>,<file>: onto an existing track at the playhead
+    {
+        const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
+        importAudioFile (juce::File::getCurrentWorkingDirectory().getChildFile (spec.fromFirstOccurrenceOf (",", false, false)), track, engine.getTransport().getPositionSeconds());
+    }
+    void setAutoFadeFromCommandLine (const juce::String& spec)   // --auto-fade=<track>,<ms>[,<shape 0-2>]
+    {
+        const auto parts = juce::StringArray::fromTokens (spec, ",", {});
+        if (parts.size() < 2) return;
+        const double seconds = parts[1].getDoubleValue() / 1000.0;
+        session.execute (std::make_unique<model::SetTrackAutoFadesCommand> (parts[0].getIntValue() - 1, seconds, seconds, (engine::FadeShape) juce::jlimit (0, 2, parts.size() > 2 ? parts[2].getIntValue() : 0)));
+    }
     void addTrackEffectFromCommandLine (const juce::String& spec)   // --add-effect=<track>,<effect name>
     {
         const int track = spec.upToFirstOccurrenceOf (",", false, false).getIntValue() - 1;
@@ -897,6 +924,7 @@ public:
         clip.sampleRate    = loaded->sampleRate;
         clip.timelineStart = (juce::int64) std::llround (startSeconds * loaded->sampleRate);
         clip.length        = loaded->numSamples;
+        if (const auto* tr = session.getTrack (trackIndex)) tr->applyAutoFades (clip);   // the track's auto-fades
 
         session.execute (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
 
@@ -1079,6 +1107,8 @@ public:
         add ("track.solo", "Track", "Solo Selected Track", juce::KeyPress ('s', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::solo); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.arm", "Track", "Record-arm Selected Track", juce::KeyPress ('r', M::shiftModifier, 0), 0, [this] { toggleSelectedTrackFlag (model::SetTrackFlagCommand::Flag::arm); }, [this] { auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && t->isAudio(); });
         add ("track.effects", "Track", "Effects on Selected Track...", juce::KeyPress ('f', M::commandModifier | M::altModifier, 0), 0, [this] { trackArea.showTrackEffectsMenu (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
+        add ("track.fadesAll", "Track", "Fades for All Clips on Selected Track...", {}, 0, [this] { showTrackFadesDialog (trackArea.getSelectedTrack()); },
+             [this] { const auto* t = session.getTrack (trackArea.getSelectedTrack()); return t != nullptr && ! t->clips.empty(); });
         add ("track.colour", "Track", "Colour Selected Track...", {}, 0, [this] { promptTrackColour (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.rename", "Track", "Rename Selected Track...", {}, 0, [this] { promptRenameTrack (trackArea.getSelectedTrack()); }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
         add ("track.delete", "Track", "Delete Selected Track", {}, 0, [this] { const int i = trackArea.getSelectedTrack(); if (session.getTrack (i)) { session.execute (std::make_unique<model::RemoveTrackCommand> (i)); trackArea.setSelectedTrack (juce::jmin (i, session.getNumTracks() - 1)); } }, [this] { return session.getTrack (trackArea.getSelectedTrack()) != nullptr; });
@@ -1252,6 +1282,7 @@ private:
         clip.timelineStart = (juce::int64) std::llround (start * loaded->sampleRate);
         clip.length        = loaded->audio->getNumSamples();
         clip.sourceBpm     = info.bpm;
+        if (const auto* tr = session.getTrack (trackIndex)) tr->applyAutoFades (clip);
         auto add = std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip));
         session.execute (std::move (add));
         const model::ClipRef ref { trackIndex, model::ClipRef::Kind::audio, (int) session.getTracks()[(size_t) trackIndex].clips.size() - 1 };
@@ -1539,6 +1570,44 @@ private:
 
     //==========================================================================
     // Fades window
+
+    // Fades for every audio clip on a track, applied as one undo step (with the dialog's clip gain)
+    void showTrackFadesDialog (int trackIndex)
+    {
+        const auto* t = session.getTrack (trackIndex);
+        if (t == nullptr || t->clips.empty()) return;
+        ui::FadesDialog::Values initial;
+        initial.fadeInMs = (double) t->clips[0].fadeIn / t->clips[0].sampleRate * 1000.0; initial.fadeOutMs = (double) t->clips[0].fadeOut / t->clips[0].sampleRate * 1000.0;
+        initial.inShape = t->clips[0].fadeInShape; initial.outShape = t->clips[0].fadeOutShape; initial.gainDb = juce::Decibels::gainToDecibels (t->clips[0].gain);
+        auto* dialog = new ui::FadesDialog (initial, (int) t->clips.size());
+        juce::DialogWindow::LaunchOptions options;
+        options.content.setOwned (dialog);
+        options.dialogTitle = "Fades: every clip on " + t->name;
+        options.dialogBackgroundColour = ui::theme::panel;
+        options.escapeKeyTriggersCloseButton = true;
+        options.useNativeTitleBar = true;
+        options.resizable = false;
+        auto* window = options.launchAsync();
+        dialog->onCancel = [window] { window->setVisible (false); };
+        dialog->onApply = [this, window, trackIndex] (const ui::FadesDialog::Values& v)
+        {
+            window->setVisible (false);
+            const auto* tr = session.getTrack (trackIndex);
+            if (tr == nullptr) return;
+            auto compound = std::make_unique<model::CompoundCommand> ("Fades on Track");
+            for (int c = 0; c < (int) tr->clips.size(); ++c)
+            {
+                const auto& clip = tr->clips[(size_t) c];
+                const model::ClipRef ref { trackIndex, model::ClipRef::Kind::audio, c };
+                compound->add (std::make_unique<model::SetClipFadesCommand> (ref, (juce::int64) std::llround (v.fadeInMs / 1000.0 * clip.sampleRate), v.inShape,
+                                                                              (juce::int64) std::llround (v.fadeOutMs / 1000.0 * clip.sampleRate), v.outShape));
+                compound->add (std::make_unique<model::SetClipGainCommand> (ref, juce::Decibels::decibelsToGain (v.gainDb)));
+            }
+            session.execute (std::move (compound));
+            statusMessage = "Fades set on " + juce::String (tr->clips.size()) + " clip(s) of " + tr->name; updateStatus();
+            grabKeyboardFocus();
+        };
+    }
 
     void showFadesDialog()
     {
@@ -1946,6 +2015,7 @@ private:
                     // Punch ranges all land on the main playlist as separate clips.
                     // The final pass lands on the main playlist (Pro Tools behaviour); earlier passes are alternates.
                     if (loopRecording && passes.size() > 1) compound->add (std::make_unique<model::NewPlaylistCommand> (trackIndex, model::defaultPlaylistName (*track, existingTakes + (int) passes.size())));
+                    track->applyAutoFades (clip);   // a recorded clip gets the track's auto-fades
                     compound->add (std::make_unique<model::AddClipCommand> (trackIndex, std::move (clip)));
                 }
                 else
@@ -3943,6 +4013,8 @@ public:
             else if (arg.startsWith ("--session=")) main.openSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--track-colour=")) main.setTrackColourFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--add-effect=")) main.addTrackEffectFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--auto-fade=")) main.setAutoFadeFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
+            else if (arg.startsWith ("--import=")) main.importToTrackFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--rename=")) main.renameSessionFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
             else if (arg.startsWith ("--save=")) main.saveSessionFromCommandLine (juce::File::getCurrentWorkingDirectory().getChildFile (arg.fromFirstOccurrenceOf ("=", false, false)));
             else if (arg.startsWith ("--template=")) main.templateFromCommandLine (arg.fromFirstOccurrenceOf ("=", false, false));
