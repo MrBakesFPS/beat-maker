@@ -6,6 +6,24 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(MSVC)
+    # Static C/C++ runtime, so the installed app runs without the Visual C++ redistributable.
+    # Set before any FetchContent target so JUCE, Catch2, Lua and Rubber Band all agree.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # Sources are UTF-8 (arrows, note names in strings); the big translation units
+    # (main.cpp, the instruments) exceed MSVC's default section limit.
+    add_compile_options(/utf-8 /bigobj)
+    # NOMINMAX: windows.h's min/max macros break std::min/std::max (Rubber Band includes windows.h).
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX)
+endif()
+
+# Third-party code: its warnings are not ours to fix.
+if(MSVC)
+    set(BEATMAKER_NO_WARNINGS /w)
+else()
+    set(BEATMAKER_NO_WARNINGS -w)
+endif()
+
 option(BEATMAKER_BUILD_TESTS "Build unit tests" ON)
 
 include(FetchContent)
@@ -42,13 +60,15 @@ file(GLOB LUA_SOURCES ${lua_SOURCE_DIR}/*.c)
 list(FILTER LUA_SOURCES EXCLUDE REGEX ".*/(lua|luac|onelua|ltests)\\.c$")
 add_library(lua_static STATIC ${LUA_SOURCES})
 target_include_directories(lua_static PUBLIC ${lua_SOURCE_DIR})
-target_compile_definitions(lua_static PUBLIC LUA_USE_POSIX=1)
-target_compile_options(lua_static PRIVATE -w)
+if(UNIX)
+    target_compile_definitions(lua_static PUBLIC LUA_USE_POSIX=1)
+endif()   # on Windows luaconf.h selects LUA_USE_WINDOWS by itself
+target_compile_options(lua_static PRIVATE ${BEATMAKER_NO_WARNINGS})
 set_target_properties(lua_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(rubberband STATIC ${rubberband_SOURCE_DIR}/single/RubberBandSingle.cpp)
 target_include_directories(rubberband PUBLIC ${rubberband_SOURCE_DIR})
-target_compile_options(rubberband PRIVATE -w)   # third-party: warnings are theirs
+target_compile_options(rubberband PRIVATE ${BEATMAKER_NO_WARNINGS})
 set_target_properties(rubberband PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_subdirectory(engine)

@@ -12,12 +12,14 @@ ap.add_argument("--app")
 ap.add_argument("--mkdocs", default=shutil.which("mkdocs"))
 args = ap.parse_args()
 
-app = args.app or next(iter(sorted(glob.glob(os.path.join(repo, "build*", "ui", "BeatMaker_artefacts", "*", "Beat Maker")))), None)
+app = args.app or next(iter(sorted(glob.glob(os.path.join(repo, "build*", "ui", "BeatMaker_artefacts", "*", "Beat Maker"))
+                                  + glob.glob(os.path.join(repo, "build*", "ui", "BeatMaker_artefacts", "*", "Beat Maker.exe")))), None)
 if app and os.path.exists(app):
     subprocess.run([app, "--dump-docs=" + os.path.join(repo, "docs", "reference"), "--quit"], check=True, cwd=repo, timeout=120)
 else:
     print("no app build found; keeping the committed reference tables")
 if not args.mkdocs:
-    sys.exit("mkdocs not found: python3 -m venv .venv && .venv/bin/pip install mkdocs, then --mkdocs .venv/bin/mkdocs")
+    sys.exit("mkdocs not found: python3 -m venv .venv && .venv/bin/pip install mkdocs, then --mkdocs .venv/bin/mkdocs "
+             "(on Windows: py -m venv .venv; .venv\\Scripts\\pip install mkdocs; --mkdocs .venv\\Scripts\\mkdocs.exe)")
 subprocess.run([args.mkdocs, "build", "--strict"], check=True, cwd=repo)
 print("site built in", os.path.join(repo, "site"))

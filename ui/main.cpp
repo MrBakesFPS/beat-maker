@@ -20,6 +20,7 @@
 #include "depth/AafExportDialog.h"
 #include "depth/CrashReportWindow.h"
 #include "shared/CrashReporter.h"
+#include "shared/WindowsConsole.h"
 #include "shared/SessionChooser.h"
 #include "depth/InstrumentChooser.h"
 #include "depth/DrumKitChooser.h"
@@ -1233,9 +1234,9 @@ private:
         return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Beat Maker").getChildFile ("Loops");
     }
 
-    // App settings (loop folders, sync, metronome): next to the preferences in ~/.config/Beat Maker. On Linux JUCE
-    // builds the default path as ~/<folderName>, so the folder name carries the .config prefix; earlier builds wrote
-    // ~/Beat Maker/Beat Maker.settings, which is moved across once.
+    // App settings (loop folders, sync, metronome): next to the preferences in ~/.config/Beat Maker (on Windows
+    // %APPDATA%\Beat Maker). On Linux JUCE builds the default path as ~/<folderName>, so the folder name carries the
+    // .config prefix; earlier Linux builds wrote ~/Beat Maker/Beat Maker.settings, which is moved across once.
     static juce::PropertiesFile::Options settingsOptions()
     {
         juce::PropertiesFile::Options o;
@@ -1251,10 +1252,12 @@ private:
     }
     static void migrateOldSettingsFile()
     {
+       #if ! JUCE_WINDOWS   // only older Linux builds wrote the old file (and "~" is not a path on Windows)
         const auto wanted = settingsOptions().getDefaultFile();
         const auto old = juce::File ("~").getChildFile ("Beat Maker").getChildFile ("Beat Maker.settings");
         if (old.existsAsFile() && ! wanted.existsAsFile() && wanted.getParentDirectory().createDirectory())
             old.moveFileTo (wanted);
+       #endif
     }
 
     void setupLoopLibrary()
@@ -2947,7 +2950,8 @@ private:
                       << (c.focusKey != 0 ? "`" + juce::String::charToString (juce::CharacterFunctions::toUpperCase (c.focusKey)) + "`" : juce::String()) << " |\n";
         }
         dir.getChildFile ("shortcuts.md").replaceWithText (s);
-        juce::String p = "# Preferences\n\nPreferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Maker.preferences`. "
+        juce::String p = "# Preferences\n\nPreferences (Ctrl+,) apply immediately and live in `~/.config/Beat Maker/Beat Maker.preferences` on Linux "
+                         "and `%APPDATA%\\Beat Maker\\Beat Maker.preferences` on Windows. "
                          "The search box finds a setting by any word in its name or description; changed settings show a mark and can be reset one at a time or per category. Generated from the app by `--dump-docs`.\n";
         for (const auto& cat : prefs.categories())
         {
@@ -4109,6 +4113,7 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
+        if (! getCommandLineParameterArray().isEmpty()) ui::attachToParentConsole();
         if (getCommandLineParameterArray().contains ("--version"))
         {
             std::cout << "Beat Maker " << BEATMAKER_VERSION_STRING << " (JUCE " << JUCE_MAJOR_VERSION << "." << JUCE_MINOR_VERSION << "." << JUCE_BUILDNUMBER << ")" << std::endl;

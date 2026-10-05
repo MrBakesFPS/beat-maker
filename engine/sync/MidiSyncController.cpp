@@ -26,14 +26,20 @@ void MidiSyncController::setMode (Mode m)
 
 juce::StringArray MidiSyncController::outputDeviceNames()
 {
-    juce::StringArray names { virtualPortName };
+    juce::StringArray names;
+   #if ! JUCE_WINDOWS
+    names.add (virtualPortName);   // Windows has no virtual MIDI ports (use loopMIDI or similar)
+   #endif
     for (const auto& d : juce::MidiOutput::getAvailableDevices()) names.add (d.name);
     return names;
 }
 
 juce::StringArray MidiSyncController::inputDeviceNames()
 {
-    juce::StringArray names { virtualPortName };
+    juce::StringArray names;
+   #if ! JUCE_WINDOWS
+    names.add (virtualPortName);   // Windows has no virtual MIDI ports (use loopMIDI or similar)
+   #endif
     for (const auto& d : juce::MidiInput::getAvailableDevices()) names.add (d.name);
     return names;
 }

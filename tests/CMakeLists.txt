@@ -56,7 +56,7 @@ target_sources(beatmaker_tests PRIVATE
     loop_library_test.cpp
     audio_file_loader_test.cpp)
 
-# A tiny CLAP plugin (.clap shared library) the host tests load with dlopen.
+# A tiny CLAP plugin (.clap shared library) the host tests load with dlopen / LoadLibrary.
 add_library(fake_clap MODULE fake_clap/fake_clap_plugin.cpp)
 target_link_libraries(fake_clap PRIVATE clap_headers)
 set_target_properties(fake_clap PROPERTIES PREFIX "" SUFFIX ".clap" OUTPUT_NAME "fake_gain")
@@ -69,7 +69,11 @@ target_compile_definitions(beatmaker_tests PRIVATE
 
 # Tests deliberately compare exact sample values, so use plain warnings rather
 # than juce_recommended_warning_flags (which enables -Wfloat-equal).
-target_compile_options(beatmaker_tests PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+if(MSVC)
+    target_compile_options(beatmaker_tests PRIVATE /W3)
+else()
+    target_compile_options(beatmaker_tests PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
 
 target_link_libraries(beatmaker_tests PRIVATE
     beatmaker_engine

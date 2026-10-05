@@ -193,7 +193,12 @@ void PreferencesWindow::paint (juce::Graphics& g)
     g.drawText ("Preferences", 16, 10, 200, 18, juce::Justification::centredLeft);
     g.setColour (theme::textDim);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("Settings apply immediately and are saved in ~/.config/Beat Maker/Beat Maker.preferences. Changed settings show a blue mark.", 16, 28, getWidth() - 32, 16, juce::Justification::centredLeft, true);
+   #if JUCE_WINDOWS
+    const char* where = "%APPDATA%\\Beat Maker\\Beat Maker.preferences";
+   #else
+    const char* where = "~/.config/Beat Maker/Beat Maker.preferences";
+   #endif
+    g.drawText ("Settings apply immediately and are saved in " + juce::String (where) + ". Changed settings show a blue mark.", 16, 28, getWidth() - 32, 16, juce::Justification::centredLeft, true);
 }
 
 void PreferencesWindow::resized()

@@ -1,7 +1,14 @@
 # ui module — currently also owns the application entry point.
 # Surface and Depth views live in subdirectories and share one component tree.
 
+set(BEATMAKER_ICON_ARGS)
+if(WIN32)
+    # juceaide turns the SVG into the .ico embedded in Beat Maker.exe.
+    set(BEATMAKER_ICON_ARGS ICON_BIG "${CMAKE_SOURCE_DIR}/assets/icons/beat-maker.svg")
+endif()
+
 juce_add_gui_app(BeatMaker
+    ${BEATMAKER_ICON_ARGS}
     PRODUCT_NAME    "Beat Maker"
     COMPANY_NAME    "Beat Maker"
     BUNDLE_ID       com.beatmaker.app
@@ -43,7 +50,8 @@ target_sources(BeatMaker PRIVATE
     depth/AafExportDialog.cpp
     depth/CrashReportWindow.cpp
     shared/CrashReporter.cpp
-    shared/Preferences.cpp)
+    shared/Preferences.cpp
+    shared/WindowsConsole.cpp)
 
 target_compile_definitions(BeatMaker PRIVATE
     BEATMAKER_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
@@ -56,6 +64,10 @@ target_compile_definitions(BeatMaker PRIVATE
 
 if(UNIX AND NOT APPLE)
     target_link_options(BeatMaker PRIVATE -rdynamic)   # symbol names in crash backtraces
+elseif(MSVC)
+    # A .pdb for every build (Release included) so crash backtraces have function names.
+    target_compile_options(BeatMaker PRIVATE /Z7)
+    target_link_options(BeatMaker PRIVATE /DEBUG /OPT:REF /OPT:ICF)
 endif()
 
 target_link_libraries(BeatMaker PRIVATE

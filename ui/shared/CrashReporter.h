@@ -1,6 +1,6 @@
-// CrashReporter: writes a report when Beat Maker crashes (signal, backtrace,
-// version, session, audio device, recent actions) using only signal-safe
-// calls, keeps a rolling log file, notices an unacknowledged report on the
+// CrashReporter: writes a report when Beat Maker crashes (signal or Windows
+// exception, backtrace, version, session, audio device, recent actions) using
+// only signal-safe calls on Linux, keeps a rolling log file, notices an unacknowledged report on the
 // next launch, and bundles diagnostics for "Report a Problem".
 #pragma once
 
@@ -40,8 +40,10 @@ public:
     juce::String diagnosticsText (const juce::String& extra) const;
     juce::File writeDiagnostics (const juce::String& extra) const;
 
+    // A POSIX signal number, or a Windows exception code (e.g. 0xC0000005) cast to int.
     static juce::String describeSignal (int);
-    // Demangles the C++ names in a report's backtrace for reading.
+    // Demangles the C++ names in a report's backtrace for reading (GCC/Clang names;
+    // Windows backtraces already carry readable names from the .pdb).
     static juce::String prettify (const juce::String& reportText);
     // Signal handler body. Public so the crash flag and tests can call it.
     void writeReportNow (int signal) noexcept;
@@ -56,6 +58,9 @@ private:
     std::atomic<bool> enabled { true };
     std::atomic<bool> installed { false };
     char folderPath[1024] = {}, reportPath[1024] = {}, version[64] = {}, sessionPath[1024] = {}, device[256] = {};
+   #if JUCE_WINDOWS
+    wchar_t reportPathW[1024] = {};   // CreateFileW wants UTF-16
+   #endif
     std::array<std::array<char, 160>, 32> crumbs {};
     std::atomic<int> crumbCount { 0 };
     std::unique_ptr<juce::FileLogger> logger;

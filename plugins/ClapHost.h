@@ -1,7 +1,7 @@
 // CLAP hosting as a JUCE AudioPluginFormat: .clap libraries are loaded with
-// dlopen, each plugin is wrapped in an AudioPluginInstance (buses from its
-// audio ports, hosted parameters from its params extension, state, latency,
-// an X11-embedded editor when it has one), so scanning, blacklisting,
+// dlopen (LoadLibrary on Windows), each plugin is wrapped in an AudioPluginInstance
+// (buses from its audio ports, hosted parameters from its params extension, state,
+// latency, an embedded X11 or Win32 editor when it has one), so scanning, blacklisting,
 // automation, sidechain keys and the plugin window all work unchanged.
 #pragma once
 
