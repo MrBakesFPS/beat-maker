@@ -1,13 +1,51 @@
 #include "ClapHost.h"
+#include "ClapWindowsEmbed.h"
 
 #include <clap/clap.h>
 #include <juce_gui_extra/juce_gui_extra.h>
-#include <dlfcn.h>
 #include <map>
 #include <mutex>
 
+#if ! JUCE_WINDOWS
+ #include <dlfcn.h>
+#endif
+
 namespace beatmaker::plugins
 {
+
+//==============================================================================
+// The platform's shared-library calls: dlopen on Linux and macOS, LoadLibrary on Windows.
+
+namespace
+{
+    // The windowing API the editor embeds with.
+   #if JUCE_WINDOWS
+    constexpr const char* platformGuiApi = CLAP_WINDOW_API_WIN32;
+   #else
+    constexpr const char* platformGuiApi = CLAP_WINDOW_API_X11;
+   #endif
+
+   #if JUCE_WINDOWS
+    // juce::DynamicLibrary wraps LoadLibraryW / GetProcAddress / FreeLibrary without pulling windows.h in here.
+    void* openLibrary (const juce::File& f, juce::String& error)
+    {
+        auto lib = std::make_unique<juce::DynamicLibrary>();
+        if (! lib->open (f.getFullPathName())) { error = "LoadLibrary failed for " + f.getFileName(); return nullptr; }
+        return lib.release();
+    }
+    void* findSymbol (void* h, const char* name) { return static_cast<juce::DynamicLibrary*> (h)->getFunction (name); }
+    void closeLibrary (void* h) { delete static_cast<juce::DynamicLibrary*> (h); }
+   #else
+    void* openLibrary (const juce::File& f, juce::String& error)
+    {
+        void* h = dlopen (f.getFullPathName().toRawUTF8(), RTLD_NOW | RTLD_LOCAL);
+        if (h == nullptr) error = "dlopen failed: " + juce::String (dlerror());
+        return h;
+    }
+    void* findSymbol (void* h, const char* name) { return dlsym (h, name); }
+    void closeLibrary (void* h) { dlclose (h); }
+   #endif
+}
 
 //==============================================================================
 // A loaded .clap library, shared by every instance created from it.
@@ -22,14 +60,14 @@ public:
         const std::lock_guard<std::mutex> lock (mutex);
         if (auto existing = cache[file.getFullPathName()].lock()) return existing;
 
-        void* handle = dlopen (file.getFullPathName().toRawUTF8(), RTLD_NOW | RTLD_LOCAL);
-        if (handle == nullptr) { error = "dlopen failed: " + juce::String (dlerror()); return nullptr; }
-        auto* entry = static_cast<const clap_plugin_entry_t*> (dlsym (handle, "clap_entry"));
-        if (entry == nullptr) { dlclose (handle); error = "no clap_entry symbol"; return nullptr; }
-        if (! clap_version_is_compatible (entry->clap_version)) { dlclose (handle); error = "incompatible CLAP version"; return nullptr; }
-        if (entry->init != nullptr && ! entry->init (file.getFullPathName().toRawUTF8())) { dlclose (handle); error = "clap_entry.init failed"; return nullptr; }
+        void* handle = openLibrary (file, error);
+        if (handle == nullptr) return nullptr;
+        auto* entry = static_cast<const clap_plugin_entry_t*> (findSymbol (handle, "clap_entry"));
+        if (entry == nullptr) { closeLibrary (handle); error = "no clap_entry symbol"; return nullptr; }
+        if (! clap_version_is_compatible (entry->clap_version)) { closeLibrary (handle); error = "incompatible CLAP version"; return nullptr; }
+        if (entry->init != nullptr && ! entry->init (file.getFullPathName().toRawUTF8())) { closeLibrary (handle); error = "clap_entry.init failed"; return nullptr; }
         auto* factory = static_cast<const clap_plugin_factory_t*> (entry->get_factory (CLAP_PLUGIN_FACTORY_ID));
-        if (factory == nullptr) { if (entry->deinit) entry->deinit(); dlclose (handle); error = "no plugin factory"; return nullptr; }
+        if (factory == nullptr) { if (entry->deinit) entry->deinit(); closeLibrary (handle); error = "no plugin factory"; return nullptr; }
 
         auto lib = std::shared_ptr<ClapLibrary> (new ClapLibrary (handle, entry, factory, file));
         cache[file.getFullPathName()] = lib;
@@ -39,7 +77,7 @@ public:
     ~ClapLibrary()
     {
         if (entry != nullptr && entry->deinit != nullptr) entry->deinit();
-        if (handle != nullptr) dlclose (handle);
+        if (handle != nullptr) closeLibrary (handle);
     }
 
     uint32_t getNumPlugins() const { return factory->get_plugin_count (factory); }
@@ -207,7 +245,7 @@ public:
     double getTailLengthSeconds() const override { return 0.0; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    bool hasEditor() const override { return gui != nullptr && gui->is_api_supported (plugin, CLAP_WINDOW_API_X11, false); }
+    bool hasEditor() const override { return gui != nullptr && gui->is_api_supported (plugin, platformGuiApi, false); }
     juce::AudioProcessorEditor* createEditor() override;
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -523,31 +561,42 @@ const clap_host_gui_t ClapPluginInstance::hostGui {
     [] (const clap_host_t*, bool) {} };
 
 //==============================================================================
-// Editor: the plugin's X11 window embedded in a JUCE component
+// Editor: the plugin's window embedded in a JUCE component (X11 on Linux, a child HWND on Windows).
+// On Windows CLAP sizes are physical pixels, so they are scaled by the display scale.
 
 class ClapEditor final : public juce::AudioProcessorEditor
 {
 public:
-    explicit ClapEditor (ClapPluginInstance& p) : AudioProcessorEditor (p), instance (p), embed (false, false)
+    explicit ClapEditor (ClapPluginInstance& p) : AudioProcessorEditor (p), instance (p)
+                                                  #if ! JUCE_WINDOWS
+                                                   , embed (false, false)
+                                                  #endif
     {
         addAndMakeVisible (embed);
         auto* gui = instance.getGui();
         auto* plugin = instance.getPlugin();
-        created = gui->create (plugin, CLAP_WINDOW_API_X11, false);
+       #if JUCE_WINDOWS
+        if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) scale = juce::jmax (1.0, display->scale);
+       #endif
+        created = gui->create (plugin, platformGuiApi, false);
         uint32_t w = 400, h = 300;
         if (created)
         {
-            gui->set_scale (plugin, 1.0);
+            gui->set_scale (plugin, scale);
             clap_window_t window {};
-            window.api = CLAP_WINDOW_API_X11;
+            window.api = platformGuiApi;
+           #if JUCE_WINDOWS
+            window.win32 = (clap_hwnd) embed.getNativeHandle();
+           #else
             window.x11 = (clap_xwnd) embed.getHostWindowID();
+           #endif
             gui->set_parent (plugin, &window);
             gui->get_size (plugin, &w, &h);
             gui->show (plugin);
-            instance.onGuiResizeRequest = [this] (int newW, int newH) { setSize (newW, newH); };
+            instance.onGuiResizeRequest = [this] (int newW, int newH) { setSize (toLogical ((uint32_t) newW), toLogical ((uint32_t) newH)); };
         }
         setResizable (created && gui->can_resize (plugin), false);
-        setSize ((int) w, (int) h);
+        setSize (toLogical (w), toLogical (h));
     }
 
     ~ClapEditor() override
@@ -565,12 +614,19 @@ public:
     {
         embed.setBounds (getLocalBounds());
         if (created && instance.getGui()->can_resize (instance.getPlugin()))
-            instance.getGui()->set_size (instance.getPlugin(), (uint32_t) getWidth(), (uint32_t) getHeight());
+            instance.getGui()->set_size (instance.getPlugin(), (uint32_t) juce::roundToInt (getWidth() * scale), (uint32_t) juce::roundToInt (getHeight() * scale));
     }
 
 private:
+    int toLogical (uint32_t physical) const { return juce::roundToInt ((double) physical / scale); }
+
     ClapPluginInstance& instance;
+   #if JUCE_WINDOWS
+    ClapWindowsEmbed embed;
+   #else
     juce::XEmbedComponent embed;
+   #endif
+    double scale = 1.0;
     bool created = false;
 };
 
@@ -630,12 +686,22 @@ juce::StringArray ClapPluginFormat::searchPathsForPlugins (const juce::FileSearc
 
 juce::FileSearchPath ClapPluginFormat::getDefaultLocationsToSearch()
 {
+    // The standard CLAP locations (clap/entry.h), then CLAP_PATH.
     juce::FileSearchPath path;
+   #if JUCE_WINDOWS
+    for (const auto* var : { "COMMONPROGRAMFILES", "LOCALAPPDATA" })
+        if (const auto dir = juce::SystemStats::getEnvironmentVariable (var, {}); dir.isNotEmpty())
+            path.add (juce::String (var) == "LOCALAPPDATA" ? juce::File (dir).getChildFile ("Programs").getChildFile ("Common").getChildFile ("CLAP")
+                                                           : juce::File (dir).getChildFile ("CLAP"));
+    const juce::String separator = ";";
+   #else
     path.add (juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile (".clap"));
     path.add (juce::File ("/usr/lib/clap"));
     path.add (juce::File ("/usr/local/lib/clap"));
+    const juce::String separator = ":";
+   #endif
     if (const auto env = juce::SystemStats::getEnvironmentVariable ("CLAP_PATH", {}); env.isNotEmpty())
-        for (const auto& p : juce::StringArray::fromTokens (env, ":", {}))
+        for (const auto& p : juce::StringArray::fromTokens (env, separator, {}))
             if (p.isNotEmpty()) path.add (juce::File (p));
     return path;
 }

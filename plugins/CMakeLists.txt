@@ -3,7 +3,8 @@ add_library(beatmaker_plugins INTERFACE)
 
 target_sources(beatmaker_plugins INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/PluginHost.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/ClapHost.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/ClapHost.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ClapWindowsEmbed.cpp)   # empty outside Windows
 
 target_include_directories(beatmaker_plugins INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 

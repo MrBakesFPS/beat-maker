@@ -57,6 +57,24 @@ cmake --build build
 
 Run the tests with `ctest --test-dir build`. `tools/package.sh` makes a Release tarball (binary, assets, user guide, desktop entry, `install.sh`); `beat-maker --version` prints the version.
 
+### Windows
+
+Requires Visual Studio 2022 or later with the **Desktop development with C++** workload (it includes CMake and Ninja), and [Inno Setup 6.3+](https://jrsoftware.org/isinfo.php) for the installer (`winget install JRSoftware.InnoSetup`). From PowerShell in the repository:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\package.ps1
+```
+
+That enters the Visual Studio developer environment, builds Release in `%LOCALAPPDATA%\BeatMaker\build-release` (kept out of the source tree so OneDrive does not sync build output), runs the tests, and writes `dist\Beat Maker-<version>-windows-x64-setup.exe` with its `.sha256`. `-SkipTests`, `-NoInstaller` and `-BuildDir <path>` adjust it. For day-to-day work, open a *Developer PowerShell for VS* and use the same CMake commands as on Linux:
+
+```
+cmake -S . -B $env:LOCALAPPDATA\BeatMaker\build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build $env:LOCALAPPDATA\BeatMaker\build
+& "$env:LOCALAPPDATA\BeatMaker\build\ui\BeatMaker_artefacts\Debug\Beat Maker.exe" --drums --synth --cycle --play
+```
+
+Or open the folder in Visual Studio (File > Open > Folder), which reads `CMakeLists.txt` directly.
+
 ## Status
 
 **Phases 0 to 4 complete; Phase 5 (polish and release) nearly so.** The status below is the feature list; the [user guide](docs/index.md) explains how to use it all.

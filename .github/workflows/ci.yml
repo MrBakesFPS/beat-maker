@@ -1,4 +1,4 @@
-# Builds and tests on Linux for every push and pull request.
+# Builds, tests and packages on Linux and Windows for every push and pull request.
 name: CI
 on: [push, pull_request]
 jobs:
@@ -22,3 +22,17 @@ jobs:
         with:
           name: beat-maker-linux-x86_64
           path: dist/*.tar.gz*
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build, test and package
+        shell: pwsh
+        # package.ps1 enters the Visual Studio developer environment itself.
+        run: tools/package.ps1 -BuildDir "${{ runner.temp }}\build"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beat-maker-windows-x64
+          path: dist/*-setup.exe*

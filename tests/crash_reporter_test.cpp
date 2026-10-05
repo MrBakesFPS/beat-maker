@@ -53,7 +53,11 @@ TEST_CASE ("CrashReporter writes a report with context and breadcrumbs, and noti
     const auto file = r.writeDiagnostics ("");
     CHECK (file.existsAsFile());
     CHECK (ui::CrashReporter::describeSignal (11).startsWith ("SIGSEGV"));
+   #if JUCE_WINDOWS
+    CHECK (ui::CrashReporter::describeSignal ((int) 0xC0000005u).startsWith ("EXCEPTION_ACCESS_VIOLATION"));
+   #else
     CHECK (ui::CrashReporter::prettify ("app(_ZN9beatmaker2ui13CrashReporter14writeReportNowEi+0x41e) [0x1]").contains ("beatmaker::ui::CrashReporter::writeReportNow(int)"));
+   #endif
 
     r.setEnabled (false);
     files[0].deleteFile();

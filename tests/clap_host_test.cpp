@@ -36,7 +36,11 @@ TEST_CASE ("CLAP format scans a .clap file and describes its plugins")
     // Directory search finds it
     const auto paths = format.searchPathsForPlugins (juce::FileSearchPath (fakeClap().getParentDirectory().getFullPathName()), false, false);
     CHECK (paths.contains (fakeClap().getFullPathName()));
-    CHECK (format.getDefaultLocationsToSearch().getNumPaths() >= 3);
+   #if JUCE_WINDOWS
+    CHECK (format.getDefaultLocationsToSearch().getNumPaths() >= 2);   // %COMMONPROGRAMFILES%\CLAP, %LOCALAPPDATA%\Programs\Common\CLAP
+   #else
+    CHECK (format.getDefaultLocationsToSearch().getNumPaths() >= 3);   // ~/.clap, /usr/lib/clap, /usr/local/lib/clap
+   #endif
 }
 
 TEST_CASE ("A CLAP plugin instance processes audio, exposes parameters, latency, state and a sidechain bus")

@@ -5,6 +5,7 @@ All notable changes to Beat Maker. The format follows [Keep a Changelog](https:/
 ## [Unreleased]
 
 ### Added
+- Windows x64 builds with Visual Studio (MSVC): `tools/package.ps1` builds, tests and packages an Inno Setup installer (Start menu entry, optional desktop icon, uninstaller), and CI builds it alongside Linux. CLAP plugins load with LoadLibrary from `%COMMONPROGRAMFILES%\CLAP` and `%LOCALAPPDATA%\Programs\Common\CLAP` and their editors embed as Win32 child windows; crash reports record the Windows exception and a symbolised backtrace from the shipped `.pdb`; settings and preferences live in `%APPDATA%\Beat Maker`; command-line flags print to the console that launched the app. Windows has no virtual MIDI ports, so the "Beat Maker Sync" port is Linux-only.
 - A message-thread profiler: System Usage shows interface stalls and the costliest operations, and `--profile-ui[=seconds]` prints the profile.
 
 ### Changed

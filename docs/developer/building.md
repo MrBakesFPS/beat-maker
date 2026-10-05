@@ -8,6 +8,8 @@ cmake --build build
 ctest --test-dir build
 ```
 
+On Windows, run these from a *Developer PowerShell for VS* (Visual Studio 2022+ with Desktop development with C++), and put the build directory outside a OneDrive folder, e.g. `-B $env:LOCALAPPDATA\BeatMaker\build`. MSVC builds use the static runtime (no Visual C++ redistributable needed), `/utf-8` and `/bigobj`, and write a `.pdb` for Release too so crash backtraces have names.
+
 The first configure fetches JUCE, Rubber Band, the CLAP headers, Lua and Catch2. Use `-DCMAKE_BUILD_TYPE=Release` for a build to make music with; keep a Debug build for development. `JUCE_USE_SIMD` is off on the engine because JUCE's SIMD register template does not compile on current GCC.
 
 ## Tests
@@ -27,4 +29,8 @@ python3 -m venv .venv && .venv/bin/pip install mkdocs
 python3 tools/build_docs.py          # runs --dump-docs, then mkdocs build --strict
 ```
 
-The site lands in `site/`; Help > User Guide opens it when it exists.
+The site lands in `site/`; Help > User Guide opens it when it exists. On Windows use `py -m venv .venv; .venv\Scripts\pip install mkdocs` and pass `--mkdocs .venv\Scripts\mkdocs.exe`.
+
+## Packaging
+
+`tools/package.sh` makes the Linux tarball. `tools/package.ps1` makes the Windows installer: it builds Release, runs the tests, builds the docs when mkdocs is available, stages `dist\Beat Maker-<version>-windows-x64\` (the exe, its `.pdb`, `assets\`, `docs\`, license and notes) and compiles `packaging\windows\beat-maker.iss` with Inno Setup into `dist\Beat Maker-<version>-windows-x64-setup.exe`. The app finds `assets\` and `docs\` next to its own executable, so the staged folder also runs as is.
