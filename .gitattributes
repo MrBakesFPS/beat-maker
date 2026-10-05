@@ -1,0 +1,14 @@
+# Line endings: LF in the repository and in working copies on every platform, so
+# Git for Windows (core.autocrlf=true) neither warns about nor rewrites files.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF in the working copy.
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.wav binary
+*.png binary
+*.ico binary
